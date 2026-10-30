@@ -49,7 +49,13 @@ impl Workspace {
                         .map(|e| (ix, e.state.clone()))
                 })
         {
-            self.expanded_process.insert(format!("answer-{id}"));
+            let row = self.row_for_message(ix);
+            if let Some(TranscriptRow::Assistant(range)) = self.transcript.get(row)
+                && let Some(s) = self.session()
+            {
+                self.expanded_process
+                    .insert(format!("turn-{}", s.messages[range.start].id));
+            }
             self.invalidate_list();
             let color = cx.theme().selection;
             state.update(cx, |s, cx| {
@@ -58,7 +64,7 @@ impl Workspace {
                     let _ = s.reveal_range(range, cx);
                 }
             });
-            self.list.scroll_to_reveal_item(ix);
+            self.list.scroll_to_reveal_item(row);
             self.selected = None;
             cx.notify();
             return;

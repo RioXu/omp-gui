@@ -7,7 +7,7 @@ impl Workspace {
             cx.notify();
             return;
         }
-        if self.running || self.pending_send.is_some() {
+        if self.stopping || self.pending_send.is_some() {
             return;
         }
         let text = self.input.read(cx).value().trim_end().to_string();
@@ -37,12 +37,29 @@ impl Workspace {
             return;
         }
         let request_id = id();
+        if !self.running {
+            self.in_flight_comments.clear();
+            self.submitted_inputs.clear();
+            self.interrupted_run = false;
+            self.run_message_start = self.session().map(|s| s.messages.len()).unwrap_or(0);
+        }
         if let Some(e) = &self.engine {
-            match e.send(json!({"type":"prompt","id":request_id,"message":prompt})) {
+            let mut frame = json!({"type":"prompt","id":request_id,"message":prompt});
+            if self.running {
+                frame["streamingBehavior"] = json!("steer");
+            }
+            match e.send(frame) {
                 Ok(()) => {
-                    self.pending_send = Some((request_id, text));
+                    self.pending_send = Some(PendingSubmission {
+                        id: request_id,
+                        text,
+                        follow_up: self.follow_up.take(),
+                        was_running: self.running,
+                        wire_text: prompt,
+                    });
+                    self.input.update(cx, |i, cx| i.set_value("", window, cx));
                     self.running = true;
-                    self.status = "正在发送…".into();
+                    self.status = "正在提交指令…".into();
                 }
                 Err(e) => self.error = Some(e.to_string()),
             }
@@ -84,6 +101,8 @@ impl Workspace {
         self.active = Some(ix);
         self.db.active = Some(self.db.sessions[ix].id.clone());
         self.texts.clear();
+        self.transcript.clear();
+        self.tool_diffs.clear();
         self.expanded_process.clear();
         self.list.reset(0);
         self.panel_text = None;
@@ -162,6 +181,8 @@ impl Workspace {
             self.active = None;
             self.db.active = None;
             self.texts.clear();
+            self.transcript.clear();
+            self.tool_diffs.clear();
             self.list.reset(0);
             self.panel_text = None;
             self.diff = None;

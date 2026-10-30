@@ -8,7 +8,10 @@ use std::{
 };
 use uuid::Uuid;
 mod progress;
+mod tool_output;
+mod transcript;
 pub(crate) use progress::{ProcessBlock, ProcessKind, process_blocks};
+pub(crate) use transcript::{TranscriptRow, transcript_rows};
 
 pub(crate) fn id() -> String {
     Uuid::new_v4().to_string()
@@ -33,6 +36,15 @@ pub(crate) struct Message {
     pub comments: Vec<String>,
     #[serde(default)]
     pub process: Vec<ProcessBlock>,
+    #[serde(default)]
+    pub state: MessageState,
+}
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub(crate) enum MessageState {
+    #[default]
+    Normal,
+    Cancelled,
+    Interrupted,
 }
 impl Message {
     pub fn new(role: &str, text: String) -> Self {
@@ -43,6 +55,7 @@ impl Message {
             time: now(),
             comments: vec![],
             process: vec![],
+            state: MessageState::Normal,
         }
     }
 }

@@ -71,6 +71,13 @@ impl Workspace {
                                 .child(
                                     SidebarMenuItem::new(s.title.clone())
                                         .active(self.active == Some(ix))
+                                        .when(self.running && self.active == Some(ix), |item| {
+                                            item.suffix(|_, cx| {
+                                                gpui_kit::component::spinner::Spinner::new()
+                                                    .xsmall()
+                                                    .color(cx.theme().primary)
+                                            })
+                                        })
                                         .disable(disabled)
                                         .context_menu({
                                             let weak = cx.entity().downgrade();

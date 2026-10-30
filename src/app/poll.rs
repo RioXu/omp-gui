@@ -24,9 +24,21 @@ impl Workspace {
                     self.error = Some(e);
                 }
                 Event::Closed => {
+                    if let Some(pending) = self.pending_send.take() {
+                        let draft = self.input.read(cx).value().to_string();
+                        let recovered = if draft.is_empty() {
+                            pending.text
+                        } else {
+                            format!("{}\n\n{draft}", pending.text)
+                        };
+                        self.input
+                            .update(cx, |input, cx| input.set_value(recovered, window, cx));
+                        self.follow_up = pending.follow_up;
+                    }
                     self.connected = false;
                     self.starting = false;
                     self.running = false;
+                    self.stopping = false;
                     self.status = "OMP 已断开，可重新连接".into();
                 }
             }

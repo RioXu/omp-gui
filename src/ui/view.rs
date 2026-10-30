@@ -6,13 +6,6 @@ impl Render for ResizeSide {
     }
 }
 
-impl Workspace {
-    pub fn invalidate_list(&self) {
-        self.list
-            .reset(self.session().map(|s| s.messages.len()).unwrap_or(0));
-    }
-}
-
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();

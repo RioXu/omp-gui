@@ -5,6 +5,7 @@ mod panel;
 mod progress;
 mod requests;
 mod sidebar;
+mod transcript;
 mod view;
 
 use crate::{app::*, domain::*};

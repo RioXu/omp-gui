@@ -8,6 +8,11 @@ impl Workspace {
         self.engine = None;
         self.connected = false;
         self.running = false;
+        self.stopping = false;
+        self.interrupted_run = false;
+        self.submitted_inputs.clear();
+        self.queued_inputs.clear();
+        self.pending_send = None;
         self.starting = true;
         self.last_state = Instant::now();
         self.rpc_messages.clear();

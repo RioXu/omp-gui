@@ -10,6 +10,9 @@ mod files;
 mod poll;
 mod preferences;
 mod sessions;
+mod submission;
+mod transcript;
+use submission::{PendingSubmission, SubmittedInput};
 
 use crate::domain::Anchor;
 use crate::{
@@ -62,6 +65,12 @@ pub(crate) enum FileEvent {
 }
 
 pub(crate) struct Workspace {
+    pub transcript: Vec<TranscriptRow>,
+    pub tool_diffs: HashMap<String, Entity<DiffState>>,
+    pub stopping: bool,
+    pub interrupted_run: bool,
+    pub run_message_start: usize,
+    pub submitted_inputs: Vec<SubmittedInput>,
     pub expanded_process: std::collections::HashSet<String>,
     pub file_tree: Entity<TreeState>,
     pub change_tree: Entity<TreeState>,
@@ -113,7 +122,8 @@ pub(crate) struct Workspace {
     pub follow_up: Option<String>,
     pub in_flight_comments: Vec<String>,
     pub rpc_messages: HashMap<String, String>,
-    pub pending_send: Option<(String, String)>,
+    pub pending_send: Option<PendingSubmission>,
+    pub queued_inputs: Vec<String>,
     pub list: ListState,
     pub demo: bool,
     pub last_state: Instant,
@@ -144,13 +154,9 @@ impl Workspace {
             return;
         };
         let messages = &self.db.sessions[ix].messages;
-        let count = messages.len();
-        for (ix, m) in messages.iter().enumerate() {
+        for m in messages {
             if let Some(entry) = self.texts.get_mut(&m.id) {
                 if entry.body != m.text {
-                    if ix < self.list.item_count() {
-                        self.list.splice(ix..ix + 1, 1);
-                    }
                     entry.body = m.text.clone();
                     entry.state.update(cx, |s, cx| s.set_text(&m.text, cx));
                 }
@@ -168,12 +174,8 @@ impl Workspace {
                 );
             }
         }
-        let old = self.list.item_count();
-        if count > old {
-            self.list.splice(old..old, count - old);
-        } else if count < old {
-            self.list.reset(count);
-        }
+        self.transcript = transcript_rows(messages);
+        self.refresh_transcript();
     }
 }
 

@@ -18,6 +18,8 @@ pub(crate) struct ProcessBlock {
     pub streaming: bool,
     #[serde(default)]
     pub result: Option<String>,
+    #[serde(default)]
+    pub patch: Option<String>,
 }
 
 pub(crate) fn process_blocks(message: &Value, event: &str, delta: &str) -> Vec<ProcessBlock> {
@@ -37,6 +39,7 @@ pub(crate) fn process_blocks(message: &Value, event: &str, delta: &str) -> Vec<P
                     && delta != "thinking_end"
                     && ix + 1 == content.len(),
                 result: None,
+                patch: None,
             }),
             "toolCall" => Some(ProcessBlock {
                 id: block["id"].as_str().unwrap_or_default().into(),
@@ -45,6 +48,7 @@ pub(crate) fn process_blocks(message: &Value, event: &str, delta: &str) -> Vec<P
                 text: serde_json::to_string_pretty(&block["arguments"]).unwrap_or_default(),
                 streaming: false,
                 result: None,
+                patch: None,
             }),
             _ => None,
         })

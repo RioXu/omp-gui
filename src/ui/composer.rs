@@ -139,6 +139,24 @@ impl Workspace {
                     ),
             );
         }
+        if !self.queued_inputs.is_empty() {
+            inner = inner.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .px_3()
+                    .py_2()
+                    .rounded_md()
+                    .bg(theme.accent)
+                    .child(gpui_kit::component::spinner::Spinner::new().xsmall())
+                    .child(
+                        div()
+                            .text_sm()
+                            .child(format!("{} 条追加指令等待接收", self.queued_inputs.len())),
+                    ),
+            );
+        }
         inner = inner
             .child(
                 div()
@@ -163,24 +181,41 @@ impl Workspace {
                             .child(model)
                             .child(thinking)
                             .child(div().flex_1())
-                            .child(if self.running {
-                                Button::new("stop")
-                                    .small()
-                                    .label("停止")
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.command(json!({"type":"abort","id":id()}));
-                                        this.status = "正在停止…".into();
-                                        cx.notify();
-                                    }))
-                            } else {
+                            .when(self.running, |row| {
+                                row.child(
+                                    Button::new("stop")
+                                        .small()
+                                        .label(if self.stopping {
+                                            "正在停止…"
+                                        } else {
+                                            "停止"
+                                        })
+                                        .disabled(self.stopping)
+                                        .tooltip("停止生成，并取回未执行的追加指令")
+                                        .on_click(cx.listener(|this, _, _, cx| this.stop(cx))),
+                                )
+                            })
+                            .child(
                                 Button::new("send")
                                     .primary()
                                     .small()
                                     .icon(IconName::ArrowUp)
-                                    .label("发送")
-                                    .tooltip("Ctrl+Enter")
-                                    .on_click(cx.listener(|this, _, w, cx| this.send(w, cx)))
-                            }),
+                                    .label(if self.running { "追加" } else { "发送" })
+                                    .disabled(
+                                        self.pending_send.is_some()
+                                            || self.stopping
+                                            || (self.input.read(cx).value().trim().is_empty()
+                                                && !self.session().is_some_and(|s| {
+                                                    s.comments.iter().any(|c| !c.sent)
+                                                })),
+                                    )
+                                    .tooltip(if self.running {
+                                        "Ctrl+Enter · 在模型可接收时追加指令"
+                                    } else {
+                                        "Ctrl+Enter"
+                                    })
+                                    .on_click(cx.listener(|this, _, w, cx| this.send(w, cx))),
+                            ),
                     ),
             )
             .child(

@@ -50,6 +50,7 @@ impl Workspace {
             {
                 s.draft = input.read(cx).value().to_string();
                 this.dirty = true;
+                cx.notify();
             }
             if matches!(
                 event,
@@ -66,6 +67,13 @@ impl Workspace {
         });
         let (file_tx, file_rx) = mpsc::channel();
         let mut this = Self {
+            transcript: vec![],
+            tool_diffs: HashMap::new(),
+            stopping: false,
+            interrupted_run: false,
+            run_message_start: 0,
+            submitted_inputs: vec![],
+            queued_inputs: vec![],
             expanded_process: Default::default(),
             file_tree: cx.new(|cx| TreeState::new(cx)),
             change_tree: cx.new(|cx| TreeState::new(cx)),

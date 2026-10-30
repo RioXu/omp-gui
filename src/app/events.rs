@@ -27,8 +27,10 @@ impl Workspace {
                         self.error = Some(f["error"].as_str().unwrap_or("OMP 请求失败").into());
                     }
                     if command == "prompt" {
-                        self.running = false;
-                        self.pending_send = None;
+                        self.accept_submission(&f, window, cx);
+                    }
+                    if command == "abort_and_restore_queue" {
+                        self.stopping = false;
                     }
                     return;
                 }
@@ -37,11 +39,23 @@ impl Workspace {
                         let d = &f["data"];
                         self.connected = true;
                         self.starting = false;
+                        if d["isSettled"].is_boolean() && self.pending_send.is_none() {
+                            self.running = d["isSettled"] == false;
+                        }
+                        self.queued_inputs = ["steering", "followUp"]
+                            .into_iter()
+                            .flat_map(|key| {
+                                d["queuedMessages"][key].as_array().into_iter().flatten()
+                            })
+                            .filter_map(|v| v.as_str().map(str::to_owned))
+                            .collect();
                         self.status = if self.running {
                             self.activity
                                 .back()
                                 .cloned()
                                 .unwrap_or("OMP 正在思考…".into())
+                        } else if self.interrupted_run {
+                            "已停止".into()
                         } else {
                             "本地 OMP 已连接".into()
                         };
@@ -80,34 +94,8 @@ impl Workspace {
                             .cloned()
                             .unwrap_or_default();
                     }
-                    "prompt" => {
-                        self.text_update_pending = true;
-                        if let Some((id, text)) = self.pending_send.take() {
-                            if f["id"] == id {
-                                let follow = self.follow_up.take();
-                                if let Some(s) = self.session_mut() {
-                                    if s.title == "新建会话" {
-                                        s.title = text.chars().take(28).collect();
-                                        if s.title.trim().is_empty() {
-                                            s.title = "评论跟进".into();
-                                        }
-                                    }
-                                    let (_, ids) = s.submit(text, follow);
-                                    self.in_flight_comments = ids;
-                                }
-                                self.input.update(cx, |i, cx| i.set_value("", window, cx));
-                                if let Some(s) = self.session_mut() {
-                                    s.draft.clear();
-                                }
-                                self.persist();
-                            } else {
-                                self.pending_send = Some((id, text));
-                            }
-                        }
-                        if f["data"]["agentInvoked"] == false {
-                            self.running = false;
-                        }
-                    }
+                    "prompt" => self.accept_submission(&f, window, cx),
+                    "abort_and_restore_queue" => self.restore_queue(&f, window, cx),
                     "set_model" | "set_thinking_level" => self.request_state(),
                     _ => {}
                 }
@@ -128,15 +116,40 @@ impl Workspace {
                 self.request_state();
                 self.refresh_files(cx);
             }
+            "queue_update" => self.request_state(),
             "session_settled" | "prompt_result" => {
+                if kind == "prompt_result" && f["sessionSettled"] == false {
+                    self.request_state();
+                    return;
+                }
+                self.queued_inputs.clear();
                 self.running = false;
+                self.interrupted_run |= f["status"] == "aborted";
+                if self.interrupted_run {
+                    let start = self.run_message_start;
+                    if let Some(s) = self.session_mut()
+                        && let Some(m) = s
+                            .messages
+                            .iter_mut()
+                            .skip(start)
+                            .rev()
+                            .find(|m| m.role == "assistant")
+                    {
+                        m.state = MessageState::Interrupted;
+                    }
+                }
                 if let Some(s) = self.session_mut() {
                     for block in s.messages.iter_mut().flat_map(|m| &mut m.process) {
                         block.streaming = false;
                     }
                 }
-                self.invalidate_list();
-                self.status = "本轮已完成".into();
+                self.refresh_transcript();
+                self.status = if self.interrupted_run {
+                    "已停止"
+                } else {
+                    "本轮已完成"
+                }
+                .into();
                 if f["status"] == "error" || f["status"] == "aborted" {
                     self.status = "本轮已停止".into();
                     if let Some(e) = f["error"].as_str() {
@@ -169,6 +182,11 @@ impl Workspace {
                     if let Some(existing) = s.messages.iter_mut().find(|m| m.id == mid) {
                         existing.text = text;
                         for block in &mut process {
+                            block.patch = existing
+                                .process
+                                .iter()
+                                .find(|b| b.id == block.id)
+                                .and_then(|b| b.patch.clone());
                             block.result = existing
                                 .process
                                 .iter()
@@ -189,17 +207,6 @@ impl Workspace {
                     }
                 }
                 self.dirty = true;
-                if let Some(ix) = self
-                    .session()
-                    .and_then(|s| s.messages.iter().position(|m| m.id == mid))
-                {
-                    let count = self.list.item_count();
-                    if ix < count {
-                        self.list.splice(ix..ix + 1, 1);
-                    } else if count > 0 {
-                        self.list.splice(count - 1..count, 1);
-                    }
-                }
             }
             "tool_execution_start" => {
                 let name = f["toolName"].as_str().unwrap_or("工具");
@@ -217,11 +224,14 @@ impl Workspace {
                         .flat_map(|m| &mut m.process)
                         .filter(|b| b.kind == ProcessKind::Tool && b.id == call_id)
                     {
-                        block.result = Some(crate::engine::message_text(&f["result"]));
+                        block.set_result(
+                            crate::engine::message_text(&f["result"]),
+                            &f["result"]["details"],
+                        );
                     }
                 }
                 self.dirty = true;
-                self.invalidate_list();
+                self.refresh_transcript();
                 self.request_state();
             }
             "subagent_lifecycle" | "subagent_progress" => {
