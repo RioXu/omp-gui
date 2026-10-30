@@ -64,9 +64,37 @@ impl Persistence {
     }
     pub fn save(&self, db: &Database) -> anyhow::Result<()> {
         self.tx
-            .send(WriteRequest::Save(serde_json::to_vec(db)?))
+            .send(WriteRequest::Save(workspace_bytes(db)?))
             .context("保存服务已停止")
     }
+}
+fn workspace_bytes(db: &Database) -> anyhow::Result<Vec<u8>> {
+    #[derive(serde::Serialize)]
+    struct Saved<'a> {
+        version: u32,
+        sessions: Vec<&'a crate::domain::Session>,
+        projects: &'a [PathBuf],
+        active: Option<&'a str>,
+        omp_path: &'a str,
+        theme: &'a str,
+        sidebar_width: f32,
+        panel_width: f32,
+    }
+    let sessions: Vec<_> = db.sessions.iter().filter(|s| !s.is_blank()).collect();
+    let active = db
+        .active
+        .as_deref()
+        .filter(|id| sessions.iter().any(|s| s.id == *id));
+    Ok(serde_json::to_vec(&Saved {
+        version: db.version,
+        sessions,
+        projects: &db.projects,
+        active,
+        omp_path: &db.omp_path,
+        theme: &db.theme,
+        sidebar_width: db.sidebar_width,
+        panel_width: db.panel_width,
+    })?)
 }
 impl Drop for Persistence {
     fn drop(&mut self) {

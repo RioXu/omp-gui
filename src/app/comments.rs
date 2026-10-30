@@ -37,7 +37,6 @@ impl Workspace {
         cx.notify();
     }
     pub fn open_anchor(&mut self, anchor: Anchor, cx: &mut Context<Self>) {
-        self.diff = None;
         if let Source::Message(id) = &anchor.source
             && let Some((ix, state)) = self
                 .session()
@@ -69,8 +68,8 @@ impl Workspace {
             cx.notify();
             return;
         }
-        self.panel_open = true;
-        self.panel_tab = "变更";
+        self.clear_file_preview();
+        self.select_panel("变更");
         self.historical = true;
         self.viewed_path = match &anchor.source {
             Source::File { path, snapshot } => {
@@ -138,6 +137,9 @@ impl Workspace {
             self.open_file(path);
             return;
         }
+        self.clear_file_preview();
+        let request = id();
+        self.preview_request = Some(request.clone());
         let Some(s) = self.session() else {
             return;
         };
@@ -148,6 +150,7 @@ impl Workspace {
             let result = project_files::read(&root, &path).map_err(|e| format!("{e:#}"));
             let _ = tx.send(FileEvent::Current {
                 session: sid,
+                request,
                 path,
                 result,
             });

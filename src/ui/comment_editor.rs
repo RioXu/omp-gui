@@ -22,10 +22,10 @@ impl Workspace {
                 div()
                     .max_h_32()
                     .id("comment-quote")
-                    .overflow_y_scroll()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child(anchor.quote.clone()),
+                    .child(anchor.quote.clone())
+                    .overflow_y_scrollbar(),
             )
             .child(Textarea::new(&self.comment_input).aria_label("评论内容"))
             .child(

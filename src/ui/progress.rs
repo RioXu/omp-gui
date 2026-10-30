@@ -49,6 +49,7 @@ impl Workspace {
     ) -> AnyElement {
         let theme = cx.theme();
         if block.is_read() {
+            let executing = self.active_tools.contains_key(&block.id);
             return div()
                 .flex()
                 .items_center()
@@ -57,8 +58,19 @@ impl Workspace {
                 .py_1()
                 .text_sm()
                 .text_color(theme.muted_foreground)
-                .child(Icon::new(IconName::File).size_3())
-                .child(format!("读取 {}", block.path()))
+                .child(if executing {
+                    gpui_kit::component::spinner::Spinner::new()
+                        .xsmall()
+                        .color(theme.primary)
+                        .into_any_element()
+                } else {
+                    Icon::new(IconName::File).size_3().into_any_element()
+                })
+                .child(div().flex_1().min_w_0().truncate().child(format!(
+                    "{} {}",
+                    if executing { "正在读取" } else { "读取" },
+                    block.path()
+                )))
                 .into_any_element();
         }
         let key = format!("process-{message_id}-{}", block.id);

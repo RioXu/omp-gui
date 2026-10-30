@@ -32,9 +32,23 @@ impl Workspace {
                     if command == "abort_and_restore_queue" {
                         self.stopping = false;
                     }
+                    if command == "promote_queued_message" {
+                        self.steering_request = None;
+                        self.request_state();
+                    }
                     return;
                 }
                 match f["command"].as_str().unwrap_or("") {
+                    "promote_queued_message" => {
+                        self.steering_request = None;
+                        self.status = if f["data"]["promoted"] == true {
+                            "指示已提交，接收时机由 OMP 决定"
+                        } else {
+                            "该指令已被模型接收"
+                        }
+                        .into();
+                        self.request_state();
+                    }
                     "get_state" => {
                         let d = &f["data"];
                         self.connected = true;
@@ -42,17 +56,24 @@ impl Workspace {
                         if d["isSettled"].is_boolean() && self.pending_send.is_none() {
                             self.running = d["isSettled"] == false;
                         }
-                        self.queued_inputs = ["steering", "followUp"]
+                        self.queued_inputs = ["followUp"]
                             .into_iter()
                             .flat_map(|key| {
                                 d["queuedMessages"][key].as_array().into_iter().flatten()
                             })
                             .filter_map(|v| v.as_str().map(str::to_owned))
                             .collect();
+                        self.steered_inputs = d["queuedMessages"]["steering"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|v| v.as_str().map(str::to_owned))
+                            .collect();
                         self.status = if self.running {
-                            self.activity
-                                .back()
-                                .cloned()
+                            self.active_tools
+                                .values()
+                                .next()
+                                .map(|name| format!("正在执行 {name}"))
                                 .unwrap_or("OMP 正在思考…".into())
                         } else if self.interrupted_run {
                             "已停止".into()
@@ -62,6 +83,10 @@ impl Workspace {
                         self.model_label = d["model"]["id"].as_str().unwrap_or("未配置模型").into();
                         self.thinking = d["thinkingLevel"].as_str().unwrap_or("自动").into();
                         self.context_percent = d["contextUsage"]["percent"].as_f64().unwrap_or(0.);
+                        self.context_limit = d["contextUsage"]["contextWindow"]
+                            .as_u64()
+                            .or_else(|| d["model"]["contextWindow"].as_u64())
+                            .unwrap_or(0);
                         self.todos = d["todoPhases"].as_array().cloned().unwrap_or_default();
                         if let Some(title) =
                             d["sessionName"].as_str().filter(|s| !s.trim().is_empty())
@@ -123,7 +148,9 @@ impl Workspace {
                     return;
                 }
                 self.queued_inputs.clear();
+                self.steered_inputs.clear();
                 self.running = false;
+                self.active_tools.clear();
                 self.interrupted_run |= f["status"] == "aborted";
                 if self.interrupted_run {
                     let start = self.run_message_start;
@@ -163,6 +190,9 @@ impl Workspace {
             "message_start" | "message_update" | "message_end" => {
                 self.text_update_pending = true;
                 let m = &f["message"];
+                if m["role"] == "user" {
+                    self.queue_delivered(&crate::engine::message_text(m));
+                }
                 if m["role"] != "assistant" {
                     return;
                 }
@@ -193,6 +223,14 @@ impl Workspace {
                                 .find(|b| b.id == block.id)
                                 .and_then(|b| b.result.clone());
                         }
+                        for previous in &existing.process {
+                            if previous.kind == ProcessKind::Tool
+                                && !previous.id.is_empty()
+                                && !process.iter().any(|b| b.id == previous.id)
+                            {
+                                process.push(previous.clone());
+                            }
+                        }
                         existing.process = process;
                     } else {
                         let mut msg = Message::new("assistant", text);
@@ -210,13 +248,17 @@ impl Workspace {
             }
             "tool_execution_start" => {
                 let name = f["toolName"].as_str().unwrap_or("工具");
-                self.activity.push_back(format!("正在执行 {name}"));
-                if self.activity.len() > 200 {
-                    self.activity.pop_front();
+                let call_id = f["toolCallId"].as_str().unwrap_or_default().to_owned();
+                self.active_tools.insert(call_id.clone(), name.into());
+                let start = self.run_message_start;
+                if let Some(s) = self.session_mut() {
+                    s.start_tool(&call_id, name, &f["args"], start);
                 }
+                self.text_update_pending = true;
             }
             "tool_execution_end" => {
                 let call_id = f["toolCallId"].as_str().unwrap_or_default();
+                self.active_tools.remove(call_id);
                 if let Some(s) = self.session_mut() {
                     for block in s
                         .messages

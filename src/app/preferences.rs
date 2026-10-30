@@ -18,6 +18,7 @@ impl Workspace {
         if self.save_disabled {
             return;
         }
+        self.clear_file_preview();
         let cwd = self
             .session()
             .map(|s| s.cwd().to_owned())

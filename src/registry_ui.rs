@@ -8,6 +8,7 @@ use crate::{
     registry::{self, Providers},
     settings::Catalog,
 };
+use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::{
     ActiveTheme, Disableable, Sizable,
     button::{Button, ButtonVariants},
@@ -33,6 +34,8 @@ enum ResultEvent {
     WebSaved(Result<(), String>),
 }
 pub(crate) struct RegistryView {
+    models_scroll: UniformListScrollHandle,
+    search_scroll: UniformListScrollHandle,
     omp: String,
     cwd: PathBuf,
     root: PathBuf,
@@ -171,6 +174,8 @@ impl RegistryView {
         let (tx, rx) = mpsc::channel();
         let root = catalog.root.clone();
         let mut this = Self {
+            models_scroll: UniformListScrollHandle::new(),
+            search_scroll: UniformListScrollHandle::new(),
             omp,
             cwd,
             root,

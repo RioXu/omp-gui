@@ -4,6 +4,7 @@ mod sections;
 mod view;
 
 use crate::settings::{self, Catalog};
+use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::{
     ActiveTheme, Disableable, IconName, Selectable, Sizable,
     button::{Button, ButtonVariants},
@@ -38,6 +39,7 @@ enum Edit {
     File { path: PathBuf, original: String },
 }
 pub(crate) struct SettingsView {
+    rows_scroll: UniformListScrollHandle,
     registry: Option<Entity<crate::registry_ui::RegistryView>>,
     omp: String,
     cwd: PathBuf,
@@ -124,6 +126,7 @@ impl SettingsView {
         });
         let cached = settings::cached(&omp, &cwd).unwrap_or_default();
         let mut this = Self {
+            rows_scroll: UniformListScrollHandle::new(),
             registry: None,
             omp,
             cwd,

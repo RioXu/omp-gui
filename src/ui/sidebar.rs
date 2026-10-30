@@ -10,7 +10,6 @@ impl Workspace {
             .flex_col()
             .flex_1()
             .min_h_0()
-            .overflow_y_scroll()
             .gap_4()
             .pt_2();
         for project in &self.db.projects {
@@ -191,7 +190,7 @@ impl Workspace {
                         )
                     }),
             )
-            .child(items)
+            .child(items.overflow_y_scrollbar())
             .child(
                 Button::new("show-archived")
                     .ghost()

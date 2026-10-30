@@ -10,6 +10,7 @@ mod view;
 
 use crate::{app::*, domain::*};
 use chrono::{Local, TimeZone};
+use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::{
     ActiveTheme, Disableable, Icon, IconName, Selectable, Sizable,
     button::{Button, ButtonVariants},

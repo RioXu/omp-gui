@@ -7,7 +7,6 @@ impl Render for RegistryView {
             .id("registry-body")
             .flex_1()
             .min_h_0()
-            .overflow_y_scroll()
             .p_5()
             .flex()
             .flex_col()
@@ -157,79 +156,99 @@ impl Render for RegistryView {
             }
             body = body.child(div().mt_2().child("已选择的模型"));
             body = body.child(
-                uniform_list(
-                    "provider-models",
-                    self.models.len(),
-                    cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
-                        let theme = cx.theme().clone();
-                        range
-                            .map(|ix| {
-                                let model = &this.models[ix];
+                div()
+                    .relative()
+                    .h_64()
+                    .flex_shrink_0()
+                    .child(
+                        uniform_list(
+                            "provider-models",
+                            self.models.len(),
+                            cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
+                                let theme = cx.theme().clone();
+                                range
+                                    .map(|ix| {
+                                        let model = &this.models[ix];
 
-                                div()
-                                    .w_full()
-                                    .flex()
-                                    .items_center()
-                                    .gap_2()
-                                    .h_16()
-                                    .border_b_1()
-                                    .border_color(theme.border)
-                                    .child(
                                         div()
-                                            .flex_1()
-                                            .min_w_0()
-                                            .child(model["id"].as_str().unwrap_or("").to_string())
+                                            .w_full()
+                                            .flex()
+                                            .items_center()
+                                            .gap_2()
+                                            .h_16()
+                                            .border_b_1()
+                                            .border_color(theme.border)
                                             .child(
                                                 div()
-                                                    .text_xs()
-                                                    .text_color(theme.muted_foreground)
-                                                    .child(format!(
-                                                        "上下文 {} · 输出 {}",
-                                                        model["contextWindow"], model["maxTokens"]
-                                                    )),
-                                            ),
-                                    )
-                                    .child(
-                                        Button::new(SharedString::from(format!("model-edit-{ix}")))
-                                            .ghost()
-                                            .small()
-                                            .label("参数")
-                                            .on_click(cx.listener(move |this, _, w, cx| {
-                                                this.edit_model(Some(ix), None, w, cx)
-                                            })),
-                                    )
-                                    .child(
-                                        Button::new(SharedString::from(format!(
-                                            "model-delete-{ix}"
-                                        )))
-                                        .ghost()
-                                        .small()
-                                        .label(
-                                            if this.provider_draft.native_models.contains_key(
-                                                model["id"].as_str().unwrap_or_default(),
-                                            ) {
-                                                "内置"
-                                            } else {
-                                                "移除"
-                                            },
-                                        )
-                                        .disabled(
-                                            this.provider_draft.native_models.contains_key(
-                                                model["id"].as_str().unwrap_or_default(),
-                                            ),
-                                        )
-                                        .on_click(
-                                            cx.listener(move |this, _, _, cx| {
-                                                this.models.remove(ix);
-                                                cx.notify();
-                                            }),
-                                        ),
-                                    )
-                            })
-                            .collect::<Vec<_>>()
-                    }),
-                )
-                .h_64(),
+                                                    .flex_1()
+                                                    .min_w_0()
+                                                    .child(
+                                                        model["id"]
+                                                            .as_str()
+                                                            .unwrap_or("")
+                                                            .to_string(),
+                                                    )
+                                                    .child(
+                                                        div()
+                                                            .text_xs()
+                                                            .text_color(theme.muted_foreground)
+                                                            .child(format!(
+                                                                "上下文 {} · 输出 {}",
+                                                                model["contextWindow"],
+                                                                model["maxTokens"]
+                                                            )),
+                                                    ),
+                                            )
+                                            .child(
+                                                Button::new(SharedString::from(format!(
+                                                    "model-edit-{ix}"
+                                                )))
+                                                .ghost()
+                                                .small()
+                                                .label("参数")
+                                                .on_click(cx.listener(move |this, _, w, cx| {
+                                                    this.edit_model(Some(ix), None, w, cx)
+                                                })),
+                                            )
+                                            .child(
+                                                Button::new(SharedString::from(format!(
+                                                    "model-delete-{ix}"
+                                                )))
+                                                .ghost()
+                                                .small()
+                                                .label(
+                                                    if this
+                                                        .provider_draft
+                                                        .native_models
+                                                        .contains_key(
+                                                            model["id"]
+                                                                .as_str()
+                                                                .unwrap_or_default(),
+                                                        )
+                                                    {
+                                                        "内置"
+                                                    } else {
+                                                        "移除"
+                                                    },
+                                                )
+                                                .disabled(
+                                                    this.provider_draft.native_models.contains_key(
+                                                        model["id"].as_str().unwrap_or_default(),
+                                                    ),
+                                                )
+                                                .on_click(cx.listener(move |this, _, _, cx| {
+                                                    this.models.remove(ix);
+                                                    cx.notify();
+                                                })),
+                                            )
+                                    })
+                                    .collect::<Vec<_>>()
+                            }),
+                        )
+                        .track_scroll(&self.models_scroll)
+                        .h_full(),
+                    )
+                    .vertical_scrollbar(&self.models_scroll),
             );
             body = body.child(
                 div()
@@ -305,7 +324,7 @@ impl Render for RegistryView {
                         "模型服务与注册"
                     })),
             )
-            .child(body)
+            .child(body.overflow_y_scrollbar())
             .child(
                 div()
                     .p_3()

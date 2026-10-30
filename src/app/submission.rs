@@ -6,6 +6,7 @@ pub(crate) struct PendingSubmission {
     pub follow_up: Option<String>,
     pub was_running: bool,
     pub wire_text: String,
+    pub delivered: bool,
 }
 pub(crate) struct SubmittedInput {
     pub message_id: String,
@@ -57,13 +58,21 @@ impl Workspace {
                     }
                 }
                 let (message_id, ids) = s.submit(pending.text.clone(), pending.follow_up);
+                let queued = pending.was_running
+                    && !pending.delivered
+                    && frame["data"]["agentInvoked"] != false;
+                if queued && let Some(m) = s.messages.last_mut() {
+                    m.state = MessageState::Queued;
+                }
                 self.submitted_inputs.push(SubmittedInput {
                     message_id,
                     wire_text: pending.wire_text,
                     text: pending.text,
                     comment_ids: ids.clone(),
                 });
-                self.in_flight_comments.extend(ids);
+                if !queued {
+                    self.in_flight_comments.extend(ids);
+                }
                 self.in_flight_comments.sort();
                 self.in_flight_comments.dedup();
             }
@@ -128,7 +137,9 @@ impl Workspace {
             self.status = "已停止".into();
         }
         self.queued_inputs.clear();
+        self.steered_inputs.clear();
         self.running = false;
+        self.text_update_pending = true;
         self.persist();
         self.refresh_transcript();
         self.request_state();

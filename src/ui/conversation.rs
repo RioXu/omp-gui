@@ -26,9 +26,8 @@ impl Workspace {
                     .xsmall()
                     .label("打开当前代码")
                     .on_click(cx.listener(move |this, _, _, cx| {
+                        this.select_panel("变更");
                         this.viewed_path = Some(path.clone());
-                        this.panel_open = true;
-                        this.panel_tab = "变更";
                         this.open_current();
                         cx.notify();
                     })),

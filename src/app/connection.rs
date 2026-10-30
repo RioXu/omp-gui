@@ -8,10 +8,14 @@ impl Workspace {
         self.engine = None;
         self.connected = false;
         self.running = false;
+        self.active_tools.clear();
+        self.context_limit = 0;
         self.stopping = false;
         self.interrupted_run = false;
         self.submitted_inputs.clear();
         self.queued_inputs.clear();
+        self.steered_inputs.clear();
+        self.steering_request = None;
         self.pending_send = None;
         self.starting = true;
         self.last_state = Instant::now();

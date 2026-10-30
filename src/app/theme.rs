@@ -1,6 +1,7 @@
 use super::*;
 pub(crate) fn apply_accent(cx: &mut App) {
     Theme::update(cx, |t| {
+        t.scrollbar_mode = gpui_kit::component::scroll::ScrollbarMode::Hover;
         let dark = t.is_dark();
         t.background = rgb(if dark { 0x101216 } else { 0xffffff }).into();
         t.foreground = rgb(if dark { 0xe6e9ef } else { 0x202631 }).into();

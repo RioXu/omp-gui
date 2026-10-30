@@ -1,6 +1,78 @@
 use super::*;
 use std::time::{Duration, Instant};
 
+#[test]
+#[ignore = "tests native follow-up queue and immediate promotion with installed OMP"]
+fn live_follow_up_waits_until_promoted() {
+    let root = std::env::temp_dir().join(format!("omp-gui-followup-{}", crate::domain::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let omp = std::path::PathBuf::from(std::env::var("LOCALAPPDATA").unwrap()).join("omp/omp.exe");
+    let engine = Engine::start(omp.to_str().unwrap(), &root, &root.join("sessions"), None).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(120);
+    let (mut queued, mut observed_queue, mut promoted, mut consumed, mut reply) =
+        (false, false, false, false, false);
+    let follow = "Change of plan: reply only QUEUE_PROMOTED, without using tools.";
+    while Instant::now() < deadline {
+        let Ok(Event::Frame(f)) = engine.events.recv_timeout(Duration::from_secs(2)) else {
+            continue;
+        };
+        match f["type"].as_str().unwrap_or_default() {
+            "ready" => {
+                engine
+                    .send(json!({"type":"set_interrupt_mode","mode":"immediate"}))
+                    .unwrap();
+                engine.send(json!({"type":"prompt","id":"initial","message":"Write a detailed 5000 word tutorial on sorting algorithms. Do not use tools. End with FIRST_FINISHED."})).unwrap();
+            }
+            "message_update" if !queued => {
+                engine.send(json!({"type":"prompt","id":"queued","streamingBehavior":"followUp","message":follow})).unwrap();
+                queued = true;
+            }
+            "response" => {
+                assert_ne!(f["success"], false, "{}", f["command"]);
+                if f["id"] == "queued" {
+                    engine
+                        .send(json!({"type":"get_state","id":"inspect-queue"}))
+                        .unwrap();
+                }
+                if f["id"] == "inspect-queue" {
+                    assert!(
+                        f["data"]["queuedMessages"]["followUp"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .any(|v| v == follow)
+                    );
+                    assert!(!consumed, "follow-up was delivered before promotion");
+                    observed_queue = true;
+                    engine
+                        .send(json!({"type":"promote_queued_message","id":"now","message":follow}))
+                        .unwrap();
+                }
+                if f["id"] == "now" {
+                    assert_eq!(f["data"]["promoted"], true);
+                    promoted = true;
+                }
+            }
+            "message_start"
+                if f["message"]["role"] == "user"
+                    && message_text(&f["message"]).contains("QUEUE_PROMOTED") =>
+            {
+                assert!(observed_queue);
+                consumed = true;
+            }
+            "message_end" if f["message"]["role"] == "assistant" => {
+                reply |= message_text(&f["message"]).contains("QUEUE_PROMOTED");
+            }
+            "session_settled" if reply => break,
+            _ => {}
+        }
+    }
+    assert!(observed_queue && promoted && consumed && reply);
+    println!(
+        "Follow-up stayed queued; explicit promotion moved it to steering and produced QUEUE_PROMOTED."
+    );
+}
+
 /// Real RPC contract test: no tools, files or external messages requested.
 #[test]
 #[ignore = "sends authorized test prompts to the installed OMP model"]

@@ -15,6 +15,11 @@ impl Workspace {
             .or_else(|| loaded.as_ref().err())
             .map(|e| format!("{e:#}"));
         let mut db = loaded.unwrap_or_default();
+        db.normalize_projects();
+        db.discard_blank_sessions(None);
+        for session in &mut db.sessions {
+            session.recover_unconfirmed_queue();
+        }
         if demo && db.sessions.is_empty() {
             db.sessions.push(demo_session());
             db.active = Some(db.sessions[0].id.clone());
@@ -74,6 +79,8 @@ impl Workspace {
             run_message_start: 0,
             submitted_inputs: vec![],
             queued_inputs: vec![],
+            steered_inputs: vec![],
+            steering_request: None,
             expanded_process: Default::default(),
             file_tree: cx.new(|cx| TreeState::new(cx)),
             change_tree: cx.new(|cx| TreeState::new(cx)),
@@ -97,6 +104,7 @@ impl Workspace {
             focus: cx.focus_handle(),
             texts: HashMap::new(),
             panel_text: None,
+            preview_request: None,
             panel_open: false,
             panel_tab: "变更",
             files: vec![],
@@ -123,8 +131,9 @@ impl Workspace {
             todos: vec![],
             agents: vec![],
             context_percent: 0.,
+            context_limit: 0,
+            active_tools: HashMap::new(),
             requests: VecDeque::new(),
-            activity: VecDeque::new(),
             selected: None,
             selection_point: Point::default(),
             comment_editor: None,

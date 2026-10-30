@@ -1,6 +1,32 @@
 use super::*;
 
 impl Workspace {
+    /// A preview belongs to the current panel visit, not to the session history.
+    /// Invalidating its request also discards reads that finish after navigation.
+    pub fn clear_file_preview(&mut self) {
+        self.preview_request = None;
+        self.panel_text = None;
+        self.diff = None;
+        self.viewed_quote = None;
+        self.viewed_path = None;
+        self.viewed_snapshot = None;
+        self.historical = false;
+        self.selected = None;
+    }
+
+    pub fn select_panel(&mut self, tab: &'static str) {
+        if self.panel_tab != tab {
+            self.clear_file_preview();
+            self.panel_tab = tab;
+        }
+        self.panel_open = true;
+    }
+
+    pub fn close_panel(&mut self) {
+        self.clear_file_preview();
+        self.panel_open = false;
+    }
+
     pub fn refresh_files(&mut self, cx: &mut Context<Self>) {
         if self.loading_files {
             return;
@@ -39,6 +65,9 @@ impl Workspace {
         });
     }
     pub fn open_file(&mut self, path: PathBuf) {
+        self.clear_file_preview();
+        let request = id();
+        self.preview_request = Some(request.clone());
         if self.demo {
             let snapshot = self
                 .session()
@@ -47,6 +76,7 @@ impl Workspace {
             if let Some(snapshot) = snapshot {
                 let _ = self.file_tx.send(FileEvent::Snapshot {
                     session: self.session().unwrap().id.clone(),
+                    request,
                     result: Ok(snapshot),
                 });
             }
@@ -63,6 +93,7 @@ impl Workspace {
             let result = project_files::snapshot(&root, &path).map_err(|e| format!("{e:#}"));
             let _ = tx.send(FileEvent::Snapshot {
                 session: sid,
+                request,
                 result,
             });
         });
@@ -98,67 +129,77 @@ impl Workspace {
                     Err(e) => self.error = Some(e),
                 }
             }
-            FileEvent::Snapshot { session, result } if session == sid => match result {
-                Ok(snapshot) => {
-                    self.viewed_quote = None;
-                    self.diff = if self.panel_tab == "变更" && !snapshot.patch.is_empty() {
-                        DiffFile::parse(&snapshot.patch)
-                            .ok()
-                            .map(|files| cx.new(|cx| DiffState::new(files, cx)))
-                    } else {
-                        None
-                    };
-                    self.selected = None;
-                    self.viewed_path = Some(snapshot.path.clone());
-                    self.viewed_snapshot = Some(snapshot.id.clone());
-                    self.historical = false;
-                    let body = if self.panel_tab == "文件" {
-                        fenced(&snapshot.text, "")
-                    } else {
-                        snapshot.document()
-                    };
-                    let source = Source::File {
-                        path: snapshot.path.clone(),
-                        snapshot: snapshot.id.clone(),
-                    };
-                    self.panel_text = Some(TextEntry {
-                        state: cx.new(|cx| TextViewState::markdown(&body, cx).selectable(true)),
-                        body,
-                        source,
-                    });
-                    if let Some(entry) = &self.panel_text {
-                        highlight_diff(entry, cx);
+            FileEvent::Snapshot {
+                session,
+                request,
+                result,
+            } if session == sid && self.preview_request.as_ref() == Some(&request) => {
+                match result {
+                    Ok(snapshot) => {
+                        self.viewed_quote = None;
+                        self.diff = if self.panel_tab == "变更" && !snapshot.patch.is_empty() {
+                            DiffFile::parse(&snapshot.patch)
+                                .ok()
+                                .map(|files| cx.new(|cx| DiffState::new(files, cx)))
+                        } else {
+                            None
+                        };
+                        self.selected = None;
+                        self.viewed_path = Some(snapshot.path.clone());
+                        self.viewed_snapshot = Some(snapshot.id.clone());
+                        self.historical = false;
+                        let body = if self.panel_tab == "文件" {
+                            fenced(&snapshot.text, "")
+                        } else {
+                            snapshot.document()
+                        };
+                        let source = Source::File {
+                            path: snapshot.path.clone(),
+                            snapshot: snapshot.id.clone(),
+                        };
+                        self.panel_text = Some(TextEntry {
+                            state: cx.new(|cx| TextViewState::markdown(&body, cx).selectable(true)),
+                            body,
+                            source,
+                        });
+                        if let Some(entry) = &self.panel_text {
+                            highlight_diff(entry, cx);
+                        }
+                        if let Some(s) = self.session_mut() {
+                            s.snapshots.insert(snapshot.id.clone(), snapshot);
+                        }
+                        self.dirty = true;
+                        self.status = "文件已载入".into();
                     }
-                    if let Some(s) = self.session_mut() {
-                        s.snapshots.insert(snapshot.id.clone(), snapshot);
-                    }
-                    self.dirty = true;
-                    self.status = "文件已载入".into();
+                    Err(e) => self.error = Some(e),
                 }
-                Err(e) => self.error = Some(e),
-            },
+            }
             FileEvent::Current {
                 session,
+                request,
                 path,
                 result,
-            } if session == sid => match result {
-                Ok(text) => {
-                    self.viewed_quote = None;
-                    self.diff = None;
-                    let body = fenced(&text, "");
-                    self.viewed_path = Some(path.clone());
-                    self.historical = false;
-                    self.panel_text = Some(TextEntry {
-                        state: cx.new(|cx| TextViewState::markdown(&body, cx).selectable(false)),
-                        body,
-                        source: Source::File {
-                            path,
-                            snapshot: String::new(),
-                        },
-                    });
+            } if session == sid && self.preview_request.as_ref() == Some(&request) => {
+                match result {
+                    Ok(text) => {
+                        self.viewed_quote = None;
+                        self.diff = None;
+                        let body = fenced(&text, "");
+                        self.viewed_path = Some(path.clone());
+                        self.historical = false;
+                        self.panel_text = Some(TextEntry {
+                            state: cx
+                                .new(|cx| TextViewState::markdown(&body, cx).selectable(false)),
+                            body,
+                            source: Source::File {
+                                path,
+                                snapshot: String::new(),
+                            },
+                        });
+                    }
+                    Err(e) => self.error = Some(e),
                 }
-                Err(e) => self.error = Some(e),
-            },
+            }
             _ => {}
         }
     }

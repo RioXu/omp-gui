@@ -8,6 +8,8 @@ use std::{
 };
 use uuid::Uuid;
 mod progress;
+mod projects;
+pub(crate) use projects::project_path;
 mod tool_output;
 mod transcript;
 pub(crate) use progress::{ProcessBlock, ProcessKind, process_blocks};
@@ -43,6 +45,8 @@ pub(crate) struct Message {
 pub(crate) enum MessageState {
     #[default]
     Normal,
+    Queued,
+    Unconfirmed,
     Cancelled,
     Interrupted,
 }

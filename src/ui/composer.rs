@@ -27,7 +27,6 @@ impl Workspace {
             let mut list = div()
                 .id("pending-comments")
                 .max_h(rems(12.))
-                .overflow_y_scroll()
                 .flex()
                 .flex_col()
                 .gap_2();
@@ -82,7 +81,7 @@ impl Workspace {
                         ),
                 );
             }
-            box_ = box_.child(list);
+            box_ = box_.child(list.overflow_y_scrollbar());
         }
         box_.into_any_element()
     }
@@ -139,7 +138,14 @@ impl Workspace {
                     ),
             );
         }
-        if !self.queued_inputs.is_empty() {
+        for (ix, wire) in self.queued_inputs.iter().enumerate() {
+            let message = wire.clone();
+            let text = self
+                .submitted_inputs
+                .iter()
+                .find(|e| &e.wire_text == wire)
+                .map(|e| e.text.as_str())
+                .unwrap_or(wire);
             inner = inner.child(
                 div()
                     .flex()
@@ -149,12 +155,54 @@ impl Workspace {
                     .py_2()
                     .rounded_md()
                     .bg(theme.accent)
-                    .child(gpui_kit::component::spinner::Spinner::new().xsmall())
                     .child(
                         div()
-                            .text_sm()
-                            .child(format!("{} 条追加指令等待接收", self.queued_inputs.len())),
+                            .flex_1()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(theme.muted_foreground)
+                                    .child("等待本轮完成"),
+                            )
+                            .child(div().text_sm().truncate().child(text.to_string())),
+                    )
+                    .child(
+                        Button::new(SharedString::from(format!("steer-queued-{ix}")))
+                            .small()
+                            .label("指示")
+                            .disabled(
+                                self.stopping
+                                    || self.steering_request.is_some()
+                                    || self.pending_send.is_some(),
+                            )
+                            .tooltip("转为 OMP steering 指示；接收时机遵循 OMP")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.steer_queued(message.clone(), cx)
+                            })),
                     ),
+            );
+        }
+        for wire in &self.steered_inputs {
+            let text = self
+                .submitted_inputs
+                .iter()
+                .find(|e| &e.wire_text == wire)
+                .map(|e| e.text.as_str())
+                .unwrap_or(wire);
+            inner = inner.child(
+                div()
+                    .px_3()
+                    .py_2()
+                    .rounded_md()
+                    .bg(theme.accent)
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child("指示已提交给 OMP"),
+                    )
+                    .child(div().text_sm().truncate().child(text.to_string())),
             );
         }
         inner = inner
@@ -203,6 +251,7 @@ impl Workspace {
                                     .label(if self.running { "追加" } else { "发送" })
                                     .disabled(
                                         self.pending_send.is_some()
+                                            || self.steering_request.is_some()
                                             || self.stopping
                                             || (self.input.read(cx).value().trim().is_empty()
                                                 && !self.session().is_some_and(|s| {
@@ -210,7 +259,7 @@ impl Workspace {
                                                 })),
                                     )
                                     .tooltip(if self.running {
-                                        "Ctrl+Enter · 在模型可接收时追加指令"
+                                        "Ctrl+Enter · 等待本轮完成后发送"
                                     } else {
                                         "Ctrl+Enter"
                                     })
@@ -237,12 +286,32 @@ impl Workspace {
                             .xsmall()
                             .label("任务")
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.panel_open = true;
-                                this.panel_tab = "任务";
+                                this.select_panel("任务");
                                 cx.notify();
                             })),
                     )
-                    .child(format!("上下文 {:.0}%", self.context_percent)),
+                    .child(
+                        div()
+                            .id("context-usage")
+                            .tooltip({
+                                let limit = self.context_limit;
+                                move |w, cx| {
+                                    gpui_kit::component::tooltip::Tooltip::new(format!(
+                                        "当前模型最大上下文：{limit} tokens"
+                                    ))
+                                    .build(w, cx)
+                                }
+                            })
+                            .child(format!(
+                                "上下文 {:.0}% · 上限 {}",
+                                self.context_percent,
+                                if self.context_limit > 0 {
+                                    format!("{}K", self.context_limit / 1000)
+                                } else {
+                                    "未知".into()
+                                }
+                            )),
+                    ),
             );
         area = area.child(inner);
         area.into_any_element()

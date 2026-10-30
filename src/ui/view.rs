@@ -50,8 +50,10 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &SendPrompt, w, cx| this.send(w, cx)))
             .on_action(cx.listener(|this, _: &AddComment, w, cx| this.begin_comment(w, cx)))
             .on_action(cx.listener(|this, _: &TogglePanel, _, cx| {
-                this.panel_open = !this.panel_open;
                 if this.panel_open {
+                    this.close_panel();
+                } else {
+                    this.panel_open = true;
                     this.refresh_files(cx);
                 }
                 cx.notify();
@@ -118,8 +120,10 @@ impl Render for Workspace {
                         .label("工作面板")
                         .selected(self.panel_open)
                         .on_click(cx.listener(|this, _, _, cx| {
-                            this.panel_open = !this.panel_open;
                             if this.panel_open {
+                                this.close_panel();
+                            } else {
+                                this.panel_open = true;
                                 this.refresh_files(cx);
                             }
                             cx.notify();
@@ -160,12 +164,21 @@ impl Render for Workspace {
         if self.session().is_some_and(|s| !s.messages.is_empty()) {
             let weak = cx.entity().downgrade();
             center = center.child(
-                list(self.list.clone(), move |ix, _, cx| {
-                    weak.update(cx, |this, cx| this.render_message(ix, cx))
-                        .unwrap_or_else(|_| div().into_any_element())
-                })
-                .flex_1()
-                .min_h_0(),
+                div()
+                    .relative()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_h_0()
+                    .child(
+                        list(self.list.clone(), move |ix, _, cx| {
+                            weak.update(cx, |this, cx| this.render_message(ix, cx))
+                                .unwrap_or_else(|_| div().into_any_element())
+                        })
+                        .flex_1()
+                        .min_h_0(),
+                    )
+                    .vertical_scrollbar(&self.list),
             );
         } else {
             center = center.child(

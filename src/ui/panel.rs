@@ -27,8 +27,7 @@ impl Workspace {
                             .small()
                             .label("收起")
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.panel_open = false;
-                                this.selected = None;
+                                this.close_panel();
                                 cx.notify();
                             })),
                     ),
@@ -42,7 +41,7 @@ impl Workspace {
                     .selected(self.panel_tab == label)
                     .label(label)
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.panel_tab = label;
+                        this.select_panel(label);
                         this.selected = None;
                         if label == "文件" || label == "变更" {
                             this.refresh_files(cx);
@@ -56,7 +55,6 @@ impl Workspace {
             .id("work-panel-body")
             .flex_1()
             .min_h_0()
-            .overflow_y_scroll()
             .p_3()
             .flex()
             .flex_col()
@@ -193,7 +191,6 @@ impl Workspace {
                             div()
                                 .id("historical-quote")
                                 .max_h_24()
-                                .overflow_y_scroll()
                                 .p_3()
                                 .rounded_md()
                                 .bg(theme.muted)
@@ -205,7 +202,8 @@ impl Workspace {
                                     div()
                                         .mt_2()
                                         .font_family("Cascadia Code")
-                                        .child(quote.clone()),
+                                        .child(quote.clone())
+                                        .overflow_y_scrollbar(),
                                 ),
                         );
                     }
@@ -259,7 +257,7 @@ impl Workspace {
                 }
             }
         }
-        panel = panel.child(body);
+        panel = panel.child(body.overflow_y_scrollbar());
         panel.into_any_element()
     }
 }

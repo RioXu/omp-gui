@@ -13,9 +13,22 @@ impl Workspace {
             TranscriptRow::User(ix) => (*ix..ix + 1, true),
             TranscriptRow::Assistant(range) => (range.clone(), false),
         };
-        let messages = &session.messages[range.clone()];
+        let messages = session.messages[range.clone()]
+            .iter()
+            .filter(|m| m.state != MessageState::Queued)
+            .collect::<Vec<_>>();
         let last = messages.last().unwrap();
-        let active = !user && self.running && range.end == session.messages.len();
+        let active = !user
+            && self.running
+            && (messages.iter().any(|m| {
+                m.process
+                    .iter()
+                    .any(|b| self.active_tools.contains_key(&b.id))
+            }) || session
+                .messages
+                .iter()
+                .rposition(|m| m.state != MessageState::Queued)
+                .is_some_and(|last| range.contains(&last)));
         let mut body = div()
             .group("message")
             .flex()
@@ -38,6 +51,8 @@ impl Workspace {
                     MessageState::Cancelled => "未执行 · 已恢复到草稿",
                     MessageState::Interrupted => "已中断 · 保留已生成内容",
                     MessageState::Normal => "",
+                    MessageState::Queued => "等待接收",
+                    MessageState::Unconfirmed => "执行状态未确认 · 草稿已恢复，请核对后再发",
                 },
             ));
         }
@@ -48,7 +63,7 @@ impl Workspace {
                     .contains(&format!("turn-{}", messages[0].id));
             let mut process = div().flex().flex_col().gap_1();
             let mut steps = 0;
-            for message in messages {
+            for message in &messages {
                 for block in &message.process {
                     if show_process {
                         process = process.child(self.render_process_block(&message.id, block, cx));
@@ -94,7 +109,7 @@ impl Workspace {
                     .child(TextView::new(&view.state)),
             );
         }
-        for message in messages {
+        for message in &messages {
             for id in &message.comments {
                 if let Some(comment) = session.comments.iter().find(|c| &c.id == id) {
                     body = body.child(self.render_comment(comment, cx));

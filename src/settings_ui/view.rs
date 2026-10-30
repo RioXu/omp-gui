@@ -97,7 +97,6 @@ impl Render for SettingsView {
             .id("settings-body")
             .flex_1()
             .min_h_0()
-            .when(self.edit.is_some(), |d| d.overflow_y_scroll())
             .p_5()
             .flex()
             .flex_col()
@@ -195,21 +194,31 @@ impl Render for SettingsView {
                     .collect::<Vec<_>>();
                 let count = keys.len();
                 body = body.child(
-                    uniform_list(
-                        "setting-rows",
-                        count,
-                        cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
-                            range
-                                .map(|ix| this.setting_row(&keys[ix], cx))
-                                .collect::<Vec<_>>()
-                        }),
-                    )
-                    .flex_1()
-                    .min_h_0(),
+                    div()
+                        .relative()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_h_0()
+                        .child(
+                            uniform_list(
+                                "setting-rows",
+                                count,
+                                cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
+                                    range
+                                        .map(|ix| this.setting_row(&keys[ix], cx))
+                                        .collect::<Vec<_>>()
+                                }),
+                            )
+                            .track_scroll(&self.rows_scroll)
+                            .flex_1()
+                            .min_h_0(),
+                        )
+                        .vertical_scrollbar(&self.rows_scroll),
                 );
             }
         }
-        content=content.child(body).child(div().p_3().border_t_1().border_color(theme.border).text_xs().text_color(theme.muted_foreground)
+        content=content.child(if self.edit.is_some() || ["常规","插件"].contains(&self.category) {body.overflow_y_scrollbar().into_any_element()}else{body.into_any_element()}).child(div().p_3().border_t_1().border_color(theme.border).text_xs().text_color(theme.muted_foreground)
             .child(if self.busy{"正在保存…".to_string()}else if self.loading{"正在后台刷新配置…".to_string()}else{self.notice.clone()})
             .child(div().mt_2().child("OMP 持续更新，GUI 未覆盖的设置、认证及高级管理可在 OMP 终端中配置。项目设置以会话执行目录为准；环境变量与启动参数可能优先于文件。")));
         div()
@@ -217,7 +226,7 @@ impl Render for SettingsView {
             .size_full()
             .bg(theme.background)
             .text_color(theme.foreground)
-            .child(nav)
+            .child(nav.id("settings-nav").overflow_y_scrollbar())
             .child(content)
     }
 }

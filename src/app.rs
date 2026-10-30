@@ -9,6 +9,7 @@ mod events;
 mod files;
 mod poll;
 mod preferences;
+mod queue;
 mod sessions;
 mod submission;
 mod transcript;
@@ -55,10 +56,12 @@ pub(crate) enum FileEvent {
     },
     Snapshot {
         session: String,
+        request: String,
         result: Result<Snapshot, String>,
     },
     Current {
         session: String,
+        request: String,
         path: PathBuf,
         result: Result<String, String>,
     },
@@ -90,6 +93,7 @@ pub(crate) struct Workspace {
     pub focus: FocusHandle,
     pub texts: HashMap<String, TextEntry>,
     pub panel_text: Option<TextEntry>,
+    pub preview_request: Option<String>,
     pub panel_open: bool,
     pub panel_tab: &'static str,
     pub files: Vec<PathBuf>,
@@ -112,8 +116,9 @@ pub(crate) struct Workspace {
     pub todos: Vec<Value>,
     pub agents: Vec<Value>,
     pub context_percent: f64,
+    pub context_limit: u64,
+    pub active_tools: HashMap<String, String>,
     pub requests: VecDeque<Value>,
-    pub activity: VecDeque<String>,
     pub selected: Option<Anchor>,
     pub selection_point: Point<Pixels>,
     pub comment_editor: Option<Anchor>,
@@ -124,6 +129,8 @@ pub(crate) struct Workspace {
     pub rpc_messages: HashMap<String, String>,
     pub pending_send: Option<PendingSubmission>,
     pub queued_inputs: Vec<String>,
+    pub steered_inputs: Vec<String>,
+    pub steering_request: Option<String>,
     pub list: ListState,
     pub demo: bool,
     pub last_state: Instant,

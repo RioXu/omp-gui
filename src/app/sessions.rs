@@ -7,7 +7,7 @@ impl Workspace {
             cx.notify();
             return;
         }
-        if self.stopping || self.pending_send.is_some() {
+        if self.stopping || self.pending_send.is_some() || self.steering_request.is_some() {
             return;
         }
         let text = self.input.read(cx).value().trim_end().to_string();
@@ -46,7 +46,7 @@ impl Workspace {
         if let Some(e) = &self.engine {
             let mut frame = json!({"type":"prompt","id":request_id,"message":prompt});
             if self.running {
-                frame["streamingBehavior"] = json!("steer");
+                frame["streamingBehavior"] = json!("followUp");
             }
             match e.send(frame) {
                 Ok(()) => {
@@ -56,6 +56,7 @@ impl Workspace {
                         follow_up: self.follow_up.take(),
                         was_running: self.running,
                         wire_text: prompt,
+                        delivered: false,
                     });
                     self.input.update(cx, |i, cx| i.set_value("", window, cx));
                     self.running = true;
@@ -80,11 +81,12 @@ impl Workspace {
             if let Ok(Ok(Some(paths))) = paths.await
                 && let Some(path) = paths.first()
             {
-                let path = path.clone();
+                let path = project_path(path);
                 let _ = this.update_in(cx, |this, window, cx| {
                     if !this.db.projects.contains(&path) {
                         this.db.projects.push(path);
                     }
+                    this.db.normalize_projects();
                     this.persist();
                     let _ = window;
                     cx.notify();
@@ -98,6 +100,14 @@ impl Workspace {
             return;
         }
         self.persist();
+        let target = self.db.sessions[ix].id.clone();
+        self.db.discard_blank_sessions(Some(&target));
+        let ix = self
+            .db
+            .sessions
+            .iter()
+            .position(|s| s.id == target)
+            .unwrap();
         self.active = Some(ix);
         self.db.active = Some(self.db.sessions[ix].id.clone());
         self.texts.clear();
@@ -105,13 +115,8 @@ impl Workspace {
         self.tool_diffs.clear();
         self.expanded_process.clear();
         self.list.reset(0);
-        self.panel_text = None;
-        self.diff = None;
-        self.viewed_quote = None;
+        self.clear_file_preview();
         self.settings_view = None;
-        self.viewed_path = None;
-        self.viewed_snapshot = None;
-        self.selected = None;
         self.follow_up = None;
         self.files.clear();
         self.changed.clear();
@@ -151,7 +156,8 @@ impl Workspace {
             cx.notify();
             return;
         }
-        self.db.sessions.push(Session::new(project));
+        self.db.sessions.push(Session::new(project_path(&project)));
+        self.db.normalize_projects();
         self.activate(self.db.sessions.len() - 1, window, cx);
     }
     pub fn manage_session(
@@ -184,8 +190,7 @@ impl Workspace {
             self.transcript.clear();
             self.tool_diffs.clear();
             self.list.reset(0);
-            self.panel_text = None;
-            self.diff = None;
+            self.clear_file_preview();
             self.input.update(cx, |i, cx| i.set_value("", window, cx));
         } else {
             self.active = active_id.and_then(|id| self.db.sessions.iter().position(|s| s.id == id));

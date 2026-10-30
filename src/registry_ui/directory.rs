@@ -111,43 +111,55 @@ impl RegistryView {
         }
         // Large catalogs remain virtualized; only visible service rows are built.
         body = body.child(
-            uniform_list(
-                "available-search-services",
-                available.len(),
-                cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
-                    let selected = this.search_service.read(cx).selected_value().cloned();
-                    range
-                        .map(|ix| {
-                            let id = available[ix].clone();
-                            let value = id.clone();
-                            div()
-                                .h_8()
-                                .w_full()
-                                .flex()
-                                .items_center()
-                                .gap_2()
-                                .child(div().flex_1().text_sm().truncate().child(id.clone()))
-                                .child(
-                                    Button::new(SharedString::from(format!("select-search-{ix}")))
-                                        .ghost()
-                                        .xsmall()
-                                        .label(if selected.as_ref() == Some(&id) {
-                                            "首选"
-                                        } else {
-                                            "选择"
-                                        })
-                                        .on_click(cx.listener(move |this, _, w, cx| {
-                                            this.search_service.update(cx, |s, cx| {
-                                                s.set_selected_value(&value, w, cx)
-                                            });
-                                            cx.notify();
-                                        })),
-                                )
-                        })
-                        .collect::<Vec<_>>()
-                }),
-            )
-            .h_40(),
+            div()
+                .relative()
+                .h_40()
+                .flex_shrink_0()
+                .child(
+                    uniform_list(
+                        "available-search-services",
+                        available.len(),
+                        cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
+                            let selected = this.search_service.read(cx).selected_value().cloned();
+                            range
+                                .map(|ix| {
+                                    let id = available[ix].clone();
+                                    let value = id.clone();
+                                    div()
+                                        .h_8()
+                                        .w_full()
+                                        .flex()
+                                        .items_center()
+                                        .gap_2()
+                                        .child(
+                                            div().flex_1().text_sm().truncate().child(id.clone()),
+                                        )
+                                        .child(
+                                            Button::new(SharedString::from(format!(
+                                                "select-search-{ix}"
+                                            )))
+                                            .ghost()
+                                            .xsmall()
+                                            .label(if selected.as_ref() == Some(&id) {
+                                                "首选"
+                                            } else {
+                                                "选择"
+                                            })
+                                            .on_click(cx.listener(move |this, _, w, cx| {
+                                                this.search_service.update(cx, |s, cx| {
+                                                    s.set_selected_value(&value, w, cx)
+                                                });
+                                                cx.notify();
+                                            })),
+                                        )
+                                })
+                                .collect::<Vec<_>>()
+                        }),
+                    )
+                    .track_scroll(&self.search_scroll)
+                    .h_full(),
+                )
+                .vertical_scrollbar(&self.search_scroll),
         );
         body.into_any_element()
     }
