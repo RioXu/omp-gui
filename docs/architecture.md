@@ -1,0 +1,45 @@
+# 模块与维护约定
+
+应用采用单向事件更新：OMP / 文件 / 配置后台任务发出结果，GPUI 实体在 UI 线程更新状态，渲染函数只构建组件。避免在渲染函数中执行磁盘、网络或子进程操作。
+
+| 层 | 职责 |
+| --- | --- |
+| `domain` | 可持久化的会话、消息、过程块、不可变评论锚点和快照；不依赖 GPUI |
+| `engine` | OMP 子进程与 JSONL 协议、分片校验；不依赖界面 |
+| `storage` | 数据目录锁、原子写入和错误上报 |
+| `files` / `file_tree` | 项目文件与 Git 差异、目录树数据转换 |
+| `settings` | 原生配置注册表、范围、缓存和保留未知项的写入 |
+| `registry` | 服务目录合并、最小参数覆盖、连接验证和凭据导入 |
+| `app/*` | 会话生命周期、OMP 事件、评论、文件和设置协调；`Workspace` 是窗口状态的唯一所有者 |
+| `ui/*` | 侧栏、会话、过程折叠、输入框和工作面板组件 |
+| `settings_ui/*` | 配置导航、类型控件、编辑及专用页面 |
+| `registry_ui/*` | 服务选择、连接表单、模型表单和搜索路由 |
+
+新增职责使用独立模块，不继续扩大窗口协调器或顶层渲染函数。通常将文件控制在 300 行左右；不为满足行数而拆开紧密相关的数据和行为。普通 UI 分支不引入额外抽象；会跨视图复用、涉及持久化语义的逻辑放入领域或适配层，并测试其边界。
+
+## 不变量
+
+- 新会话只记录映射项目目录，不创建分支或工作树；旧会话的执行路径兼容保留。
+- 评论锚点绑定发送时的文本或代码快照。展开/收起属于临时展示状态，不修改历史内容。
+- `ProcessBlock` 保存 OMP 公开输出的思考与工具信息；流式状态不序列化，重启后历史过程默认收起。
+- 模型最终文本与过程块独立。包含工具调用的中间回答默认收起，后续消息不会改变原文锚点。
+- 模型目录合并 `omp models ls --kind all --json` 与随版本附带的公开目录。不导出或回显认证凭据。
+- 原生模型只写修改字段到 `modelOverrides`，不会把整个内置目录写入 `models.yml`；保留未知字段和外部修改检测。
+- 控件优先使用 gpui-kit 的 Select、Switch、Tree、Collapsible、Form、Diff 和 ResizeHandle。大列表使用虚拟化组件。
+- 异步目录加载不解除正在进行的保存状态；设置读取失败要结束加载提示。
+
+## 验证
+
+CI 执行格式检查、所有目标的 Clippy 和离线单元测试。需要本机 OMP 的测试标记为 ignored；真实模型流测试还会发送一条提示，因此仅在用户授权后显式运行。
+
+```powershell
+cargo test --release installed_registry -- --ignored --nocapture
+cargo test --release installed_catalog -- --ignored --nocapture
+cargo test --release live_process_stream -- --ignored --nocapture
+```
+
+界面回归使用独立 `--data-dir` 和测试项目。校验全局真实账号列表时只读取；保存测试使用独立 OMP 配置目录或测试项目范围，避免更改用户账号。
+
+## 服务目录更新
+
+`resources/omp-services.json` 是 OMP 18.14.0 官方公开目录的 UI 元数据，授权见同目录 `OMP-LICENSE.txt`。通过 `scripts/update_service_catalog.py <OMP源码目录>` 重新生成；不要手工维护服务枚举。运行时本机可用目录优先，新增的已注册服务会自动合并；新的尚未注册内置服务需要随 GUI 更新目录，也可使用自定义入口。

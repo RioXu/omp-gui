@@ -8,6 +8,10 @@ use std::{
     str::FromStr,
 };
 use yaml_edit::Document;
+mod catalog;
+mod draft;
+pub(crate) use catalog::{ServiceCatalog, selector};
+pub(crate) use draft::ProviderDraft;
 
 #[derive(Clone, Default)]
 pub(crate) struct Providers {

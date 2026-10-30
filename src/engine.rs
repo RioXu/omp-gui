@@ -12,6 +12,8 @@ use std::{
 };
 
 const MAX_FRAME: usize = 1024 * 1024;
+#[cfg(test)]
+mod live_test;
 const MAX_MESSAGE: usize = 64 * 1024 * 1024;
 #[derive(Default)]
 pub(crate) struct Decoder {
