@@ -79,9 +79,9 @@ cargo run -- --probe
 
 ```powershell
 cargo fmt --check
-cargo clippy -- -D warnings
-cargo test
-cargo build
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+cargo build --locked
 ```
 
 16 项核心测试涵盖 UTF-8 选区、重复代码引用、快照、Windows 换行、跟进、协议分片、序列化、配置保留／冲突检测、直接目录会话、归档／删除数据、目录层级与模型列表获取。
@@ -92,7 +92,7 @@ cargo build
 
 ## 代码结构与参考
 
-领域、协议、配置、持久化和界面分层；窗口及设置交互按职责拆分到子模块。详见 [模块与维护约定](docs/architecture.md)。界面不使用 WebView。
+代码分为 `domain`（数据与规则）、`infrastructure`（OMP、文件、配置和持久化）和 `desktop`（原生窗口与交互）。主工作区按输入、会话、文档、查找、运行连接和视图组织；本机 OMP 集成测试独立放在 `tests/omp/`，单元测试靠近实现。详见 [组件职责与维护约定](docs/architecture.md)。界面不使用 WebView。
 
 协议与配置依据 [OMP 官方文档](https://github.com/can1357/oh-my-pi/tree/main/docs)；原生组件依据 [gpui-kit](https://github.com/longbridge/gpui-kit)。
 

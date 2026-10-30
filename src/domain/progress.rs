@@ -3,13 +3,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub(crate) enum ProcessKind {
+pub enum ProcessKind {
     Thinking,
     Tool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct ProcessBlock {
+pub struct ProcessBlock {
     pub id: String,
     pub kind: ProcessKind,
     pub label: String,
@@ -22,7 +22,7 @@ pub(crate) struct ProcessBlock {
     pub patch: Option<String>,
 }
 
-pub(crate) fn process_blocks(message: &Value, event: &str, delta: &str) -> Vec<ProcessBlock> {
+pub fn process_blocks(message: &Value, event: &str, delta: &str) -> Vec<ProcessBlock> {
     let Some(content) = message["content"].as_array() else {
         return vec![];
     };

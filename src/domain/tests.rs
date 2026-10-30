@@ -1,4 +1,5 @@
 use super::*;
+use std::path::PathBuf;
 #[test]
 fn direct_sessions_and_archive_delete_keep_project_mapping() {
     let project = PathBuf::from("plain-folder");

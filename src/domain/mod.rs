@@ -1,0 +1,22 @@
+//! Serializable conversation rules and data. No OS, OMP-process or GPUI dependency.
+mod comments;
+mod identity;
+mod messages;
+mod progress;
+mod projects;
+mod session;
+mod snapshots;
+mod tool_output;
+mod transcript;
+mod workspace;
+pub(crate) use comments::{Anchor, CodeLines, Comment, Source};
+pub(crate) use identity::{hash, id, now};
+pub(crate) use messages::{Message, MessageState};
+pub use progress::{ProcessBlock, ProcessKind, process_blocks};
+pub(crate) use session::Session;
+pub(crate) use snapshots::{Snapshot, fenced};
+pub(crate) use transcript::{TranscriptRow, transcript_rows};
+pub(crate) use workspace::Database;
+
+#[cfg(test)]
+mod tests;

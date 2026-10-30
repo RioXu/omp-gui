@@ -1,0 +1,9 @@
+//! Desktop coordination of OMP connection, events, queue state and model controls.
+use crate::desktop::workspace::*;
+mod connection;
+mod event_dispatch;
+mod event_loop;
+pub(in crate::desktop::workspace) mod model_controls;
+
+mod model_state;
+pub(in crate::desktop::workspace) use model_state::ModelControlState;

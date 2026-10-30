@@ -1,0 +1,127 @@
+//! Manage the OMP child process and asynchronous JSONL transport.
+use super::framing::{Decoder, MAX_FRAME};
+use anyhow::{Context, Result, bail, ensure};
+use serde_json::Value;
+use std::{
+    io::{BufRead, BufReader, Read, Write},
+    path::Path,
+    process::{Child, Stdio},
+    sync::mpsc,
+    thread,
+};
+
+pub enum Event {
+    Frame(Value),
+    Error(String),
+    Closed,
+}
+pub struct Client {
+    child: Child,
+    tx: mpsc::Sender<Value>,
+    pub events: mpsc::Receiver<Event>,
+}
+impl Client {
+    pub fn start(
+        executable: &str,
+        project: &Path,
+        session_dir: &Path,
+        resume: Option<&str>,
+    ) -> Result<Self> {
+        std::fs::create_dir_all(session_dir)?;
+        let mut cmd = crate::infrastructure::process::hidden_command(executable);
+        cmd.args(["--mode", "rpc-ui", "--no-title", "--cwd"])
+            .arg(project)
+            .arg("--session-dir")
+            .arg(session_dir)
+            .current_dir(project)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if let Some(path) = resume {
+            cmd.arg("--resume").arg(path);
+        }
+        let mut child = cmd
+            .spawn()
+            .with_context(|| format!("无法启动 {executable}，请检查设置中的 OMP 路径"))?;
+        let mut stdin = child.stdin.take().context("OMP stdin missing")?;
+        let stdout = child.stdout.take().context("OMP stdout missing")?;
+        let stderr = child.stderr.take().context("OMP stderr missing")?;
+        let (tx, rx) = mpsc::channel::<Value>();
+        let (event_tx, events) = mpsc::channel();
+        let write_tx = event_tx.clone();
+        thread::spawn(move || {
+            for frame in rx {
+                let result = (|| -> Result<()> {
+                    let mut bytes = serde_json::to_vec(&frame)?;
+                    bytes.push(b'\n');
+                    ensure!(
+                        bytes.len() <= MAX_FRAME,
+                        "发送内容超过 OMP 单帧限制，请缩短指令"
+                    );
+                    stdin.write_all(&bytes)?;
+                    stdin.flush()?;
+                    Ok(())
+                })();
+                if let Err(e) = result {
+                    let _ = write_tx.send(Event::Error(format!("发送失败：{e:#}")));
+                    break;
+                }
+            }
+        });
+        let read_tx = event_tx.clone();
+        thread::spawn(move || {
+            let mut reader = BufReader::new(stdout);
+            let mut decoder = Decoder::default();
+            loop {
+                let mut line = Vec::new();
+                let result = reader
+                    .by_ref()
+                    .take((MAX_FRAME + 1) as u64)
+                    .read_until(b'\n', &mut line);
+                match result {
+                    Ok(0) => break,
+                    Ok(_) => match decoder.decode(&line) {
+                        Ok(Some(frame)) => {
+                            if read_tx.send(Event::Frame(frame)).is_err() {
+                                return;
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            let _ = read_tx.send(Event::Error(format!("OMP 通信错误：{e:#}")));
+                            break;
+                        }
+                    },
+                    Err(e) => {
+                        let _ = read_tx.send(Event::Error(e.to_string()));
+                        break;
+                    }
+                }
+            }
+            let _ = read_tx.send(Event::Closed);
+        });
+        // Drain stderr to avoid deadlocking the child. Surface a bounded tail on failures.
+        thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines().map_while(Result::ok) {
+                if line.contains("Error") || line.contains("error:") {
+                    let msg: String = line.chars().take(1000).collect();
+                    let _ = event_tx.send(Event::Error(msg));
+                }
+            }
+        });
+        Ok(Self { child, tx, events })
+    }
+    pub fn send(&self, frame: Value) -> Result<()> {
+        if serde_json::to_vec(&frame)?.len() + 1 > MAX_FRAME {
+            bail!("消息过长，请缩短后重试");
+        }
+        self.tx.send(frame).context("OMP 连接已关闭")
+    }
+}
+impl Drop for Client {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
