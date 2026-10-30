@@ -108,7 +108,7 @@ impl Workspace {
                 }
             }
             "变更" => {
-                body = body.gap_0().child(self.render_changes(cx));
+                body = body.px_0().gap_0().child(self.render_changes(cx));
             }
             _ => {
                 let paths = &self.document_state.files;

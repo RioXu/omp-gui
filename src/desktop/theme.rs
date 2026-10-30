@@ -5,6 +5,12 @@ pub(crate) fn apply_accent(cx: &mut App) {
         t.scrollbar_mode = gpui_kit::component::scroll::ScrollbarMode::Hover;
         let dark = t.is_dark();
         t.background = rgb(if dark { 0x101216 } else { 0xffffff }).into();
+        // Native Editor paints the gutter independently, even without its frame.
+        // Use the document surface and let the gutter inherit that same color.
+        let editor_background = t.background;
+        let syntax = std::sync::Arc::make_mut(&mut t.highlight_theme);
+        syntax.style.editor_background = Some(editor_background);
+        syntax.style.editor_gutter_background = None;
         t.foreground = rgb(if dark { 0xe6e9ef } else { 0x202631 }).into();
         t.sidebar = rgb(if dark { 0x14171c } else { 0xf7f8fa }).into();
         t.muted = rgb(if dark { 0x1b1f26 } else { 0xf2f4f7 }).into();

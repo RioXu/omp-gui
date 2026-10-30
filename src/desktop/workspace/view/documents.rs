@@ -215,15 +215,7 @@ impl Workspace {
         view = if let Some(diff) = &tab.diff {
             view.child(div().flex_1().min_h_0().child(Diff::new(diff).size_full()))
         } else if let Some(editor) = &tab.editor {
-            view.child(
-                div().flex_1().min_h_0().child(
-                    Editor::new(editor)
-                        .readonly(true)
-                        .appearance(false)
-                        .bordered(false)
-                        .size_full(),
-                ),
-            )
+            view.child(div().flex_1().min_h_0().child(file_editor(editor)))
         } else if let Some(entry) = &tab.entry {
             view.child(
                 div()
@@ -273,3 +265,14 @@ impl Workspace {
         .into_any_element()
     }
 }
+
+fn file_editor(editor: &Entity<EditorState>) -> Editor {
+    Editor::new(editor)
+        .readonly(true)
+        .appearance(false)
+        .bordered(false)
+        .size_full()
+}
+
+#[cfg(test)]
+mod tests;
