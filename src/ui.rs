@@ -1,9 +1,12 @@
 mod comment_editor;
 mod composer;
 mod conversation;
+mod documents;
 mod panel;
 mod progress;
 mod requests;
+mod search;
+mod selection;
 mod sidebar;
 mod transcript;
 mod view;
@@ -25,6 +28,5 @@ use gpui_kit::component::{
     tree::Tree,
 };
 use gpui_kit::{prelude::FluentBuilder, *};
-use serde_json::json;
 #[derive(Clone)]
 struct ResizeSide(bool);

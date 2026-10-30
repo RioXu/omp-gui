@@ -22,6 +22,13 @@ impl Workspace {
         self.rpc_messages.clear();
         self.requests.clear();
         self.models.clear();
+        self.current_model = Value::Null;
+        self.thinking_levels.clear();
+        self.thinking_levels_request = None;
+        self.thinking_auto = false;
+        self.thinking_entries_cursor = None;
+        self.pending_model_control = None;
+        self.slash_commands.clear();
         let Some(s) = self.session() else {
             return;
         };

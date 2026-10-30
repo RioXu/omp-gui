@@ -27,7 +27,7 @@ pub(crate) fn apply_accent(cx: &mut App) {
         t.list_active_border = t.primary;
         t.secondary_active = t.sidebar_accent;
         t.button_active = t.sidebar_accent;
-        t.tab_active = t.sidebar_accent;
-        t.tab_active_foreground = t.sidebar_accent_foreground;
+        t.tab_active = t.background;
+        t.tab_active_foreground = t.foreground;
     });
 }

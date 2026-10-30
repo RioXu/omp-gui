@@ -21,6 +21,7 @@ impl Workspace {
             let path = project.clone();
             let mut group = div().flex().flex_col().gap_1().child(
                 div()
+                    .group(SharedString::from(format!("project-{}", project.display())))
                     .flex()
                     .items_center()
                     .gap_2()
@@ -34,19 +35,27 @@ impl Workspace {
                     .child(div().flex_1().min_w_0().text_sm().truncate().child(label))
                     .when(!self.show_archived, |row| {
                         row.child(
-                            Button::new(SharedString::from(format!(
-                                "add-session-{}",
-                                project.display()
-                            )))
-                            .ghost()
-                            .xsmall()
-                            .icon(IconName::Plus)
-                            .accessibility_label("新建会话")
-                            .tooltip("在项目内新建会话")
-                            .disabled(disabled)
-                            .on_click(cx.listener(
-                                move |this, _, w, cx| this.new_project_session(path.clone(), w, cx),
-                            )),
+                            div()
+                                .invisible()
+                                .group_hover(
+                                    SharedString::from(format!("project-{}", project.display())),
+                                    |d| d.visible(),
+                                )
+                                .child(
+                                    Button::new(SharedString::from(format!(
+                                        "add-session-{}",
+                                        project.display()
+                                    )))
+                                    .ghost()
+                                    .xsmall()
+                                    .icon(IconName::Plus)
+                                    .accessibility_label("新建会话")
+                                    .tooltip("在项目内新建会话")
+                                    .disabled(disabled)
+                                    .on_click(cx.listener(move |this, _, w, cx| {
+                                        this.new_project_session(path.clone(), w, cx)
+                                    })),
+                                ),
                         )
                     }),
             );
@@ -162,6 +171,7 @@ impl Workspace {
             )
             .child(
                 div()
+                    .group("projects-heading")
                     .flex()
                     .items_center()
                     .px_2()
@@ -179,14 +189,21 @@ impl Workspace {
                     )
                     .when(!self.show_archived, |row| {
                         row.child(
-                            Button::new("add-project")
-                                .ghost()
-                                .xsmall()
-                                .icon(IconName::Plus)
-                                .accessibility_label("添加项目")
-                                .tooltip("将目录添加为项目")
-                                .disabled(disabled)
-                                .on_click(cx.listener(|this, _, w, cx| this.open_project(w, cx))),
+                            div()
+                                .invisible()
+                                .group_hover("projects-heading", |d| d.visible())
+                                .child(
+                                    Button::new("add-project")
+                                        .ghost()
+                                        .xsmall()
+                                        .icon(IconName::Plus)
+                                        .accessibility_label("添加项目")
+                                        .tooltip("将目录添加为项目")
+                                        .disabled(disabled)
+                                        .on_click(
+                                            cx.listener(|this, _, w, cx| this.open_project(w, cx)),
+                                        ),
+                                ),
                         )
                     }),
             )
@@ -214,20 +231,6 @@ impl Workspace {
                             .on_click(cx.listener(|this, _, w, cx| this.settings(w, cx))),
                     )
                     .render("sidebar-settings", window, cx),
-            )
-            .child(
-                div()
-                    .px_3()
-                    .pb_1()
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .child(if self.demo {
-                        "演示模式"
-                    } else if self.connected {
-                        "本地 OMP · 已连接"
-                    } else {
-                        "本地 OMP · 未连接"
-                    }),
             )
             .into_any_element()
     }

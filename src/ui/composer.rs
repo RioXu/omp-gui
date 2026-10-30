@@ -85,33 +85,100 @@ impl Workspace {
         }
         box_.into_any_element()
     }
-    pub(super) fn render_composer(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_composer(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
-        let models = self.models.clone();
+        let models = crate::app::models::model_groups(&self.models);
+        let selected_model = crate::app::models::model_key(&self.current_model);
+        let provider = self.current_model["provider"].as_str().unwrap_or("");
+        let model_label = if provider.is_empty() {
+            self.model_label.clone()
+        } else {
+            format!("{provider} / {}", self.model_label)
+        };
         let weak = cx.entity().downgrade();
-        let model=Button::new("model-picker").ghost().small().label(self.model_label.clone()).disabled(self.running||models.is_empty()).dropdown_menu(move|mut menu,_,_|{for m in &models{let provider=m["provider"].as_str().unwrap_or("").to_string();let model=m["id"].as_str().unwrap_or("").to_string();let label=format!("{provider}/{model}");let weak=weak.clone();menu=menu.item(PopupMenuItem::new(label).on_click(move|_,_,cx|{let _=weak.update(cx,|this,cx|{this.command(json!({"type":"set_model","id":id(),"provider":provider,"modelId":model}));cx.notify();});}));}menu});
+        let model = Button::new("model-picker")
+            .ghost()
+            .small()
+            .label(model_label)
+            .disabled(
+                self.running
+                    || !self.connected
+                    || models.is_empty()
+                    || self.pending_model_control.is_some(),
+            )
+            .dropdown_menu(move |menu, _, _| {
+                let mut menu = menu.scrollable(true);
+                for (provider, models) in &models {
+                    menu = menu.label(provider.clone());
+                    for m in models {
+                        let provider = provider.clone();
+                        let model = m["id"].as_str().unwrap_or_default().to_owned();
+                        let name = m["name"].as_str().unwrap_or(&model);
+                        let label = if name == model {
+                            model.clone()
+                        } else {
+                            format!("{name} · {model}")
+                        };
+                        let checked = selected_model == format!("{provider}/{model}");
+                        let weak = weak.clone();
+                        menu = menu.item(PopupMenuItem::new(label).checked(checked).on_click(
+                            move |_, _, cx| {
+                                let _ = weak.update(cx, |this, cx| {
+                                    this.choose_model(&provider, &model, cx)
+                                });
+                            },
+                        ));
+                    }
+                }
+                menu
+            });
+        let levels = self.thinking_options();
+        let selected_level = if self.thinking_auto {
+            "auto".to_owned()
+        } else {
+            self.thinking.clone()
+        };
         let weak = cx.entity().downgrade();
         let thinking = Button::new("thinking")
             .ghost()
             .small()
-            .label(format!("推理：{}", self.thinking))
-            .disabled(self.running || !self.connected)
+            .label(format!("推理：{selected_level}"))
+            .tooltip(format!("当前模型的有效推理强度：{}", self.thinking))
+            .disabled(
+                self.running
+                    || !self.connected
+                    || self.pending_model_control.is_some()
+                    || !levels.iter().any(|l| l != "off"),
+            )
             .dropdown_menu(move |mut menu, _, _| {
-                for level in ["off", "low", "medium", "high", "xhigh"] {
+                for level in &levels {
                     let weak = weak.clone();
-                    menu = menu.item(PopupMenuItem::new(level).on_click(move |_, _, cx| {
-                        let _ = weak.update(cx, |this, cx| {
-                            this.command(
-                                json!({"type":"set_thinking_level","id":id(),"level":level}),
-                            );
-                            cx.notify();
-                        });
-                    }));
+                    let level = level.clone();
+                    let label = if level == "auto" {
+                        "auto · 自动选择".to_owned()
+                    } else {
+                        level.clone()
+                    };
+                    menu = menu.item(
+                        PopupMenuItem::new(label)
+                            .checked(level == selected_level)
+                            .on_click(move |_, _, cx| {
+                                let _ =
+                                    weak.update(cx, |this, cx| this.choose_thinking(&level, cx));
+                            }),
+                    );
                 }
                 menu
             });
         let mut area = div().flex().flex_col().gap_2().px_6().pb_4().pt_2();
         let mut inner = div()
+            .when(!self.completions(cx).is_empty(), |d| {
+                d.key_context("ComposerCompletion")
+            })
+            .when(
+                self.completions(cx).is_empty() && self.completion_hint(cx).is_some(),
+                |d| d.key_context("ComposerHint"),
+            )
             .flex()
             .flex_col()
             .w_full()
@@ -206,6 +273,7 @@ impl Workspace {
             );
         }
         inner = inner
+            .child(self.render_completions(window, cx))
             .child(
                 div()
                     .flex()

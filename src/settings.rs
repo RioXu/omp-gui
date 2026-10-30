@@ -38,11 +38,9 @@ pub(crate) fn cached(omp: &str, cwd: &Path) -> Option<Catalog> {
 }
 pub(crate) fn catalog(omp: &str, cwd: &Path) -> anyhow::Result<Catalog> {
     let results = std::thread::scope(|scope| {
-        let args: [&[&str]; 5] = [
+        let args: [&[&str]; 3] = [
             &["config", "path"],
             &["config", "list", "--json"],
-            &["config", "list", "--scope", "global", "--json"],
-            &["config", "list", "--scope", "project", "--json"],
             &["config", "list"],
         ];
         let jobs = args
@@ -59,7 +57,7 @@ pub(crate) fn catalog(omp: &str, cwd: &Path) -> anyhow::Result<Catalog> {
     let root = PathBuf::from(results[0].trim());
     ensure!(root.is_absolute(), "OMP 返回了无效的配置目录");
     let mut entries: BTreeMap<String, Value> = serde_json::from_str(&results[1])?;
-    for line in results[4].lines() {
+    for line in results[2].lines() {
         let plain = strip_ansi(line);
         let plain = plain.trim();
         let Some((key, _)) = plain.split_once(" = ") else {
@@ -93,15 +91,41 @@ pub(crate) fn catalog(omp: &str, cwd: &Path) -> anyhow::Result<Catalog> {
             prompt_files.insert(format!("{scope}/{folder}"), paths);
         }
     }
+    let global = configured_layer(&read_document(&config_path(&root))?, &entries)?;
+    let project = configured_layer(&read_document(&config_path(&cwd.join(".omp")))?, &entries)?;
     let result = Catalog {
         root,
         entries,
-        global: serde_json::from_str(&results[2])?,
-        project: serde_json::from_str(&results[3])?,
+        global,
+        project,
         prompt_files,
     };
     if let Ok(mut cache) = CACHE.lock() {
         cache.insert(cache_key(omp, cwd), result.clone());
+    }
+    Ok(result)
+}
+
+// The CLI supplies effective values and the schema. Explicit values belong to
+// their config files; `config list --scope` is not a portable OMP CLI command.
+fn configured_layer(
+    text: &str,
+    entries: &BTreeMap<String, Value>,
+) -> anyhow::Result<BTreeMap<String, Value>> {
+    let document: Value = if text.trim().is_empty() {
+        Value::Null
+    } else {
+        serde_yaml_ng::from_str(text).context("OMP 配置 YAML 无效")?
+    };
+    let mut result = BTreeMap::new();
+    for key in entries.keys() {
+        let value = document.get(key).or_else(|| {
+            key.split('.')
+                .try_fold(&document, |node, part| node.get(part))
+        });
+        if let Some(value) = value {
+            result.insert(key.clone(), serde_json::json!({"value":value}));
+        }
     }
     Ok(result)
 }
@@ -322,6 +346,28 @@ pub(crate) fn native_name(name: &str) -> anyhow::Result<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn explicit_layers_preserve_nested_and_dotted_values_without_inventing_defaults() {
+        let entries = [
+            "defaultThinkingLevel",
+            "lsp.enabled",
+            "modelRoles",
+            "unconfigured",
+        ]
+        .map(|key| (key.to_owned(), Value::Null))
+        .into_iter()
+        .collect();
+        let layer = configured_layer("defaultThinkingLevel: auto\nlsp:\n  enabled: false\nmodelRoles: {default: deepseek/model}\n", &entries).unwrap();
+        assert_eq!(layer["defaultThinkingLevel"]["value"], "auto");
+        assert_eq!(layer["lsp.enabled"]["value"], false);
+        assert_eq!(layer["modelRoles"]["value"]["default"], "deepseek/model");
+        assert!(!layer.contains_key("unconfigured"));
+        assert_eq!(
+            configured_layer("lsp.enabled: true", &entries).unwrap()["lsp.enabled"]["value"],
+            true
+        );
+        assert!(configured_layer("", &entries).unwrap().is_empty());
+    }
     #[test]
     fn enum_display_strips_terminal_styles() {
         assert_eq!(

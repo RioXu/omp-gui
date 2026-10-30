@@ -29,6 +29,7 @@ impl Workspace {
                 s.comments.push(Comment::new(anchor, text));
             }
         }
+        self.activate_document(None);
         self.pending_open = true;
         self.selected = None;
         gpui_kit::base::TextSelection::clear(window, cx);
@@ -63,6 +64,7 @@ impl Workspace {
                     let _ = s.reveal_range(range, cx);
                 }
             });
+            self.activate_document(None);
             self.list.scroll_to_reveal_item(row);
             self.selected = None;
             cx.notify();
@@ -87,7 +89,10 @@ impl Workspace {
             && let Ok(files) = DiffFile::parse(&stored.patch)
             && !files.is_empty()
         {
-            let state = cx.new(|cx| DiffState::new(files, cx));
+            let state = cx.new(|cx| {
+                DiffState::new(super::documents::searchable_diff(files), cx)
+                    .with_syntax_max_line_length(2 * 1024 * 1024)
+            });
             if let Some(lines) = &anchor.code_lines {
                 let range = DiffLineRange::new(
                     path.to_string_lossy().replace('\\', "/"),
@@ -126,6 +131,7 @@ impl Workspace {
             body,
             source: anchor.source,
         });
+        self.retain_historical_document();
         self.selected = None;
         cx.notify();
     }
@@ -133,27 +139,6 @@ impl Workspace {
         let Some(path) = self.viewed_path.clone() else {
             return;
         };
-        if self.demo {
-            self.open_file(path);
-            return;
-        }
-        self.clear_file_preview();
-        let request = id();
-        self.preview_request = Some(request.clone());
-        let Some(s) = self.session() else {
-            return;
-        };
-        let sid = s.id.clone();
-        let root = s.cwd().to_owned();
-        let tx = self.file_tx.clone();
-        std::thread::spawn(move || {
-            let result = project_files::read(&root, &path).map_err(|e| format!("{e:#}"));
-            let _ = tx.send(FileEvent::Current {
-                session: sid,
-                request,
-                path,
-                result,
-            });
-        });
+        self.open_document(path, false);
     }
 }

@@ -50,6 +50,14 @@ impl Workspace {
             });
         }
         let subscription = cx.subscribe_in(&input, window, |this, input, event, window, cx| {
+            if matches!(event, InputEvent::Change) {
+                this.completion_index = 0;
+                this.completion_dismissed = false;
+                if input.read(cx).value().contains('@') && this.files.is_empty() {
+                    this.refresh_files(cx);
+                }
+                cx.notify();
+            }
             if matches!(event, InputEvent::Change)
                 && let Some(s) = this.session_mut()
             {
@@ -71,7 +79,33 @@ impl Workspace {
             }
         });
         let (file_tx, file_rx) = mpsc::channel();
+        let input_observation = cx.observe(&input, |_, _, cx| cx.notify());
+        let activation_subscription = cx.observe_window_activation(window, |this, window, cx| {
+            if !window.is_window_active() {
+                gpui_kit::base::TextSelection::end(window, cx);
+                this.selection_dirty = true;
+            }
+        });
+        let search_input = cx.new(|cx| InputState::new(window, cx).placeholder("查找当前标签页"));
+        let search_subscription =
+            cx.subscribe_in(&search_input, window, |this, _, event, _, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.search_index = 0;
+                    this.update_search(true, cx);
+                }
+            });
         let mut this = Self {
+            search_input,
+            search_open: false,
+            search_scope: None,
+            search_source: String::new(),
+            diff_search_positions: Vec::new(),
+            search_hits: vec![],
+            search_index: 0,
+            search_documents: HashMap::new(),
+            slash_commands: vec![],
+            completion_index: 0,
+            completion_dismissed: false,
             transcript: vec![],
             tool_diffs: HashMap::new(),
             stopping: false,
@@ -103,6 +137,12 @@ impl Workspace {
             answer_input: cx.new(|cx| InputState::new(window, cx)),
             focus: cx.focus_handle(),
             texts: HashMap::new(),
+            documents: Vec::new(),
+            active_document: None,
+            file_watcher: None,
+            watched_session: String::new(),
+            files_changed_at: None,
+            last_files_scan: Instant::now(),
             panel_text: None,
             preview_request: None,
             panel_open: false,
@@ -126,6 +166,12 @@ impl Workspace {
             },
             error,
             models: vec![],
+            current_model: Value::Null,
+            thinking_levels: vec![],
+            thinking_levels_request: None,
+            thinking_auto: false,
+            thinking_entries_cursor: None,
+            pending_model_control: None,
             model_label: "默认模型".into(),
             thinking: "自动".into(),
             todos: vec![],
@@ -148,7 +194,12 @@ impl Workspace {
             last_state: Instant::now(),
             last_save: Instant::now(),
             dirty: false,
-            _subscriptions: vec![subscription],
+            _subscriptions: vec![
+                subscription,
+                input_observation,
+                search_subscription,
+                activation_subscription,
+            ],
             _data_lock: lock.ok(),
         };
         this.sync_texts(cx);

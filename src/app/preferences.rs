@@ -18,7 +18,6 @@ impl Workspace {
         if self.save_disabled {
             return;
         }
-        self.clear_file_preview();
         let cwd = self
             .session()
             .map(|s| s.cwd().to_owned())
@@ -45,6 +44,8 @@ impl Workspace {
                     crate::settings_ui::SettingsEvent::Saved => {
                         this.request_state();
                         this.command(json!({"type":"get_available_models","id":"models"}));
+                        this.request_thinking_levels();
+                        this.request_thinking_source();
                     }
                     crate::settings_ui::SettingsEvent::Reconnect => {
                         if !this.running {

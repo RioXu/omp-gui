@@ -55,7 +55,8 @@ impl Workspace {
             .id("work-panel-body")
             .flex_1()
             .min_h_0()
-            .p_3()
+            .px_1()
+            .py_2()
             .flex()
             .flex_col()
             .gap_2();
@@ -106,148 +107,171 @@ impl Workspace {
                     )));
                 }
             }
+            "变更" => {
+                if self.changed.is_empty() {
+                    body = body.child(
+                        div()
+                            .p_3()
+                            .text_sm()
+                            .text_color(theme.muted_foreground)
+                            .child("暂无文件变更"),
+                    );
+                } else {
+                    let paths = self.changed.clone();
+                    body = body.gap_0().child(
+                        uniform_list(
+                            "changed-files",
+                            paths.len(),
+                            cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
+                                range
+                                    .map(|ix| {
+                                        let path = paths[ix].clone();
+                                        let name = path
+                                            .file_name()
+                                            .unwrap_or_default()
+                                            .to_string_lossy()
+                                            .into_owned();
+                                        let parent = path
+                                            .parent()
+                                            .filter(|p| !p.as_os_str().is_empty())
+                                            .map(|p| p.to_string_lossy().replace('\\', "/"))
+                                            .unwrap_or_default();
+                                        ListItem::new(SharedString::from(format!(
+                                            "change-{}",
+                                            path.display()
+                                        )))
+                                        .accessibility_label(path.to_string_lossy().into_owned())
+                                        .h_8()
+                                        .rounded_none()
+                                        .selected(this.viewed_path.as_ref() == Some(&path))
+                                        .child(
+                                            div()
+                                                .flex()
+                                                .items_center()
+                                                .gap_2()
+                                                .min_w_0()
+                                                .flex_1()
+                                                .child(
+                                                    Icon::new(IconName::File)
+                                                        .size_4()
+                                                        .text_color(cx.theme().muted_foreground),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .text_sm()
+                                                        .text_color(cx.theme().success)
+                                                        .flex_shrink_0()
+                                                        .child(name),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .text_xs()
+                                                        .text_color(cx.theme().muted_foreground)
+                                                        .min_w_0()
+                                                        .truncate()
+                                                        .child(parent),
+                                                ),
+                                        )
+                                        .on_click(
+                                            cx.listener(move |this, _, _, cx| {
+                                                this.open_document(path.clone(), true);
+                                                cx.notify();
+                                            }),
+                                        )
+                                    })
+                                    .collect::<Vec<_>>()
+                            }),
+                        )
+                        .flex_1()
+                        .min_h_0(),
+                    );
+                }
+            }
             _ => {
                 let paths = if self.panel_tab == "文件" {
                     &self.files
                 } else {
                     &self.changed
                 };
-                body = body.child(
-                    Button::new("refresh-files")
-                        .ghost()
-                        .xsmall()
-                        .label(if self.loading_files {
-                            "正在刷新…"
-                        } else {
-                            "刷新文件"
-                        })
-                        .disabled(self.loading_files)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.refresh_files(cx);
-                            cx.notify();
-                        })),
-                );
                 let tree_state = if self.panel_tab == "文件" {
                     &self.file_tree
                 } else {
                     &self.change_tree
                 };
                 let weak = cx.entity().downgrade();
+                let active_path = self
+                    .viewed_path
+                    .as_ref()
+                    .map(|p| p.to_string_lossy().replace('\\', "/"));
+                let changes = self
+                    .changed
+                    .iter()
+                    .map(|p| p.to_string_lossy().replace('\\', "/"))
+                    .collect::<std::collections::HashSet<_>>();
                 body = body.child(
-                    div()
-                        .h(if self.panel_text.is_some() {
-                            rems(12.)
-                        } else {
-                            rems(32.)
-                        })
-                        .min_h(rems(6.))
-                        .flex_shrink_0()
-                        .child(
-                            Tree::new(tree_state, move |_, entry, _, _, cx| {
-                                let folder = entry.is_folder();
-                                let path = entry.item().id.to_string();
-                                let weak = weak.clone();
-                                ListItem::new(entry.item().id.clone())
-                                    .h_7()
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .items_center()
-                                            .gap_2()
-                                            .pl(px(entry.depth() as f32 * 14.))
-                                            .child(
-                                                Icon::new(if folder {
-                                                    if entry.is_expanded() {
-                                                        IconName::ChevronDown
-                                                    } else {
-                                                        IconName::ChevronRight
-                                                    }
-                                                } else {
-                                                    IconName::File
-                                                })
-                                                .size_4()
-                                                .text_color(cx.theme().muted_foreground),
-                                            )
-                                            .when(folder, |d| {
-                                                d.child(Icon::new(IconName::Folder).size_4())
-                                            })
-                                            .child(entry.item().label.clone()),
-                                    )
-                                    .when(!folder, |row| {
-                                        row.on_click(move |_, _, cx| {
-                                            let _ = weak.update(cx, |this, cx| {
-                                                this.open_file(path.clone().into());
-                                                cx.notify();
-                                            });
-                                        })
-                                    })
-                            })
-                            .size_full(),
-                        ),
-                );
-                if let Some(entry) = &self.panel_text {
-                    if let Some(quote) = &self.viewed_quote {
-                        body = body.child(
-                            div()
-                                .id("historical-quote")
-                                .max_h_24()
-                                .p_3()
-                                .rounded_md()
-                                .bg(theme.muted)
-                                .border_l_2()
-                                .border_color(theme.primary)
-                                .text_sm()
-                                .child("评论时选中的片段")
+                    div().flex_1().min_h_0().child(
+                        Tree::new(tree_state, move |_, entry, _, _, cx| {
+                            let folder = entry.is_folder();
+                            let path = entry.item().id.to_string();
+                            let weak = weak.clone();
+                            let modified = changes.contains(&path);
+                            ListItem::new(entry.item().id.clone())
+                                .h_7()
+                                .px_0()
+                                .py_0()
+                                .selected(!folder && active_path.as_deref() == Some(path.as_str()))
+                                .rounded_none()
                                 .child(
                                     div()
-                                        .mt_2()
-                                        .font_family("Cascadia Code")
-                                        .child(quote.clone())
-                                        .overflow_y_scrollbar(),
-                                ),
-                        );
-                    }
-                    body = body.child(
-                        div()
-                            .pt_3()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child(if self.historical {
-                                "评论时版本 · 原始引用保持不变"
-                            } else {
-                                "当前读取快照 · 后续修改不会覆盖它"
-                            }),
-                    );
-                    if self.viewed_path.is_some() {
-                        body = body.child(
-                            div().flex().gap_2().child(
-                                Button::new("current-code")
-                                    .ghost()
-                                    .xsmall()
-                                    .label("打开当前代码")
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.open_current();
-                                        cx.notify();
-                                    })),
-                            ),
-                        );
-                    }
-                    body = if let Some(diff) = &self.diff {
-                        body.child(
-                            div()
-                                .h(rems(30.))
-                                .min_h(rems(18.))
-                                .flex_shrink_0()
-                                .border_1()
-                                .border_color(theme.border)
-                                .rounded_md()
-                                .overflow_hidden()
-                                .child(Diff::new(diff).size_full()),
-                        )
-                    } else {
-                        body.child(TextView::new(&entry.state))
-                    };
-                } else if paths.is_empty() {
+                                        .relative()
+                                        .h_full()
+                                        .w_full()
+                                        .flex()
+                                        .items_center()
+                                        .text_sm()
+                                        .gap_2()
+                                        .pl(px(8. + entry.depth() as f32 * 16.))
+                                        .child(
+                                            Icon::new(if folder {
+                                                IconName::Folder
+                                            } else {
+                                                IconName::File
+                                            })
+                                            .size_4()
+                                            .text_color(cx.theme().muted_foreground),
+                                        )
+                                        .children((0..entry.depth()).map(|level| {
+                                            div()
+                                                .absolute()
+                                                .left(px(16. + level as f32 * 16.))
+                                                .top_0()
+                                                .bottom_0()
+                                                .w_px()
+                                                .bg(cx.theme().border.opacity(0.55))
+                                        }))
+                                        .child(
+                                            div()
+                                                .min_w_0()
+                                                .truncate()
+                                                .when(modified && !folder, |d| {
+                                                    d.text_color(cx.theme().success)
+                                                })
+                                                .child(entry.item().label.clone()),
+                                        ),
+                                )
+                                .when(!folder, |row| {
+                                    row.on_click(move |_, _, cx| {
+                                        let _ = weak.update(cx, |this, cx| {
+                                            this.open_file(path.clone().into());
+                                            cx.notify();
+                                        });
+                                    })
+                                })
+                        })
+                        .size_full(),
+                    ),
+                );
+                if paths.is_empty() {
                     body = body.child(
                         div()
                             .text_sm()
@@ -257,7 +281,11 @@ impl Workspace {
                 }
             }
         }
-        panel = panel.child(body.overflow_y_scrollbar());
+        panel = panel.child(if matches!(self.panel_tab, "文件" | "变更") {
+            body.into_any_element()
+        } else {
+            body.overflow_y_scrollbar().into_any_element()
+        });
         panel.into_any_element()
     }
 }

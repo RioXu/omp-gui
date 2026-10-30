@@ -40,11 +40,58 @@ fn main() {
         return;
     }
     let project = option("--project").map(std::path::PathBuf::from);
-    application().with_assets(assets::Assets).run(move |cx| {
+    application().with_assets(assets::AllAssets).run(move |cx| {
         init(cx);
         cx.bind_keys([
+            KeyBinding::new(
+                "tab",
+                app::AcceptCompletion,
+                Some("Workspace > ComposerCompletion > Input"),
+            ),
+            KeyBinding::new(
+                "enter",
+                app::AcceptCompletion,
+                Some("Workspace > ComposerCompletion > Input"),
+            ),
+            KeyBinding::new(
+                "down",
+                app::NextCompletion,
+                Some("Workspace > ComposerCompletion > Input"),
+            ),
+            KeyBinding::new(
+                "up",
+                app::PreviousCompletion,
+                Some("Workspace > ComposerCompletion > Input"),
+            ),
+            KeyBinding::new(
+                "escape",
+                app::DismissCompletion,
+                Some("Workspace > ComposerCompletion > Input"),
+            ),
+            KeyBinding::new(
+                "escape",
+                app::DismissCompletion,
+                Some("Workspace > ComposerHint > Input"),
+            ),
+            KeyBinding::new(
+                "enter",
+                app::NextSearchMatch,
+                Some("Workspace > SessionSearch > Input"),
+            ),
+            KeyBinding::new(
+                "shift-enter",
+                app::PreviousSearchMatch,
+                Some("Workspace > SessionSearch > Input"),
+            ),
+            KeyBinding::new(
+                "escape",
+                app::CloseSearch,
+                Some("Workspace > SessionSearch"),
+            ),
+            KeyBinding::new("ctrl-f", app::FindInSession, Some("Workspace")),
+            KeyBinding::new("ctrl-f", app::FindInSession, Some("Workspace > Input")),
             KeyBinding::new("ctrl-enter", app::SendPrompt, Some("Workspace")),
-            KeyBinding::new("ctrl-enter", app::SendPrompt, Some("Workspace && Input")),
+            KeyBinding::new("ctrl-enter", app::SendPrompt, Some("Workspace > Input")),
             KeyBinding::new("ctrl-alt-m", app::AddComment, Some("Workspace")),
             KeyBinding::new("ctrl-shift-b", app::TogglePanel, Some("Workspace")),
             KeyBinding::new("ctrl-n", app::NewSession, Some("Workspace")),

@@ -77,6 +77,22 @@ const CATEGORIES: [&str; 10] = [
     "更多设置",
 ];
 impl SettingsView {
+    pub(crate) fn navigate(
+        &mut self,
+        category: &'static str,
+        query: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.category = category;
+        self.registry = None;
+        self.search.update(cx, |input, cx| {
+            input.set_value(query.to_owned(), window, cx)
+        });
+        self.rows_scroll.scroll_to_item(0, ScrollStrategy::Top);
+        self.prepare_controls(window, cx);
+        cx.notify();
+    }
     fn open_registry(&mut self, web: bool, w: &mut Window, cx: &mut Context<Self>) {
         let registry = cx.new(|cx| {
             crate::registry_ui::RegistryView::new(

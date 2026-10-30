@@ -15,6 +15,8 @@ const MAX_FRAME: usize = 1024 * 1024;
 #[cfg(test)]
 mod control_test;
 #[cfg(test)]
+mod input_test;
+#[cfg(test)]
 mod live_test;
 const MAX_MESSAGE: usize = 64 * 1024 * 1024;
 #[derive(Default)]

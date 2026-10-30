@@ -11,6 +11,9 @@ impl Workspace {
             return;
         }
         let text = self.input.read(cx).value().trim_end().to_string();
+        if self.route_settings_command(&text, window, cx) {
+            return;
+        }
         let Some(s) = self.session() else {
             self.open_project(window, cx);
             return;
@@ -111,11 +114,16 @@ impl Workspace {
         self.active = Some(ix);
         self.db.active = Some(self.db.sessions[ix].id.clone());
         self.texts.clear();
+        self.search_hits.clear();
+        self.search_index = 0;
+        self.completion_dismissed = false;
         self.transcript.clear();
         self.tool_diffs.clear();
         self.expanded_process.clear();
         self.list.reset(0);
         self.clear_file_preview();
+        self.documents.clear();
+        self.active_document = None;
         self.settings_view = None;
         self.follow_up = None;
         self.files.clear();
@@ -187,10 +195,16 @@ impl Workspace {
             self.active = None;
             self.db.active = None;
             self.texts.clear();
+            self.search_hits.clear();
+            self.search_documents.clear();
+            self.slash_commands.clear();
+            self.files.clear();
             self.transcript.clear();
             self.tool_diffs.clear();
             self.list.reset(0);
             self.clear_file_preview();
+            self.documents.clear();
+            self.active_document = None;
             self.input.update(cx, |i, cx| i.set_value("", window, cx));
         } else {
             self.active = active_id.and_then(|id| self.db.sessions.iter().position(|s| s.id == id));

@@ -1,8 +1,7 @@
 use super::*;
+use notify::{EventKind, RecursiveMode, Watcher};
 
 impl Workspace {
-    /// A preview belongs to the current panel visit, not to the session history.
-    /// Invalidating its request also discards reads that finish after navigation.
     pub fn clear_file_preview(&mut self) {
         self.preview_request = None;
         self.panel_text = None;
@@ -15,34 +14,74 @@ impl Workspace {
     }
 
     pub fn select_panel(&mut self, tab: &'static str) {
-        if self.panel_tab != tab {
-            self.clear_file_preview();
-            self.panel_tab = tab;
-        }
+        self.panel_tab = tab;
         self.panel_open = true;
     }
 
     pub fn close_panel(&mut self) {
-        self.clear_file_preview();
         self.panel_open = false;
+    }
+
+    pub(super) fn watch_files(&mut self) {
+        let sid = self.session().map(|s| s.id.clone()).unwrap_or_default();
+        if sid == self.watched_session {
+            return;
+        }
+        self.file_watcher = None;
+        self.watched_session = sid.clone();
+        self.loading_files = false;
+        self.files_changed_at = Some(Instant::now());
+        let Some(s) = self.session() else {
+            return;
+        };
+        let root = s.cwd().to_owned();
+        let watched_root = root.clone();
+        let tx = self.file_tx.clone();
+        if self.demo {
+            return;
+        }
+        let mut watcher =
+            match notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+                let relevant = match event {
+                    Ok(e) => {
+                        !matches!(e.kind, EventKind::Access(_))
+                            && e.paths.iter().any(|p| {
+                                p.strip_prefix(&watched_root)
+                                    .map_or(true, |p| !ignored_watch_path(p))
+                            })
+                    }
+                    Err(_) => true,
+                };
+                if relevant {
+                    let _ = tx.send(FileEvent::Changed {
+                        session: sid.clone(),
+                    });
+                }
+            }) {
+                Ok(w) => w,
+                Err(_) => return,
+            };
+        if watcher.watch(&root, RecursiveMode::Recursive).is_ok() {
+            self.file_watcher = Some(watcher);
+        }
     }
 
     pub fn refresh_files(&mut self, cx: &mut Context<Self>) {
         if self.loading_files {
             return;
         }
+        self.last_files_scan = Instant::now();
+        self.files_changed_at = None;
         if self.demo {
             if let Some(s) = self.session() {
                 self.changed = s.snapshots.values().map(|s| s.path.clone()).collect();
                 self.changed.sort();
                 self.changed.dedup();
                 self.files = self.changed.clone();
-                self.file_tree.update(cx, |t, cx| {
-                    t.set_items(crate::file_tree::items(&self.files), cx)
-                });
-                self.change_tree.update(cx, |t, cx| {
-                    t.set_items(crate::file_tree::items(&self.changed), cx)
-                });
+                self.file_tree
+                    .update(cx, |t, cx| crate::file_tree::update(t, &self.files, cx));
+                self.change_tree
+                    .update(cx, |t, cx| crate::file_tree::update(t, &self.changed, cx));
             }
             return;
         }
@@ -54,76 +93,48 @@ impl Workspace {
         let tx = self.file_tx.clone();
         self.loading_files = true;
         std::thread::spawn(move || {
-            for changed in [true, false] {
-                let result = project_files::list(&project, changed).map_err(|e| format!("{e:#}"));
-                let _ = tx.send(FileEvent::List {
-                    session: sid.clone(),
-                    changed,
-                    result,
-                });
-            }
-        });
-    }
-    pub fn open_file(&mut self, path: PathBuf) {
-        self.clear_file_preview();
-        let request = id();
-        self.preview_request = Some(request.clone());
-        if self.demo {
-            let snapshot = self
-                .session()
-                .and_then(|s| s.snapshots.values().find(|n| n.path == path))
-                .cloned();
-            if let Some(snapshot) = snapshot {
-                let _ = self.file_tx.send(FileEvent::Snapshot {
-                    session: self.session().unwrap().id.clone(),
-                    request,
-                    result: Ok(snapshot),
-                });
-            }
-            return;
-        }
-        let Some(s) = self.session() else {
-            return;
-        };
-        let sid = s.id.clone();
-        let root = s.cwd().to_owned();
-        let tx = self.file_tx.clone();
-        self.status = "正在读取文件…".into();
-        std::thread::spawn(move || {
-            let result = project_files::snapshot(&root, &path).map_err(|e| format!("{e:#}"));
-            let _ = tx.send(FileEvent::Snapshot {
+            let result = (|| {
+                Ok((
+                    project_files::list(&project, false)?,
+                    project_files::list(&project, true)?,
+                ))
+            })()
+            .map_err(|e: anyhow::Error| format!("{e:#}"));
+            let _ = tx.send(FileEvent::Lists {
                 session: sid,
-                request,
                 result,
             });
         });
+        let keys = self
+            .documents
+            .iter()
+            .filter(|t| !t.historical)
+            .map(|t| t.key.clone())
+            .collect::<Vec<_>>();
+        for key in keys {
+            self.read_document(&key);
+        }
     }
-    pub fn on_file(&mut self, event: FileEvent, cx: &mut Context<Self>) {
+
+    pub fn on_file(&mut self, event: FileEvent, window: &mut Window, cx: &mut Context<Self>) {
         let sid = self.session().map(|s| s.id.clone()).unwrap_or_default();
         match event {
-            FileEvent::List {
-                session,
-                changed,
-                result,
-            } if session == sid => {
+            FileEvent::Changed { session } if session == sid => {
+                self.files_changed_at.get_or_insert_with(Instant::now);
+            }
+            FileEvent::Lists { session, result } if session == sid => {
                 self.loading_files = false;
                 match result {
-                    Ok(paths) => {
-                        let tree = if changed {
-                            self.change_tree.clone()
-                        } else {
-                            self.file_tree.clone()
-                        };
-                        let current = if changed { &self.changed } else { &self.files };
-                        if current != &paths {
-                            tree.update(cx, |t, cx| {
-                                t.set_items(crate::file_tree::items(&paths), cx)
-                            });
+                    Ok((files, changed)) => {
+                        if self.files != files {
+                            self.file_tree
+                                .update(cx, |t, cx| crate::file_tree::update(t, &files, cx));
+                            self.files = files;
                         }
-                        if changed {
-                            self.changed = paths
-                        } else {
-                            self.files = paths
+                        if self.changed != changed {
+                            self.change_tree
+                                .update(cx, |t, cx| crate::file_tree::update(t, &changed, cx));
+                            self.changed = changed;
                         }
                     }
                     Err(e) => self.error = Some(e),
@@ -133,74 +144,17 @@ impl Workspace {
                 session,
                 request,
                 result,
-            } if session == sid && self.preview_request.as_ref() == Some(&request) => {
-                match result {
-                    Ok(snapshot) => {
-                        self.viewed_quote = None;
-                        self.diff = if self.panel_tab == "变更" && !snapshot.patch.is_empty() {
-                            DiffFile::parse(&snapshot.patch)
-                                .ok()
-                                .map(|files| cx.new(|cx| DiffState::new(files, cx)))
-                        } else {
-                            None
-                        };
-                        self.selected = None;
-                        self.viewed_path = Some(snapshot.path.clone());
-                        self.viewed_snapshot = Some(snapshot.id.clone());
-                        self.historical = false;
-                        let body = if self.panel_tab == "文件" {
-                            fenced(&snapshot.text, "")
-                        } else {
-                            snapshot.document()
-                        };
-                        let source = Source::File {
-                            path: snapshot.path.clone(),
-                            snapshot: snapshot.id.clone(),
-                        };
-                        self.panel_text = Some(TextEntry {
-                            state: cx.new(|cx| TextViewState::markdown(&body, cx).selectable(true)),
-                            body,
-                            source,
-                        });
-                        if let Some(entry) = &self.panel_text {
-                            highlight_diff(entry, cx);
-                        }
-                        if let Some(s) = self.session_mut() {
-                            s.snapshots.insert(snapshot.id.clone(), snapshot);
-                        }
-                        self.dirty = true;
-                        self.status = "文件已载入".into();
-                    }
-                    Err(e) => self.error = Some(e),
-                }
-            }
-            FileEvent::Current {
-                session,
-                request,
-                path,
-                result,
-            } if session == sid && self.preview_request.as_ref() == Some(&request) => {
-                match result {
-                    Ok(text) => {
-                        self.viewed_quote = None;
-                        self.diff = None;
-                        let body = fenced(&text, "");
-                        self.viewed_path = Some(path.clone());
-                        self.historical = false;
-                        self.panel_text = Some(TextEntry {
-                            state: cx
-                                .new(|cx| TextViewState::markdown(&body, cx).selectable(false)),
-                            body,
-                            source: Source::File {
-                                path,
-                                snapshot: String::new(),
-                            },
-                        });
-                    }
-                    Err(e) => self.error = Some(e),
-                }
-            }
+            } if session == sid => self.finish_document(&request, result, window, cx),
             _ => {}
         }
     }
+}
+
+fn ignored_watch_path(path: &std::path::Path) -> bool {
+    path.components().any(|c| {
+        matches!(
+            c.as_os_str().to_str(),
+            Some("target" | "node_modules" | ".venv")
+        )
+    })
 }

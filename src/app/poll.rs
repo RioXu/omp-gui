@@ -55,10 +55,36 @@ impl Workspace {
             self.sync_texts(cx);
             self.text_update_pending = false;
         }
+        // Markdown parsing can finish after the stream update that scheduled it.
+        if self.search_open
+            && (self.search_scope != self.active_document
+                || (self.active_document.is_none()
+                    && self.texts.iter().any(|(id, entry)| {
+                        self.search_documents.get(id) != Some(&entry.state.read(cx).rendered_text())
+                    }))
+                || self
+                    .documents
+                    .iter()
+                    .find(|t| Some(&t.key) == self.active_document.as_ref())
+                    .and_then(|t| t.entry.as_ref())
+                    .is_some_and(|entry| entry.body != self.search_source))
+        {
+            self.update_search(false, cx);
+        }
         let file_events = self.file_rx.try_iter().collect::<Vec<_>>();
         changed |= !file_events.is_empty();
         for event in file_events {
-            self.on_file(event, cx);
+            self.on_file(event, window, cx);
+        }
+
+        self.watch_files();
+        if self
+            .files_changed_at
+            .is_some_and(|at| at.elapsed() >= Duration::from_millis(250))
+            || self.last_files_scan.elapsed()
+                > Duration::from_secs(if self.file_watcher.is_some() { 30 } else { 5 })
+        {
+            self.refresh_files(cx);
         }
 
         for e in self.persistence.errors.try_iter() {
@@ -85,7 +111,12 @@ impl Workspace {
             let entries = active_ids
                 .iter()
                 .filter_map(|id| self.texts.get(id))
-                .chain(self.panel_text.as_ref().filter(|_| self.panel_open));
+                .filter(|_| self.active_document.is_none())
+                .chain(
+                    self.panel_text
+                        .as_ref()
+                        .filter(|_| self.active_document.is_some()),
+                );
             for entry in entries {
                 let state = entry.state.read(cx);
                 if !state.is_selecting() {
@@ -99,7 +130,28 @@ impl Workspace {
                     }
                 }
             }
-            if self.panel_open
+            if let Some(tab) = self
+                .documents
+                .iter()
+                .find(|t| Some(&t.key) == self.active_document.as_ref())
+                && let Some(editor) = &tab.editor
+                && tab.diff.is_none()
+                && let Some(entry) = &tab.entry
+            {
+                let editor = editor.read(cx);
+                let range = editor.selected_range();
+                if !range.is_empty() {
+                    let offset = entry.body.find('\n').map(|i| i + 1).unwrap_or(0);
+                    selected = Anchor::new(
+                        entry.source.clone(),
+                        entry.body.clone(),
+                        (range.start + offset)..(range.end + offset),
+                        editor.selected_text().to_string(),
+                    )
+                    .ok();
+                }
+            }
+            if self.active_document.is_some()
                 && let Some(diff) = &self.diff
             {
                 let quote = diff.read(cx).selected_text(cx);

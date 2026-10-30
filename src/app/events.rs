@@ -12,9 +12,13 @@ impl Workspace {
                     json!({"type":"set_subagent_subscription","id":"subagents","level":"progress"}),
                 );
                 self.command(json!({"type":"get_available_models","id":"models"}));
+                self.command(json!({"type":"get_available_commands","id":"commands"}));
                 self.request_state();
             }
             "response" => {
+                if self.on_model_control(&f) {
+                    return;
+                }
                 if f["success"] == false {
                     let command = f["command"].as_str().unwrap_or("");
                     if ![
@@ -39,6 +43,12 @@ impl Workspace {
                     return;
                 }
                 match f["command"].as_str().unwrap_or("") {
+                    "get_available_commands" => {
+                        self.slash_commands = f["data"]["commands"]
+                            .as_array()
+                            .cloned()
+                            .unwrap_or_default();
+                    }
                     "promote_queued_message" => {
                         self.steering_request = None;
                         self.status = if f["data"]["promoted"] == true {
@@ -81,6 +91,13 @@ impl Workspace {
                             "本地 OMP 已连接".into()
                         };
                         self.model_label = d["model"]["id"].as_str().unwrap_or("未配置模型").into();
+                        let model_changed = super::models::model_key(&self.current_model)
+                            != super::models::model_key(&d["model"]);
+                        self.current_model = d["model"].clone();
+                        if model_changed {
+                            self.request_thinking_levels();
+                            self.request_thinking_source();
+                        }
                         self.thinking = d["thinkingLevel"].as_str().unwrap_or("自动").into();
                         self.context_percent = d["contextUsage"]["percent"].as_f64().unwrap_or(0.);
                         self.context_limit = d["contextUsage"]["contextWindow"]
@@ -119,11 +136,22 @@ impl Workspace {
                             .cloned()
                             .unwrap_or_default();
                     }
-                    "prompt" => self.accept_submission(&f, window, cx),
+                    "prompt" => {
+                        self.accept_submission(&f, window, cx);
+                        if f["data"]["agentInvoked"] == false {
+                            self.request_thinking_source();
+                        }
+                    }
                     "abort_and_restore_queue" => self.restore_queue(&f, window, cx),
-                    "set_model" | "set_thinking_level" => self.request_state(),
+                    "set_model" | "set_thinking_level" => {
+                        self.request_state();
+                        self.request_thinking_source();
+                    }
                     _ => {}
                 }
+            }
+            "available_commands_update" => {
+                self.slash_commands = f["commands"].as_array().cloned().unwrap_or_default();
             }
             "agent_start" => {
                 self.running = true;

@@ -12,12 +12,18 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
 anyhow = "1"
 similar = "2"
+ropey = "=2.0.0-beta.1"
+notify = "=8.2.1"
 base64 = "0.22"
 sha2 = "0.10"
 yaml-edit = "0.3.5"
 serde_yaml_ng = "0.10"
 chrono = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+
+[dev-dependencies]
+# Exercise pointer events through the same native runtime reexported by gpui-kit.
+gpui-test-runtime = { package = "gpui-pre", version = "=0.3.10", features = ["test-support"] }
 
 [profile.dev]
 debug = 0

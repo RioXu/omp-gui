@@ -4,13 +4,19 @@ mod theme;
 use demo::demo_session;
 pub(crate) use theme::apply_accent;
 mod comments;
+mod completion;
 mod connection;
+mod document_search;
+pub(crate) mod documents;
 mod events;
 mod files;
+pub(crate) mod models;
 mod poll;
 mod preferences;
 mod queue;
+mod search;
 mod sessions;
+mod settings_commands;
 mod submission;
 mod transcript;
 use submission::{PendingSubmission, SubmittedInput};
@@ -25,7 +31,7 @@ use crate::{
 use gpui_kit::component::{
     ActiveTheme, Theme, ThemeMode, WindowExt,
     diff::{DiffFile, DiffLineRange, DiffSide, DiffState},
-    input::{InputEvent, InputState, TextareaState},
+    input::{EditorState, InputEvent, InputState, TextareaState},
     text::{RangeHighlight, TextViewState},
     tree::TreeState,
 };
@@ -40,34 +46,62 @@ use std::{
 
 actions!(
     omp_gui,
-    [SendPrompt, AddComment, TogglePanel, NewSession, OpenProject]
+    [
+        SendPrompt,
+        AddComment,
+        TogglePanel,
+        NewSession,
+        OpenProject,
+        FindInSession,
+        AcceptCompletion,
+        NextCompletion,
+        PreviousCompletion,
+        DismissCompletion,
+        NextSearchMatch,
+        PreviousSearchMatch,
+        CloseSearch
+    ]
 );
 
+#[derive(Clone)]
 pub(crate) struct TextEntry {
     pub state: Entity<TextViewState>,
     pub body: String,
     pub source: Source,
 }
 pub(crate) enum FileEvent {
-    List {
+    Changed {
         session: String,
-        changed: bool,
-        result: Result<Vec<PathBuf>, String>,
+    },
+    Lists {
+        session: String,
+        result: Result<(Vec<PathBuf>, Vec<PathBuf>), String>,
     },
     Snapshot {
         session: String,
         request: String,
         result: Result<Snapshot, String>,
     },
-    Current {
-        session: String,
-        request: String,
-        path: PathBuf,
-        result: Result<String, String>,
-    },
 }
 
 pub(crate) struct Workspace {
+    pub documents: Vec<documents::DocumentTab>,
+    pub active_document: Option<String>,
+    pub file_watcher: Option<notify::RecommendedWatcher>,
+    pub watched_session: String,
+    pub files_changed_at: Option<Instant>,
+    pub last_files_scan: Instant,
+    pub search_input: Entity<InputState>,
+    pub search_open: bool,
+    pub search_scope: Option<String>,
+    pub search_source: String,
+    pub diff_search_positions: Vec<gpui_kit::component::diff::DiffLinePosition>,
+    pub search_hits: Vec<(String, std::ops::Range<usize>)>,
+    pub search_index: usize,
+    pub search_documents: HashMap<String, gpui_kit::component::text::RenderedText>,
+    pub slash_commands: Vec<Value>,
+    pub completion_index: usize,
+    pub completion_dismissed: bool,
     pub transcript: Vec<TranscriptRow>,
     pub tool_diffs: HashMap<String, Entity<DiffState>>,
     pub stopping: bool,
@@ -111,6 +145,12 @@ pub(crate) struct Workspace {
     pub status: String,
     pub error: Option<String>,
     pub models: Vec<Value>,
+    pub current_model: Value,
+    pub thinking_levels: Vec<String>,
+    pub thinking_levels_request: Option<String>,
+    pub thinking_auto: bool,
+    pub thinking_entries_cursor: Option<String>,
+    pub pending_model_control: Option<(String, Option<String>)>,
     pub model_label: String,
     pub thinking: String,
     pub todos: Vec<Value>,
@@ -183,6 +223,9 @@ impl Workspace {
         }
         self.transcript = transcript_rows(messages);
         self.refresh_transcript();
+        if self.search_open {
+            self.update_search(false, cx);
+        }
     }
 }
 
@@ -190,39 +233,4 @@ impl Drop for Workspace {
     fn drop(&mut self) {
         self.persist();
     }
-}
-
-fn highlight_diff(entry: &TextEntry, cx: &mut App) {
-    if !entry
-        .body
-        .lines()
-        .next()
-        .is_some_and(|l| l.ends_with("diff"))
-    {
-        return;
-    }
-    let added = cx.theme().success.opacity(0.14);
-    let removed = cx.theme().danger.opacity(0.12);
-    entry.state.update(cx, |s, cx| {
-        let rendered = s.rendered_text();
-        let mut offset = 0;
-        let mut highlights = Vec::new();
-        for line in entry.body.split_inclusive('\n') {
-            let color = if line.starts_with('+') && !line.starts_with("+++") {
-                Some(added)
-            } else if line.starts_with('-') && !line.starts_with("---") {
-                Some(removed)
-            } else {
-                None
-            };
-            if let Some(color) = color
-                && let Some(range) =
-                    rendered.range_for_source(offset..offset + line.trim_end_matches('\n').len())
-            {
-                highlights.push(RangeHighlight::new(range, color));
-            }
-            offset += line.len();
-        }
-        let _ = s.set_range_highlights(highlights, cx);
-    });
 }
