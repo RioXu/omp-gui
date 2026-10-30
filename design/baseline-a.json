@@ -1,0 +1,20 @@
+{
+  "name": "方案 A",
+  "status": "方案 A + Delta 式评论留痕 v3，用户已设为正式基线并授权实现",
+  "recorded_on": "2026-10-30",
+  "layout": "简洁会话布局，以项目、会话列表和主对话为中心",
+  "advanced_features": "收进按钮或菜单，按需展开，不默认展示",
+  "code_review": {
+    "complex_review": "交给外部 IDE，不在 OMP GUI 内建设复杂代码审查工作台",
+    "retain": "评论选定变更"
+  },
+  "terminology": {
+    "subagent": "子智能体",
+    "avoid_for_subagent": "代理"
+  },
+  "excluded": [
+    "多人协作"
+  ],
+  "current_exploration": "已确认，以 design/baseline.html 与 delta-integration.json 为准",
+  "workflow": "2026-10-30 开始实现；调用本机 OMP，复用既有配置；默认在所选项目目录执行，与 IDE 共享"
+}

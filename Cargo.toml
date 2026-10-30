@@ -1,0 +1,29 @@
+[package]
+name = "omp-gui"
+version = "0.3.0"
+edition = "2024"
+description = "A native Windows workspace for Oh My Pi"
+license = "MIT"
+
+[dependencies]
+gpui-kit = "=0.8.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+anyhow = "1"
+similar = "2"
+base64 = "0.22"
+sha2 = "0.10"
+yaml-edit = "0.3.5"
+serde_yaml_ng = "0.10"
+chrono = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+
+[profile.dev]
+debug = 0
+incremental = true
+
+[profile.release]
+strip = true
+lto = false
+
