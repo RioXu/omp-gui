@@ -30,3 +30,6 @@ use gpui_kit::component::{
 use gpui_kit::{prelude::FluentBuilder, *};
 #[derive(Clone)]
 struct ResizeSide(bool);
+
+mod changed_files;
+use changed_files::change_color;

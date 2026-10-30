@@ -44,32 +44,20 @@ pub(crate) fn snapshot(root: &Path, path: &Path) -> anyhow::Result<Snapshot> {
         .unwrap_or_default();
     Ok(Snapshot::new(path.to_owned(), before, text))
 }
-pub(crate) fn list(root: &Path, changed: bool) -> anyhow::Result<Vec<PathBuf>> {
-    let args = if changed {
-        vec!["diff", "--name-only", "-z", "HEAD", "--"]
-    } else {
-        vec![
+pub(crate) fn list(root: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    let out = hidden_command("git")
+        .args([
             "ls-files",
             "-z",
             "--cached",
             "--others",
             "--exclude-standard",
-        ]
-    };
-    let out = hidden_command("git")
-        .args(args)
+        ])
         .current_dir(root)
         .output()?;
     let mut paths = Vec::new();
     if out.status.success() {
         paths.extend(split_paths(&out.stdout));
-        if changed {
-            let untracked = hidden_command("git")
-                .args(["ls-files", "-z", "--others", "--exclude-standard"])
-                .current_dir(root)
-                .output()?;
-            paths.extend(split_paths(&untracked.stdout));
-        }
     } else {
         walk(root, root, &mut paths, 0)?;
     }

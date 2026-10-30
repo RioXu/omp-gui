@@ -108,96 +108,11 @@ impl Workspace {
                 }
             }
             "变更" => {
-                if self.document_state.changes.is_empty() {
-                    body = body.child(
-                        div()
-                            .p_3()
-                            .text_sm()
-                            .text_color(theme.muted_foreground)
-                            .child("暂无文件变更"),
-                    );
-                } else {
-                    let paths = self.document_state.changes.clone();
-                    body = body.gap_0().child(
-                        uniform_list(
-                            "changed-files",
-                            paths.len(),
-                            cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
-                                range
-                                    .map(|ix| {
-                                        let path = paths[ix].clone();
-                                        let name = path
-                                            .file_name()
-                                            .unwrap_or_default()
-                                            .to_string_lossy()
-                                            .into_owned();
-                                        let parent = path
-                                            .parent()
-                                            .filter(|p| !p.as_os_str().is_empty())
-                                            .map(|p| p.to_string_lossy().replace('\\', "/"))
-                                            .unwrap_or_default();
-                                        ListItem::new(SharedString::from(format!(
-                                            "change-{}",
-                                            path.display()
-                                        )))
-                                        .accessibility_label(path.to_string_lossy().into_owned())
-                                        .h_8()
-                                        .rounded_none()
-                                        .selected(this.document_state.path.as_ref() == Some(&path))
-                                        .child(
-                                            div()
-                                                .flex()
-                                                .items_center()
-                                                .gap_2()
-                                                .min_w_0()
-                                                .flex_1()
-                                                .child(
-                                                    Icon::new(IconName::File)
-                                                        .size_4()
-                                                        .text_color(cx.theme().muted_foreground),
-                                                )
-                                                .child(
-                                                    div()
-                                                        .text_sm()
-                                                        .text_color(cx.theme().success)
-                                                        .flex_shrink_0()
-                                                        .child(name),
-                                                )
-                                                .child(
-                                                    div()
-                                                        .text_xs()
-                                                        .text_color(cx.theme().muted_foreground)
-                                                        .min_w_0()
-                                                        .truncate()
-                                                        .child(parent),
-                                                ),
-                                        )
-                                        .on_click(
-                                            cx.listener(move |this, _, _, cx| {
-                                                this.open_document(path.clone(), true);
-                                                cx.notify();
-                                            }),
-                                        )
-                                    })
-                                    .collect::<Vec<_>>()
-                            }),
-                        )
-                        .flex_1()
-                        .min_h_0(),
-                    );
-                }
+                body = body.gap_0().child(self.render_changes(cx));
             }
             _ => {
-                let paths = if self.panel_tab == "文件" {
-                    &self.document_state.files
-                } else {
-                    &self.document_state.changes
-                };
-                let tree_state = if self.panel_tab == "文件" {
-                    &self.document_state.tree
-                } else {
-                    &self.document_state.change_tree
-                };
+                let paths = &self.document_state.files;
+                let tree_state = &self.document_state.tree;
                 let weak = cx.entity().downgrade();
                 let active_path = self
                     .document_state
@@ -208,15 +123,15 @@ impl Workspace {
                     .document_state
                     .changes
                     .iter()
-                    .map(|p| p.to_string_lossy().replace('\\', "/"))
-                    .collect::<std::collections::HashSet<_>>();
+                    .map(|c| (c.path.to_string_lossy().replace('\\', "/"), c.kind))
+                    .collect::<std::collections::HashMap<_, _>>();
                 body = body.child(
                     div().flex_1().min_h_0().child(
                         Tree::new(tree_state, move |_, entry, _, _, cx| {
                             let folder = entry.is_folder();
                             let path = entry.item().id.to_string();
                             let weak = weak.clone();
-                            let modified = changes.contains(&path);
+                            let kind = changes.get(&path).copied();
                             ListItem::new(entry.item().id.clone())
                                 .h_7()
                                 .px_0()
@@ -255,8 +170,8 @@ impl Workspace {
                                             div()
                                                 .min_w_0()
                                                 .truncate()
-                                                .when(modified && !folder, |d| {
-                                                    d.text_color(cx.theme().success)
+                                                .when_some(kind.filter(|_| !folder), |d, kind| {
+                                                    d.text_color(change_color(kind, cx))
                                                 })
                                                 .child(entry.item().label.clone()),
                                         ),

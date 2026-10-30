@@ -1,4 +1,5 @@
 use super::*;
+use crate::infrastructure::filesystem::changes::{self, ChangeKind, ChangedFile};
 use notify::{EventKind, RecursiveMode, Watcher};
 
 impl Workspace {
@@ -73,22 +74,28 @@ impl Workspace {
         self.document_state.refresh_pending = None;
         if self.demo {
             if let Some(s) = self.session() {
-                self.document_state.changes =
-                    s.snapshots.values().map(|s| s.path.clone()).collect();
-                self.document_state.changes.sort();
+                self.document_state.changes = s
+                    .snapshots
+                    .values()
+                    .map(|s| ChangedFile {
+                        path: s.path.clone(),
+                        kind: ChangeKind::Modified,
+                    })
+                    .collect();
+                self.document_state
+                    .changes
+                    .sort_by(|a, b| a.path.cmp(&b.path));
                 self.document_state.changes.dedup();
-                self.document_state.files = self.document_state.changes.clone();
+                self.document_state.files = self
+                    .document_state
+                    .changes
+                    .iter()
+                    .map(|c| c.path.clone())
+                    .collect();
                 self.document_state.tree.update(cx, |t, cx| {
                     crate::desktop::workspace::documents::file_tree::update(
                         t,
                         &self.document_state.files,
-                        cx,
-                    )
-                });
-                self.document_state.change_tree.update(cx, |t, cx| {
-                    crate::desktop::workspace::documents::file_tree::update(
-                        t,
-                        &self.document_state.changes,
                         cx,
                     )
                 });
@@ -103,13 +110,8 @@ impl Workspace {
         let tx = self.document_state.tx.clone();
         self.document_state.loading = true;
         std::thread::spawn(move || {
-            let result = (|| {
-                Ok((
-                    project_files::list(&project, false)?,
-                    project_files::list(&project, true)?,
-                ))
-            })()
-            .map_err(|e: anyhow::Error| format!("{e:#}"));
+            let result = (|| Ok((project_files::list(&project)?, changes::list(&project)?)))()
+                .map_err(|e: anyhow::Error| format!("{e:#}"));
             let _ = tx.send(FileEvent::Lists {
                 session: sid,
                 result,
@@ -153,11 +155,6 @@ impl Workspace {
                             self.document_state.files = files;
                         }
                         if self.document_state.changes != changed {
-                            self.document_state.change_tree.update(cx, |t, cx| {
-                                crate::desktop::workspace::documents::file_tree::update(
-                                    t, &changed, cx,
-                                )
-                            });
                             self.document_state.changes = changed;
                         }
                     }

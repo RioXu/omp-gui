@@ -184,7 +184,6 @@ impl Workspace {
                 refresh_pending: None,
                 last_scan: Instant::now(),
                 tree: cx.new(|cx| TreeState::new(cx)),
-                change_tree: cx.new(|cx| TreeState::new(cx)),
                 diff: None,
                 quote: None,
                 text: None,

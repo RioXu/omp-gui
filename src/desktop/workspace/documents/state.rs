@@ -2,6 +2,7 @@
 use super::DocumentTab;
 use crate::desktop::workspace::TextEntry;
 use crate::domain::Snapshot;
+use crate::infrastructure::filesystem::changes::ChangedFile;
 use gpui_kit::{
     Entity,
     component::{diff::DiffState, tree::TreeState},
@@ -16,12 +17,11 @@ pub(in crate::desktop::workspace) struct DocumentState {
     pub(in crate::desktop::workspace) refresh_pending: Option<Instant>,
     pub(in crate::desktop::workspace) last_scan: Instant,
     pub(in crate::desktop::workspace) tree: Entity<TreeState>,
-    pub(in crate::desktop::workspace) change_tree: Entity<TreeState>,
     pub(in crate::desktop::workspace) diff: Option<Entity<DiffState>>,
     pub(in crate::desktop::workspace) quote: Option<String>,
     pub(in crate::desktop::workspace) text: Option<TextEntry>,
     pub(in crate::desktop::workspace) files: Vec<PathBuf>,
-    pub(in crate::desktop::workspace) changes: Vec<PathBuf>,
+    pub(in crate::desktop::workspace) changes: Vec<ChangedFile>,
     pub(in crate::desktop::workspace) tx: mpsc::Sender<FileEvent>,
     pub(in crate::desktop::workspace) rx: mpsc::Receiver<FileEvent>,
     pub(in crate::desktop::workspace) snapshot: Option<String>,
@@ -36,7 +36,7 @@ pub(in crate::desktop::workspace) enum FileEvent {
     },
     Lists {
         session: String,
-        result: Result<(Vec<PathBuf>, Vec<PathBuf>), String>,
+        result: Result<(Vec<PathBuf>, Vec<ChangedFile>), String>,
     },
     Snapshot {
         session: String,
