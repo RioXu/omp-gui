@@ -1,6 +1,6 @@
 [package]
 name = "omp-gui"
-version = "0.6.1"
+version = "0.7.0"
 edition = "2024"
 description = "A native Windows workspace for Oh My Pi"
 license = "MIT"
@@ -36,4 +36,3 @@ incremental = true
 [profile.release]
 strip = true
 lto = false
-
