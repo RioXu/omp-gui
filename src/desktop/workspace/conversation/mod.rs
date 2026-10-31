@@ -2,6 +2,7 @@
 use crate::desktop::workspace::*;
 mod comments;
 pub(in crate::desktop::workspace) mod demo;
+mod empty_sessions;
 mod queue;
 mod session_commands;
 pub(in crate::desktop::workspace) mod session_sync;

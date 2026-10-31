@@ -16,12 +16,18 @@ impl Session {
         }
     }
     pub fn is_blank(&self) -> bool {
+        self.omp_session.is_none() && self.is_untouched()
+    }
+    pub fn is_untouched(&self) -> bool {
         self.title == "新建会话"
-            && self.omp_session.is_none()
+            && !self.archived
+            && !self.deleted
             && self.messages.is_empty()
             && self.comments.is_empty()
             && self.draft.trim().is_empty()
             && self.snapshots.is_empty()
+            && self.todos.is_empty()
+            && self.agents.is_empty()
     }
 }
 impl Database {
@@ -67,5 +73,29 @@ mod tests {
         db.discard_blank_sessions(None);
         assert_eq!(db.sessions.len(), 1);
         assert_eq!(db.sessions[0].draft, "unsent text");
+    }
+    #[test]
+    fn native_blank_persists_until_leaving_and_local_content_prevents_cleanup() {
+        let mut session = Session::new("project".into());
+        session.omp_session = Some("native.jsonl".into());
+        assert!(
+            !session.is_blank(),
+            "persistence must retain the native binding"
+        );
+        assert!(session.is_untouched());
+        for variant in 0..6 {
+            let mut protected = session.clone();
+            match variant {
+                0 => protected.draft = "unsent text".into(),
+                1 => protected.title = "renamed".into(),
+                2 => protected.archived = true,
+                3 => protected
+                    .messages
+                    .push(super::super::Message::new("user", "hello".into())),
+                4 => protected.todos.push(serde_json::json!({"name":"work"})),
+                _ => protected.agents.push(serde_json::json!({"id":"worker"})),
+            }
+            assert!(!protected.is_untouched());
+        }
     }
 }

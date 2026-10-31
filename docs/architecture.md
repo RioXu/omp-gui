@@ -64,11 +64,15 @@ OMP 适配器进一步分为：`client.rs` 管理进程及收发线程，`framin
 
 `conversation/session_sync.rs` 在后台扫描已打开项目，并在 UI 线程合并结果；工作线程只接收轻量绑定信息，历史缓存共享且按原生文件修订跳过未变化记录。流式回复期间和早于最近消息事件的扫描不覆盖活动会话。`domain/native_history.rs` 按原生消息 ID 或有序文本匹配保留 GUI 消息 ID、评论关联与历史 Diff。持久化数据新增可缺省的原生绑定字段，兼容旧版工作区 JSON。
 
+`conversation/empty_sessions.rs` 在切换离开时清理未使用的新会话。持久化仍保留空白原生绑定，不能只从 GUI JSON 过滤；清理须先停止当前 RPC，再由原生存储取得占用锁并重新核对所有 JSONL 分支，仅初始化元数据的 GUI 新会话才可删除。草稿、评论、快照、任务、附件、备份、未知记录、读错误及外部占用均保留。
+
 `omp/display.rs` 为实时消息、原生日志和子会话提供统一投影，区分助手、Advisor、来信等可见内容，并遵守原生隐藏标记。投影修订加入原生缓存指纹，升级后会重新生成旧展示缓存。`domain/activity.rs` 合并任务与智能体状态，阻止迟到的运行中快照覆盖完成状态。`runtime/collaboration.rs` 管理子会话后台读取，结果校验主会话、子会话和请求身份，文件限于主会话附件范围。
 
 文件链接通过 gpui-kit `MarkdownPlugin` 和 `Link` 渲染，保留原始 Markdown 及其源范围；不重写模型正文。`filesystem/file_references.rs` 负责路径解析与相对路径边界，`documents/file_links.rs` 负责点击打开文件标签。文件增删、重命名触发行内引用重解析；显式打开的外部文件父目录加入非递归监听。任务与子智能体面板的呈现放在 `view/activity.rs`。
 
 配置命令使用明确的导航目标，避免把服务注册入口退化成设置大类；元数据未就绪时保留导航意图，加载后完成跳转。子智能体与角色模型表单使用 gpui-kit Form、Input、Textarea、Select，字段状态属于桌面层；原生文档转换、范围隔离、字段保留及冲突检查属于 `configuration/authoring`。明确带参数的命令继续交给 OMP。
+
+工作区布局优先组合 gpui-kit `Sidebar`、`TabBar::underline()` 与 `Toolbar`。项目标题需保留悬停新建操作，原生 `SidebarGroup` 仅支持文本标题，因此 `view/sidebar/project.rs` 用轻量 `SidebarItem` 适配标题，并用原生 `Collapsible` 展示会话列表，滚动与会话菜单仍由原生组件管理；会话条目使用稳定 ID。右侧保留原生 Tree／变更虚拟列表，不引入 Dock；三栏标题高度由视图层共用常量定义。
 
 新增功能应放入其所属组件；跨界功能由工作区协调，不向领域层添加窗口状态，也不把界面目录树构建混入文件读取适配器。通常将文件控制在 300 行左右，但不为行数拆散紧密相关的行为。只为实际复用或依赖隔离增加抽象。
 

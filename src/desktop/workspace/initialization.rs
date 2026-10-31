@@ -111,6 +111,7 @@ impl Workspace {
             text_update_pending: false,
             settings_view: None,
             show_archived: false,
+            collapsed_projects: Default::default(),
             db,
             active,
             persistence: Persistence::new(),

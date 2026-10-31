@@ -100,19 +100,19 @@ impl Render for Workspace {
                     .min_w_0()
                     .h_full()
                     .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .h_12()
-                            .px_4()
+                        Toolbar::new("settings-toolbar")
+                            .xsmall()
+                            .h(px(PANE_HEADER_HEIGHT))
+                            .px_3()
                             .border_b_1()
                             .border_color(theme.border)
-                            .child(div().flex_1().child("设置"))
+                            .content(div().flex_1().text_sm().child("设置"))
                             .child(
                                 Button::new("close-settings")
                                     .ghost()
                                     .small()
                                     .icon(IconName::Close)
+                                    .accessibility_label("返回会话")
                                     .tooltip("返回会话")
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.settings_view = None;
@@ -128,7 +128,7 @@ impl Render for Workspace {
                 .flex()
                 .items_center()
                 .relative()
-                .h(px(36.))
+                .h(px(PANE_HEADER_HEIGHT))
                 .flex_shrink_0()
                 .gap_1()
                 .bg(theme.sidebar)
@@ -143,39 +143,46 @@ impl Render for Workspace {
                 )
                 .child(self.render_document_tabs(cx))
                 .child(
-                    Button::new("find-session")
-                        .ghost()
-                        .small()
-                        .icon(IconName::Search)
-                        .accessibility_label("查找")
-                        .tooltip("查找当前标签页 · Ctrl+F")
-                        .on_click(cx.listener(|this, _, w, cx| this.open_search(w, cx))),
-                )
-                .child(
-                    Button::new("panel-toggle")
-                        .ghost()
-                        .small()
-                        .icon(IconName::PanelRight)
-                        .accessibility_label("工作面板")
-                        .tooltip("工作面板")
-                        .selected(self.panel_open)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            if this.panel_open {
-                                this.close_panel();
-                            } else {
-                                this.panel_open = true;
-                                this.refresh_files(cx);
-                            }
-                            cx.notify();
-                        })),
-                )
-                .child(
-                    Button::new("theme")
-                        .ghost()
-                        .small()
-                        .icon(IconName::Sun)
-                        .tooltip("切换深浅色")
-                        .on_click(cx.listener(|this, _, w, cx| this.toggle_theme(w, cx))),
+                    Toolbar::new("document-actions")
+                        .xsmall()
+                        .h(px(PANE_HEADER_HEIGHT))
+                        .px_1()
+                        .child(
+                            Button::new("find-session")
+                                .ghost()
+                                .small()
+                                .icon(IconName::Search)
+                                .accessibility_label("查找")
+                                .tooltip("查找当前标签页 · Ctrl+F")
+                                .on_click(cx.listener(|this, _, w, cx| this.open_search(w, cx))),
+                        )
+                        .child(
+                            Button::new("panel-toggle")
+                                .ghost()
+                                .small()
+                                .icon(IconName::PanelRight)
+                                .accessibility_label("工作面板")
+                                .tooltip("工作面板")
+                                .selected(self.panel_open)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    if this.panel_open {
+                                        this.close_panel();
+                                    } else {
+                                        this.panel_open = true;
+                                        this.refresh_files(cx);
+                                    }
+                                    cx.notify();
+                                })),
+                        )
+                        .child(
+                            Button::new("theme")
+                                .ghost()
+                                .small()
+                                .icon(IconName::Sun)
+                                .accessibility_label("切换深浅色")
+                                .tooltip("切换深浅色")
+                                .on_click(cx.listener(|this, _, w, cx| this.toggle_theme(w, cx))),
+                        ),
                 ),
         );
         if self.search_state.open {

@@ -3,6 +3,32 @@ use crate::domain::{Message, activity::merge_tool_activity};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 
+/// Recheck every branch under the ownership lease, not just the cached active
+/// transcript. Unknown entries and torn writes must preserve the journal.
+pub(super) fn untouched_gui_session(path: &Path, id: &str) -> Result<bool> {
+    let mut headers = 0;
+    for line in BufReader::new(fs::File::open(path)?).lines() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let row: Value = serde_json::from_str(&line)?;
+        match row["type"].as_str() {
+            Some("session")
+                if row["id"] == id
+                    && row["title"] == "新建会话"
+                    && row["titleSource"] == "auto" =>
+            {
+                headers += 1
+            }
+            Some("title") if row["title"] == "新建会话" => {}
+            Some("model_change" | "thinking_level_change" | "model_usage") => {}
+            _ => return Ok(false),
+        }
+    }
+    Ok(headers == 1)
+}
+
 /// Ownership/deletion only needs the bounded header, even after a torn append.
 pub(super) fn header(path: &Path) -> Result<Value> {
     let mut reader = BufReader::new(fs::File::open(path)?);

@@ -10,34 +10,45 @@ impl Workspace {
             .min_w(rems(18.))
             .h_full()
             .flex_shrink_0()
-            .bg(theme.background)
+            .bg(theme.sidebar)
             .border_l_1()
             .border_color(theme.border)
             .child(
-                div()
-                    .flex()
-                    .items_center()
+                Toolbar::new("work-panel-toolbar")
+                    .xsmall()
                     .px_3()
-                    .h_12()
-                    .child("工作面板")
-                    .child(div().flex_1())
+                    .h(px(PANE_HEADER_HEIGHT))
+                    .border_b_1()
+                    .border_color(theme.border)
+                    .content(div().flex_1().text_sm().child("工作面板"))
                     .child(
                         Button::new("close-panel")
                             .ghost()
                             .small()
-                            .label("收起")
+                            .icon(IconName::PanelRight)
+                            .accessibility_label("收起工作面板")
+                            .tooltip("收起工作面板 · Ctrl+Shift+B")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.close_panel();
                                 cx.notify();
                             })),
                     ),
             );
-        let mut tabs = div().flex().px_2().gap_1();
-        for label in ["变更", "文件", "任务", "子智能体"] {
+        let labels = ["变更", "文件", "任务", "子智能体"];
+        let mut tabs = TabBar::new("work-panel-tabs")
+            .underline()
+            .with_size(gpui_kit::component::Size::Medium)
+            .w_full()
+            .flex_shrink_0()
+            .selected_index(
+                labels
+                    .iter()
+                    .position(|label| *label == self.panel_tab)
+                    .unwrap_or(0),
+            );
+        for label in labels {
             tabs = tabs.child(
-                Button::new(label)
-                    .ghost()
-                    .small()
+                Tab::new()
                     .selected(self.panel_tab == label)
                     .label(label)
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -50,9 +61,12 @@ impl Workspace {
                     })),
             );
         }
-        panel = panel.child(tabs);
+        panel = panel.child(div().flex_shrink_0().px_2().child(tabs));
         let mut body = div()
-            .id("work-panel-body")
+            .id(SharedString::from(format!(
+                "work-panel-body-{}",
+                self.panel_tab
+            )))
             .flex_1()
             .min_h_0()
             .px_1()

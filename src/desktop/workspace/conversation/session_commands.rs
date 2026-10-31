@@ -129,6 +129,7 @@ impl Workspace {
         }
         self.persist();
         let target = self.db.sessions[ix].id.clone();
+        let cleanup_error = self.discard_empty_session_on_leave(&target);
         self.db.discard_blank_sessions(Some(&target));
         let ix = self
             .db
@@ -162,6 +163,9 @@ impl Workspace {
         });
         self.sync_texts(cx);
         self.connect();
+        if let Some(error) = cleanup_error {
+            self.error = Some(error);
+        }
         self.refresh_files(cx);
         self.persist();
         cx.notify();
@@ -212,6 +216,7 @@ impl Workspace {
                 }
             }
         }
+        self.collapsed_projects.remove(&session.project);
         self.db.sessions.push(session);
         crate::infrastructure::filesystem::project_paths::normalize_workspace(&mut self.db);
         self.activate(self.db.sessions.len() - 1, window, cx);

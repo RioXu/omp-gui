@@ -25,10 +25,14 @@ use gpui_kit::component::{
     popover::Popover,
     resizable::resize_handle,
     sidebar::{SidebarItem, SidebarMenu, SidebarMenuItem},
+    tab::{Tab, TabBar},
     text::TextView,
+    toolbar::Toolbar,
     tree::Tree,
 };
 use gpui_kit::{prelude::FluentBuilder, *};
+
+const PANE_HEADER_HEIGHT: f32 = 36.;
 #[derive(Clone)]
 struct ResizeSide(bool);
 

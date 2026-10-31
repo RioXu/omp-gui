@@ -62,6 +62,109 @@ fn append(path: &Path, rows: &[Value]) {
     file.sync_all().unwrap();
 }
 #[test]
+fn untouched_gui_session_is_deleted_natively_but_terminal_empty_sessions_survive() {
+    let f = Fixture::new();
+    let native = f.store.create(&f.project, "新建会话").unwrap();
+    let s = f.bound(&native);
+    append(
+        &native.path,
+        &[
+            json!({"type":"model_change","id":"m","parentId":null}),
+            json!({"type":"thinking_level_change","id":"t","parentId":"m","thinkingLevel":"high"}),
+        ],
+    );
+    assert!(
+        f.store
+            .discard_if_untouched(&s, &f.base.join("legacy"))
+            .unwrap()
+    );
+    assert!(!native.path.exists());
+    assert!(
+        f.scan(&[]).sessions.is_empty(),
+        "deleted blanks must not be reimported"
+    );
+    let terminal = f.store.create(&f.project, "").unwrap();
+    assert!(
+        !f.store
+            .discard_if_untouched(&f.bound(&terminal), &f.base.join("legacy"))
+            .unwrap()
+    );
+    assert!(terminal.path.exists());
+}
+#[test]
+fn auto_cleanup_rechecks_ownership_all_branches_and_incomplete_writes() {
+    let f = Fixture::new();
+    let native = f.store.create(&f.project, "新建会话").unwrap();
+    let s = f.bound(&native);
+    let held = lease::acquire(&f.store.owners, &native.id).unwrap();
+    assert!(
+        f.store
+            .discard_if_untouched(&s, &f.base.join("legacy"))
+            .is_err()
+    );
+    drop(held);
+    append(
+        &native.path,
+        &[
+            json!({"type":"message","id":"u","parentId":null,"message":{"role":"user","content":"terminal wrote after GUI cached this blank"}}),
+            json!({"type":"model_usage","id":"usage","parentId":"u","activeLeafId":null}),
+        ],
+    );
+    assert!(history::read(&native.path).unwrap().messages.is_empty());
+    assert!(
+        !f.store
+            .discard_if_untouched(&s, &f.base.join("legacy"))
+            .unwrap()
+    );
+    assert!(native.path.exists());
+    let torn = f.store.create(&f.project, "新建会话").unwrap();
+    fs::OpenOptions::new()
+        .append(true)
+        .open(&torn.path)
+        .unwrap()
+        .write_all(b"{\"type\":")
+        .unwrap();
+    assert!(
+        f.store
+            .discard_if_untouched(&f.bound(&torn), &f.base.join("legacy"))
+            .is_err()
+    );
+    assert!(torn.path.exists());
+}
+#[test]
+fn auto_cleanup_preserves_drafts_attachments_and_rewrite_backups() {
+    let f = Fixture::new();
+    let native = f.store.create(&f.project, "新建会话").unwrap();
+    let mut s = f.bound(&native);
+    s.draft = "unsent".into();
+    assert!(
+        !f.store
+            .discard_if_untouched(&s, &f.base.join("legacy"))
+            .unwrap()
+    );
+    s.draft.clear();
+    let artifacts = native.path.with_extension("");
+    fs::create_dir(&artifacts).unwrap();
+    fs::write(artifacts.join("retained.txt"), "work").unwrap();
+    assert!(
+        !f.store
+            .discard_if_untouched(&s, &f.base.join("legacy"))
+            .unwrap()
+    );
+    fs::remove_file(artifacts.join("retained.txt")).unwrap();
+    let backup = native.path.with_file_name(format!(
+        "{}.1.bak",
+        native.path.file_name().unwrap().to_string_lossy()
+    ));
+    fs::copy(&native.path, &backup).unwrap();
+    assert!(
+        !f.store
+            .discard_if_untouched(&s, &f.base.join("legacy"))
+            .unwrap()
+    );
+    assert!(native.path.exists() && backup.exists());
+}
+#[test]
 fn native_history_restores_advisor_peer_messages_todos_and_finished_agents() {
     let f = Fixture::new();
     let native = f.store.create(&f.project, "activity").unwrap();

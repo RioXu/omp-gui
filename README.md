@@ -28,6 +28,7 @@ cargo run -- --probe --data-dir ".\target\probe-data"
 - `Ctrl+Enter` 发送；运行中追加输入默认排队，“指示”将等待项提升为 steering。
 - `@` 引用文件，`/` 补全命令；`↑↓` 选择，`Tab` / `Enter` 确认，`Esc` 关闭候选。
 - `Ctrl+F` 查找激活标签；查找框内 `Enter` / `Shift+Enter` 跳到下一项／上一项。
+- 左侧使用原生 Sidebar，右侧工作面板使用带滑动指示线的 underline tabs；标题和操作区使用 Toolbar，统一高度与间距。
 - 会话标签固定在最左且不可关闭；文件和变更标签可分别关闭，文件支持语法高亮。工作面板的变更平铺、文件按层级展示，并自动刷新。
 - 选中回复文字或代码可添加评论；历史评论绑定不可变快照，跟进以追加方式保存。
 - `/model`、`/models`、`/switch` 打开模型服务与注册；`/fast`、`/slow` 打开速度与服务等级。带参数的命令继续由 OMP 执行。
@@ -41,7 +42,7 @@ cargo run -- --probe --data-dir ".\target\probe-data"
 | --- | --- |
 | [使用与配置](docs/usage.md) | 快捷键、队列、评论、文件标签、命令目标、模型与子智能体表单、数据范围及限制 |
 | [组件职责与维护约定](docs/architecture.md) | 模块边界、依赖方向、状态归属和行为约定 |
-| [构建、测试与验证](docs/testing.md) | Windows 构建、63 项离线测试、8 项显式本机测试、界面验证隔离与结果 |
+| [构建、测试与验证](docs/testing.md) | Windows 构建、67 项离线测试、8 项显式本机测试、界面验证隔离与结果 |
 | [变更与历史记录](docs/changelog.md) | 当前未发布改动和早期版本记录 |
 
 ## 数据与兼容

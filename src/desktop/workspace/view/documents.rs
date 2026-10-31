@@ -11,7 +11,7 @@ impl Workspace {
     ) -> AnyElement {
         let mut tabs = TabBar::new("document-tabs")
             .large()
-            .h(px(36.))
+            .h(px(PANE_HEADER_HEIGHT))
             .menu(false)
             .max_width(px(220.))
             .prefix(
@@ -19,7 +19,7 @@ impl Workspace {
                     Tab::new()
                         .large()
                         .label("会话")
-                        .suffix(div().h(px(36.)).w_px().bg(cx.theme().border))
+                        .suffix(div().h(px(PANE_HEADER_HEIGHT)).w_px().bg(cx.theme().border))
                         .selected(self.document_state.active.is_none())
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.activate_document(None);
@@ -83,7 +83,7 @@ impl Workspace {
                             .relative()
                             .flex()
                             .items_center()
-                            .h(px(36.))
+                            .h(px(PANE_HEADER_HEIGHT))
                             .pr_2()
                             .child(
                                 Button::new(SharedString::from(format!("close-{}", tab.key)))

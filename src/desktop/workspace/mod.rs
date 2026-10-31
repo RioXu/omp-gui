@@ -83,6 +83,7 @@ pub(crate) struct Workspace {
     text_update_pending: bool,
     settings_view: Option<Entity<crate::desktop::settings::SettingsView>>,
     show_archived: bool,
+    collapsed_projects: std::collections::HashSet<PathBuf>,
     db: Database,
     active: Option<usize>,
     persistence: Persistence,

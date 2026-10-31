@@ -102,6 +102,15 @@ impl SessionStore {
         history::read(&target).map(Some)
     }
     pub(crate) fn delete(&self, s: &Session, legacy: &Path) -> Result<()> {
+        self.delete_checked(s, legacy, false).map(|_| ())
+    }
+    pub(crate) fn discard_if_untouched(&self, s: &Session, legacy: &Path) -> Result<bool> {
+        if !s.is_untouched() {
+            return Ok(false);
+        }
+        self.delete_checked(s, legacy, true)
+    }
+    fn delete_checked(&self, s: &Session, legacy: &Path, empty_only: bool) -> Result<bool> {
         ensure!(
             s.native_root.as_deref() == Some(self.root.to_string_lossy().as_ref()),
             "会话未完成原生同步，暂不能删除"
@@ -110,6 +119,28 @@ impl SessionStore {
         let _lease = lease::acquire(&self.owners, id)?;
         let path = Path::new(s.omp_session.as_deref().context("缺少原生会话路径")?);
         validate_path(path, &self.root.join("sessions"))?;
+        if empty_only && (!path.try_exists()? || !history::untouched_gui_session(path, id)?) {
+            return Ok(false);
+        }
+        if empty_only {
+            // Backups or attachments can retain work absent from the current
+            // branch. Automatic cleanup must never remove that retained data.
+            for dir in [path.with_extension(""), legacy.join(&s.id)] {
+                if dir.try_exists()? && fs::read_dir(dir)?.next().is_some() {
+                    return Ok(false);
+                }
+            }
+            let prefix = format!(
+                "{}.",
+                path.file_name().context("无效会话路径")?.to_string_lossy()
+            );
+            for entry in fs::read_dir(path.parent().context("会话目录无效")?)? {
+                let name = entry?.file_name().to_string_lossy().into_owned();
+                if name.starts_with(&prefix) && name.ends_with(".bak") {
+                    return Ok(false);
+                }
+            }
+        }
         if path.try_exists()? {
             ensure!(
                 history::header(path)?["id"] == id,
@@ -128,7 +159,8 @@ impl SessionStore {
                 }
             }
         }
-        self.delete_native(path, id)
+        self.delete_native(path, id)?;
+        Ok(true)
     }
 }
 fn copy_tree(source: &Path, target: &Path) -> Result<()> {
