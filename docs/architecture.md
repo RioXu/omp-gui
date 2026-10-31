@@ -1,5 +1,7 @@
 # 组件职责与维护约定
 
+[返回 README](../README.md) · [使用说明](usage.md) · [构建与验证](testing.md)
+
 项目使用一个 Cargo 包，二进制入口只启动桌面应用；组件放在库中，使集成测试通过真实的组件接口运行。当前不拆成多个 crate，避免为目录整理引入额外的发布和依赖管理成本。
 
 ## 目录与依赖方向
@@ -76,25 +78,26 @@ OMP 适配器进一步分为：`client.rs` 管理进程及收发线程，`framin
 
 需要安装 OMP、读取本机配置或发送模型请求的测试统一放到 `tests/omp/`，通过公开组件接口验证，使用 `#[ignore]` 显式启用。生产通信模块不再包含这类测试文件。默认测试不会调用模型或改动用户配置。
 
-CI 执行格式检查、所有目标的 Clippy 和离线测试：
+CI 执行格式检查、所有目标的 Clippy 和默认测试，配置见 [check.yml](../.github/workflows/check.yml)：
 
 ```powershell
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
-cargo build --locked
 ```
 
-按需验证本机 OMP（真实模型测试会消耗额度，须已有相应授权）：
-
-```powershell
-cargo test --test omp_integration installed_registry -- --ignored --nocapture
-cargo test --test omp_integration installed_catalog -- --ignored --nocapture
-cargo test --test omp_integration live_process_stream -- --ignored --nocapture
-```
-
-界面回归使用独立 `--data-dir` 和测试项目。读取真实账号时不修改配置；保存测试使用独立 OMP 配置目录或测试项目范围。
+本地构建额外执行 `cargo build --locked`。当前测试清单、7 项本机集成测试的具体名称与依赖，以及 GUI 数据／OMP 配置的隔离方法统一维护在[验证说明](testing.md)，避免在多处保留过时计数和命令。
 
 ## 服务目录更新
 
-`resources/omp-services.json` 是 OMP 18.14.0 官方公开目录的 UI 元数据，授权见同目录 `OMP-LICENSE.txt`。通过 `scripts/update_service_catalog.py <OMP源码目录>` 重新生成；不要手工维护服务枚举。运行时本机可用目录优先，新增的已注册服务自动合并；新的尚未注册内置服务需随 GUI 更新目录，也可使用自定义入口。
+[`resources/omp-services.json`](../resources/omp-services.json) 是附带的公开目录 UI 元数据，来源版本由文件内 `version` 标注，授权见 [OMP-LICENSE.txt](../resources/OMP-LICENSE.txt)。这个来源版本不表示本机 OMP 版本或最低兼容版本。
+
+在本仓库根目录，使用 Python 运行[更新脚本](../scripts/update_service_catalog.py)：
+
+```powershell
+python scripts/update_service_catalog.py D:\src\oh-my-pi
+```
+
+输入必须是包含 `packages/catalog/src/models.json`、兼容规则和 `packages/coding-agent/package.json` 的 OMP 源码目录。脚本仅提取公开字段，不读取认证凭据；不要手工维护服务枚举。更新后核对来源版本、授权与目录测试，重新验证与本机可用模型的合并。
+
+输入框和配置表单的可用模型及推理档位来自本机 OMP，不以附带目录判定账户可用性。服务注册界面则合并附带目录与本机目录，帮助注册尚未配置的服务；新的尚未注册内置服务可能需要随 GUI 更新元数据，也可通过自定义入口配置。
