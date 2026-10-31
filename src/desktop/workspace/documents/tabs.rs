@@ -54,6 +54,12 @@ impl Workspace {
     }
 
     pub fn open_document(&mut self, path: PathBuf, changes: bool) {
+        let path = self
+            .session()
+            .map(|s| {
+                crate::infrastructure::filesystem::file_references::document_path(s.cwd(), &path)
+            })
+            .unwrap_or(path);
         let key = format!(
             "{}:{}",
             if changes { "diff" } else { "file" },
@@ -112,7 +118,8 @@ impl Workspace {
             return;
         }
         std::thread::spawn(move || {
-            let result = project_files::snapshot(&root, &path).map_err(|e| format!("{e:#}"));
+            let result =
+                project_files::document_snapshot(&root, &path).map_err(|e| format!("{e:#}"));
             let _ = tx.send(FileEvent::Snapshot {
                 session: sid,
                 request,

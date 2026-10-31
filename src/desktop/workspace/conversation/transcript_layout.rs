@@ -64,9 +64,8 @@ impl Workspace {
                     entry.state.update(cx, |s, cx| s.set_text(&m.text, cx));
                 }
             } else {
-                let state = cx.new(|cx| {
-                    TextViewState::markdown(&m.text, cx).selectable(m.role == "assistant")
-                });
+                let state =
+                    cx.new(|cx| TextViewState::markdown(&m.text, cx).selectable(m.role != "user"));
                 self.texts.insert(
                     m.id.clone(),
                     TextEntry {

@@ -1,5 +1,5 @@
 use super::*;
-use crate::domain::{Message, process_blocks};
+use crate::domain::{Message, activity::merge_tool_activity};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 
@@ -103,51 +103,57 @@ pub(super) fn read(path: &Path) -> Result<NativeSession> {
     }
     chain.reverse();
     let mut messages: Vec<Message> = Vec::new();
+    let mut todos = Vec::new();
+    let mut agents = Vec::new();
     for row in chain {
         if row["type"] == "reset_boundary" {
             messages.clear();
+            todos.clear();
+            agents.clear();
         }
-        if row["type"] != "message" {
+        if row["type"] == "custom"
+            && row["customType"] == "user_todo_edit"
+            && let Some(phases) = row["data"]["phases"].as_array()
+        {
+            todos = phases.clone();
+        }
+        let custom;
+        let m = if row["type"] == "custom_message" {
+            custom = serde_json::json!({"role":"custom","customType":row["customType"],"content":row["content"],"display":row["display"],"details":row["details"],"timestamp":row["timestamp"]});
+            &custom
+        } else if row["type"] == "message" {
+            &row["message"]
+        } else {
             continue;
-        }
-        let m = &row["message"];
-        match m["role"].as_str().unwrap_or_default() {
-            role @ ("user" | "assistant") => {
-                let text = super::super::message_text(m);
-                let mut message = Message::new(role, text);
-                message.native_id = row["id"].as_str().map(str::to_owned);
-                message.id = format!(
-                    "native-{}",
-                    message.native_id.as_deref().unwrap_or_default()
-                );
-                message.time = m["timestamp"]
-                    .as_u64()
-                    .map(|ms| ms / 1000)
-                    .or_else(|| {
-                        row["timestamp"]
-                            .as_str()
-                            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-                            .map(|d| d.timestamp().max(0) as u64)
-                    })
-                    .unwrap_or(0);
-                message.process = process_blocks(m, "message_end", "");
-                if m["stopReason"] == "aborted" {
-                    message.state = crate::domain::MessageState::Interrupted;
-                }
-                messages.push(message);
+        };
+        if m["role"] == "toolResult" {
+            merge_tool_activity(&mut todos, &mut agents, &m["details"]);
+            let call = m["toolCallId"].as_str().unwrap_or_default();
+            if let Some(block) = messages
+                .iter_mut()
+                .rev()
+                .flat_map(|m| m.process.iter_mut())
+                .find(|b| b.id == call)
+            {
+                block.set_result(super::super::message_text(m), &m["details"]);
             }
-            "toolResult" => {
-                let call = m["toolCallId"].as_str().unwrap_or_default();
-                if let Some(block) = messages
-                    .iter_mut()
-                    .rev()
-                    .flat_map(|m| m.process.iter_mut())
-                    .find(|b| b.id == call)
-                {
-                    block.set_result(super::super::message_text(m), &m["details"]);
-                }
-            }
-            _ => {}
+        } else if let Some(mut message) = super::super::display_message(m) {
+            message.native_id = row["id"].as_str().map(str::to_owned);
+            message.id = format!(
+                "native-{}",
+                message.native_id.as_deref().unwrap_or_default()
+            );
+            message.time = m["timestamp"]
+                .as_u64()
+                .map(|ms| ms / 1000)
+                .or_else(|| {
+                    row["timestamp"]
+                        .as_str()
+                        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                        .map(|d| d.timestamp().max(0) as u64)
+                })
+                .unwrap_or(0);
+            messages.push(message);
         }
     }
     if title.trim().is_empty() {
@@ -170,6 +176,8 @@ pub(super) fn read(path: &Path) -> Result<NativeSession> {
         title,
         updated,
         messages: Arc::new(messages),
-        revision: format!("{:x}", Sha256::digest(&bytes)),
+        todos,
+        agents,
+        revision: format!("display-v2:{:x}", Sha256::digest(&bytes)),
     })
 }

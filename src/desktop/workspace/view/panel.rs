@@ -62,50 +62,10 @@ impl Workspace {
             .gap_2();
         match self.panel_tab {
             "任务" => {
-                if self.todos.is_empty() {
-                    body = body.child(
-                        div()
-                            .text_sm()
-                            .text_color(theme.muted_foreground)
-                            .child("OMP 尚未创建任务清单"),
-                    );
-                }
-                for phase in &self.todos {
-                    body = body.child(phase["name"].as_str().unwrap_or("任务").to_string());
-                    for task in phase["tasks"].as_array().into_iter().flatten() {
-                        let status = match task["status"].as_str().unwrap_or("") {
-                            "completed" => "✓",
-                            "in_progress" => "进行中",
-                            "blocked" => "受阻",
-                            "abandoned" => "取消",
-                            _ => "待处理",
-                        };
-                        body = body.child(div().text_sm().py_2().child(format!(
-                            "{status}  {}",
-                            task["content"].as_str().unwrap_or("")
-                        )));
-                    }
-                }
+                body = body.child(self.render_todos(cx));
             }
             "子智能体" => {
-                if self.agents.is_empty() {
-                    body = body.child(
-                        div()
-                            .text_sm()
-                            .text_color(theme.muted_foreground)
-                            .child("本次会话没有子智能体"),
-                    );
-                }
-                for agent in &self.agents {
-                    let name = agent["name"]
-                        .as_str()
-                        .or_else(|| agent["agent"].as_str())
-                        .unwrap_or("子智能体");
-                    body = body.child(div().py_2().child(format!(
-                        "{name} · {}",
-                        agent["status"].as_str().unwrap_or("运行中")
-                    )));
-                }
+                body = body.child(self.render_subagents(cx));
             }
             "变更" => {
                 body = body.px_0().gap_0().child(self.render_changes(cx));

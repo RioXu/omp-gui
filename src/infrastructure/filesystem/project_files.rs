@@ -44,6 +44,21 @@ pub(crate) fn snapshot(root: &Path, path: &Path) -> anyhow::Result<Snapshot> {
         .unwrap_or_default();
     Ok(Snapshot::new(path.to_owned(), before, text))
 }
+/// Absolute file links can explicitly open a read-only file outside this project.
+pub(crate) fn document_snapshot(root: &Path, path: &Path) -> anyhow::Result<Snapshot> {
+    if path.is_absolute() {
+        let resolved = fs::canonicalize(path)?;
+        if !resolved.starts_with(fs::canonicalize(root)?) {
+            anyhow::ensure!(
+                fs::metadata(&resolved)?.len() <= 2 * 1024 * 1024,
+                "文件超过 2 MB，暂不在界面中预览"
+            );
+            let text = fs::read_to_string(&resolved).context("暂不支持二进制或非 UTF-8 文件")?;
+            return Ok(Snapshot::new(path.to_owned(), String::new(), text));
+        }
+    }
+    snapshot(root, path)
+}
 pub(crate) fn list(root: &Path) -> anyhow::Result<Vec<PathBuf>> {
     let out = hidden_command("git")
         .args([

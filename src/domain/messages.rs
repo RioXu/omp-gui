@@ -18,6 +18,10 @@ pub(crate) struct Message {
     /// Wire prompt can include GUI comment context, unlike the displayed text.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+    pub details: serde_json::Value,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub(crate) enum MessageState {
@@ -40,6 +44,8 @@ impl Message {
             state: MessageState::Normal,
             native_id: None,
             native_text: None,
+            label: None,
+            details: serde_json::Value::Null,
         }
     }
 }

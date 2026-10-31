@@ -124,6 +124,11 @@ impl Workspace {
                         SharedString::from(format!("command-{key}")),
                         fenced(&command, "sh"),
                     ));
+                } else if !block.text.trim().is_empty() && block.text.trim() != "{}" {
+                    detail = detail.child(TextView::markdown(
+                        SharedString::from(format!("args-{key}")),
+                        fenced(&block.text, "json"),
+                    ));
                 }
                 if let Some(result) = &block.result {
                     detail = detail.child(TextView::markdown(

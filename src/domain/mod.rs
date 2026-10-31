@@ -1,4 +1,5 @@
 //! Serializable conversation rules and data. No OS, OMP-process or GPUI dependency.
+pub(crate) mod activity;
 mod comments;
 mod identity;
 mod messages;

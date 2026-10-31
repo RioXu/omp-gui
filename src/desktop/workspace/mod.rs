@@ -71,6 +71,7 @@ pub(crate) struct Workspace {
     search_state: SearchState,
     composer_state: ComposerState,
     session_sync: conversation::session_sync::SessionSync,
+    collaboration: runtime::collaboration::CollaborationState,
     transcript: Vec<TranscriptRow>,
     tool_diffs: HashMap<String, Entity<DiffState>>,
     stopping: bool,

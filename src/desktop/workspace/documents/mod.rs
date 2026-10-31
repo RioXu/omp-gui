@@ -1,5 +1,6 @@
 //! Open document tabs, project refresh and file-tree presentation.
 use crate::desktop::workspace::*;
+mod file_links;
 mod file_sync;
 pub(in crate::desktop::workspace) mod file_tree;
 mod tabs;

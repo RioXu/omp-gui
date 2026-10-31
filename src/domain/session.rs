@@ -28,6 +28,10 @@ pub(crate) struct Session {
     pub snapshots: BTreeMap<String, Snapshot>,
     pub draft: String,
     pub updated: u64,
+    #[serde(default)]
+    pub todos: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub agents: Vec<serde_json::Value>,
 }
 impl Session {
     pub fn new(project: PathBuf) -> Self {
@@ -48,6 +52,8 @@ impl Session {
             snapshots: BTreeMap::new(),
             draft: String::new(),
             updated: now(),
+            todos: vec![],
+            agents: vec![],
         }
     }
     pub fn cwd(&self) -> &std::path::Path {

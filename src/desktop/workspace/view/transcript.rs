@@ -8,10 +8,46 @@ impl Workspace {
         let Some(entry) = self.transcript.get(row) else {
             return div().into_any_element();
         };
+        if let TranscriptRow::Notice(ix) = entry {
+            let message = &session.messages[*ix];
+            let mut card = div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .w_full()
+                .max_w(rems(52.))
+                .mx_auto()
+                .my_3()
+                .p_3()
+                .border_l_2()
+                .border_color(cx.theme().primary)
+                .bg(cx.theme().muted)
+                .rounded_md()
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(message.label.clone().unwrap_or_else(|| "会话消息".into())),
+                );
+            if let Some(view) = self.texts.get(&message.id) {
+                card = card.child(self.message_file_link_view(
+                    TextView::new(&view.state),
+                    &message.id,
+                    cx,
+                ));
+            }
+            for id in &message.comments {
+                if let Some(comment) = session.comments.iter().find(|c| &c.id == id) {
+                    card = card.child(self.render_comment(comment, cx));
+                }
+            }
+            return div().w_full().px_6().child(card).into_any_element();
+        }
         let theme = cx.theme().clone();
         let (range, user) = match entry {
             TranscriptRow::User(ix) => (*ix..ix + 1, true),
             TranscriptRow::Assistant(range) => (range.clone(), false),
+            TranscriptRow::Notice(_) => unreachable!(),
         };
         let messages = session.messages[range.clone()]
             .iter()
@@ -78,7 +114,11 @@ impl Workspace {
                 {
                     if show_process {
                         process =
-                            process.child(div().px_2().py_2().child(TextView::new(&view.state)));
+                            process.child(div().px_2().py_2().child(self.message_file_link_view(
+                                TextView::new(&view.state),
+                                &message.id,
+                                cx,
+                            )));
                     }
                     steps += 1;
                 }
@@ -106,7 +146,7 @@ impl Workspace {
                 div()
                     .w_full()
                     .when(user, |d| d.bg(theme.muted).rounded_lg().px_4().py_3())
-                    .child(TextView::new(&view.state)),
+                    .child(self.message_file_link_view(TextView::new(&view.state), &last.id, cx)),
             );
         }
         for message in &messages {

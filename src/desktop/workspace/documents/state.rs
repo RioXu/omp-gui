@@ -21,6 +21,7 @@ pub(in crate::desktop::workspace) struct DocumentState {
     pub(in crate::desktop::workspace) quote: Option<String>,
     pub(in crate::desktop::workspace) text: Option<TextEntry>,
     pub(in crate::desktop::workspace) files: Vec<PathBuf>,
+    pub(in crate::desktop::workspace) file_link_revision: u64,
     pub(in crate::desktop::workspace) changes: Vec<ChangedFile>,
     pub(in crate::desktop::workspace) tx: mpsc::Sender<FileEvent>,
     pub(in crate::desktop::workspace) rx: mpsc::Receiver<FileEvent>,
@@ -33,6 +34,7 @@ pub(in crate::desktop::workspace) struct DocumentState {
 pub(in crate::desktop::workspace) enum FileEvent {
     Changed {
         session: String,
+        links_changed: bool,
     },
     Lists {
         session: String,

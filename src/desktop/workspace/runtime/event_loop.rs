@@ -3,6 +3,7 @@ use super::*;
 impl Workspace {
     pub fn poll(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.poll_sessions(window, cx);
+        self.poll_collaboration(cx);
         if self.starting
             && self.requests.is_empty()
             && self.last_state.elapsed() > Duration::from_secs(60)
@@ -113,7 +114,7 @@ impl Workspace {
                 .map(|s| {
                     s.messages
                         .iter()
-                        .filter(|m| m.role == "assistant")
+                        .filter(|m| m.role != "user")
                         .map(|m| m.id.clone())
                         .collect::<Vec<_>>()
                 })

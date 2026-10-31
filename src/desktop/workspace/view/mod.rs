@@ -1,3 +1,4 @@
+mod activity;
 mod comment_editor;
 mod composer;
 mod conversation;

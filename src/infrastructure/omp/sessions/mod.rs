@@ -31,6 +31,8 @@ pub struct NativeSession {
     pub updated: u64,
     pub(crate) messages: Arc<Vec<Message>>,
     pub(crate) revision: String,
+    pub(crate) todos: Vec<Value>,
+    pub(crate) agents: Vec<Value>,
 }
 /// Background discovery needs bindings, never GUI snapshots or comment bodies.
 pub(crate) struct Registration {
@@ -69,6 +71,9 @@ pub(crate) struct Scan {
     pub errors: Vec<String>,
 }
 impl SessionStore {
+    pub(crate) fn transcript(path: &Path) -> Result<Vec<Message>> {
+        Ok(history::read(path)?.messages.as_ref().clone())
+    }
     pub fn discover(omp: &str, cwd: &Path) -> Result<Self> {
         let root = PathBuf::from(
             crate::infrastructure::configuration::settings::command(omp, cwd, &["config", "path"])?

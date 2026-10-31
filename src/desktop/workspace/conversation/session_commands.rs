@@ -153,8 +153,9 @@ impl Workspace {
         self.follow_up = None;
         self.document_state.files.clear();
         self.document_state.changes.clear();
-        self.todos.clear();
-        self.agents.clear();
+        self.todos = self.db.sessions[ix].todos.clone();
+        self.agents = self.db.sessions[ix].agents.clone();
+        self.collaboration = Default::default();
         self.error = None;
         self.composer_state.input.update(cx, |i, cx| {
             i.set_value(self.db.sessions[ix].draft.clone(), window, cx)
@@ -285,6 +286,9 @@ impl Workspace {
             self.running = false;
             self.pending_send = None;
             self.requests.clear();
+            self.todos.clear();
+            self.agents.clear();
+            self.collaboration = Default::default();
             self.active = None;
             self.db.active = None;
             self.texts.clear();

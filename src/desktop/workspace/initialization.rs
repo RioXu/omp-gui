@@ -96,6 +96,7 @@ impl Workspace {
             });
         let mut this = Self {
             session_sync: conversation::session_sync::SessionSync::default(),
+            collaboration: Default::default(),
             transcript: vec![],
             tool_diffs: HashMap::new(),
             stopping: false,
@@ -189,6 +190,7 @@ impl Workspace {
                 quote: None,
                 text: None,
                 files: vec![],
+                file_link_revision: 0,
                 changes: vec![],
                 tx: file_tx,
                 rx: file_rx,
@@ -209,6 +211,10 @@ impl Workspace {
                 thinking: "自动".into(),
             },
         };
+        if let Some(ix) = this.active {
+            this.todos = this.db.sessions[ix].todos.clone();
+            this.agents = this.db.sessions[ix].agents.clone();
+        }
         this.sync_texts(cx);
         let config_cwd = this
             .session()

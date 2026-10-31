@@ -6,11 +6,12 @@ use std::ops::Range;
 pub(crate) enum TranscriptRow {
     User(usize),
     Assistant(Range<usize>),
+    Notice(usize),
 }
 impl TranscriptRow {
     pub fn contains(&self, message: usize) -> bool {
         match self {
-            Self::User(ix) => *ix == message,
+            Self::User(ix) | Self::Notice(ix) => *ix == message,
             Self::Assistant(range) => range.contains(&message),
         }
     }
@@ -27,8 +28,10 @@ pub(crate) fn transcript_rows(messages: &[Message]) -> Vec<TranscriptRow> {
             } else {
                 rows.push(TranscriptRow::Assistant(ix..ix + 1));
             }
-        } else {
+        } else if message.role == "user" {
             rows.push(TranscriptRow::User(ix));
+        } else {
+            rows.push(TranscriptRow::Notice(ix));
         }
     }
     rows
@@ -73,5 +76,20 @@ mod tests {
             ]
         );
         assert!(rows[1].contains(2));
+    }
+    #[test]
+    fn inserted_advice_and_peer_messages_are_separate_from_user_and_assistant_turns() {
+        let messages = ["user", "assistant", "custom", "custom", "assistant"]
+            .map(|role| Message::new(role, "text".into()));
+        assert_eq!(
+            transcript_rows(&messages),
+            vec![
+                TranscriptRow::User(0),
+                TranscriptRow::Assistant(1..2),
+                TranscriptRow::Notice(2),
+                TranscriptRow::Notice(3),
+                TranscriptRow::Assistant(4..5)
+            ]
+        );
     }
 }

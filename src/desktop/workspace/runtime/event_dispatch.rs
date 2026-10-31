@@ -25,6 +25,7 @@ impl Workspace {
                 );
                 self.command(json!({"type":"get_available_models","id":"models"}));
                 self.command(json!({"type":"get_available_commands","id":"commands"}));
+                self.command(json!({"type":"get_subagents","id":"agents"}));
                 self.request_state();
             }
             "response" => {
@@ -119,7 +120,14 @@ impl Workspace {
                             .as_u64()
                             .or_else(|| d["model"]["contextWindow"].as_u64())
                             .unwrap_or(0);
-                        self.todos = d["todoPhases"].as_array().cloned().unwrap_or_default();
+                        self.todos = crate::domain::activity::merge_todo_snapshot(
+                            &self.todos,
+                            d["todoPhases"]
+                                .as_array()
+                                .map(Vec::as_slice)
+                                .unwrap_or_default(),
+                        );
+                        self.save_activity();
                         if let Some(title) =
                             d["sessionName"].as_str().filter(|s| !s.trim().is_empty())
                             && let Some(s) = self.session_mut()
@@ -151,12 +159,22 @@ impl Workspace {
                             .unwrap_or_default();
                     }
                     "get_subagents" => {
-                        self.agents = f["data"]["subagents"]
+                        let agents = f["data"]["subagents"]
                             .as_array()
                             .or_else(|| f["data"]["agents"].as_array())
                             .or_else(|| f["data"].as_array())
                             .cloned()
                             .unwrap_or_default();
+                        for agent in agents {
+                            self.on_subagent(&agent);
+                        }
+                    }
+                    "set_todos" => {
+                        self.todos = f["data"]["todoPhases"]
+                            .as_array()
+                            .cloned()
+                            .unwrap_or_default();
+                        self.save_activity();
                     }
                     "prompt" => {
                         self.accept_submission(&f, window, cx);
@@ -245,6 +263,28 @@ impl Workspace {
                     self.queue_delivered(&crate::infrastructure::omp::message_text(m));
                 }
                 if m["role"] != "assistant" {
+                    if let Some(mut message) = crate::infrastructure::omp::display_message(m)
+                        && message.role != "user"
+                    {
+                        let rid = f["messageId"]
+                            .as_str()
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| {
+                                format!("{}:{}:{}", m["role"], m["customType"], m["timestamp"])
+                            });
+                        let mid = self.rpc_messages.entry(rid).or_insert_with(id).clone();
+                        message.id = mid.clone();
+                        if let Some(s) = self.session_mut() {
+                            if let Some(existing) = s.messages.iter_mut().find(|m| m.id == mid) {
+                                existing.text = message.text;
+                                existing.label = message.label;
+                                existing.details = message.details;
+                            } else {
+                                s.messages.push(message);
+                            }
+                        }
+                        self.dirty = true;
+                    }
                     return;
                 }
                 let text = crate::infrastructure::omp::message_text(m);
@@ -310,6 +350,7 @@ impl Workspace {
             "tool_execution_end" => {
                 let call_id = f["toolCallId"].as_str().unwrap_or_default();
                 self.active_tools.remove(call_id);
+                self.update_tool_activity(&f["result"]["details"]);
                 if let Some(s) = self.session_mut() {
                     for block in s
                         .messages
@@ -327,8 +368,33 @@ impl Workspace {
                 self.refresh_transcript();
                 self.request_state();
             }
+            "tool_execution_update" => {
+                let partial = f
+                    .get("partialResult")
+                    .or_else(|| f.get("result"))
+                    .unwrap_or(&Value::Null);
+                self.update_tool_activity(&partial["details"]);
+                let call = f["toolCallId"].as_str().unwrap_or_default();
+                if let Some(s) = self.session_mut() {
+                    for block in s
+                        .messages
+                        .iter_mut()
+                        .flat_map(|m| &mut m.process)
+                        .filter(|b| b.id == call)
+                    {
+                        block.set_result(
+                            crate::infrastructure::omp::message_text(partial),
+                            &partial["details"],
+                        );
+                    }
+                }
+                self.dirty = true;
+            }
             "subagent_lifecycle" | "subagent_progress" => {
-                self.command(json!({"type":"get_subagents","id":"agents"}));
+                self.on_subagent(&f["payload"]);
+                if kind == "subagent_lifecycle" {
+                    self.command(json!({"type":"get_subagents","id":"agents"}));
+                }
             }
             "extension_ui_request" => {
                 match f["method"].as_str().unwrap_or("") {

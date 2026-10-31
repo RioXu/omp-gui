@@ -231,6 +231,10 @@ impl Workspace {
             }
             self.active = active_id.and_then(|id| self.db.sessions.iter().position(|s| s.id == id));
             if changed {
+                if let Some(ix) = self.active {
+                    self.todos = self.db.sessions[ix].todos.clone();
+                    self.agents = self.db.sessions[ix].agents.clone();
+                }
                 self.sync_texts(cx);
                 self.persist();
                 cx.notify();
@@ -273,4 +277,8 @@ fn bind(session: &mut Session, native: &NativeSession, store: &SessionStore) {
     }
     session.updated = session.updated.max(native.updated);
     session.merge_native_history(native.messages.as_ref().clone());
+    session.todos = native.todos.clone();
+    for agent in &native.agents {
+        crate::domain::activity::merge_agent(&mut session.agents, agent);
+    }
 }

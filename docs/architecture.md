@@ -4,6 +4,8 @@
 
 项目使用一个 Cargo 包，二进制入口只启动桌面应用；组件放在库中，使集成测试通过真实的组件接口运行。当前不拆成多个 crate，避免为目录整理引入额外的发布和依赖管理成本。
 
+默认在 `main` 分支直接工作，只有用户明确要求时才创建或切换其他分支；仓库约定见 [AGENTS.md](../AGENTS.md)。
+
 ## 目录与依赖方向
 
 ```text
@@ -59,6 +61,10 @@ OMP 适配器进一步分为：`client.rs` 管理进程及收发线程，`framin
 `omp/sessions` 通过安装的 OMP 查询配置根目录，复用原生项目 JSONL 存储。`mod.rs` 负责发现与缓存，`history.rs` 读取标题槽和当前分支的消息、思考及工具结果，`paths.rs` 统一 Windows 路径和项目桶编码，`operations.rs` 创建、迁移和删除记录及附件，`lease.rs` 与 OMP 的 Windows 进程占用锁互操作。原始日志不由 GUI 消息缓存重写。
 
 `conversation/session_sync.rs` 在后台扫描已打开项目，并在 UI 线程合并结果；工作线程只接收轻量绑定信息，历史缓存共享且按原生文件修订跳过未变化记录。流式回复期间和早于最近消息事件的扫描不覆盖活动会话。`domain/native_history.rs` 按原生消息 ID 或有序文本匹配保留 GUI 消息 ID、评论关联与历史 Diff。持久化数据新增可缺省的原生绑定字段，兼容旧版工作区 JSON。
+
+`omp/display.rs` 为实时消息、原生日志和子会话提供统一投影，区分助手、Advisor、来信等可见内容，并遵守原生隐藏标记。投影修订加入原生缓存指纹，升级后会重新生成旧展示缓存。`domain/activity.rs` 合并任务与智能体状态，阻止迟到的运行中快照覆盖完成状态。`runtime/collaboration.rs` 管理子会话后台读取，结果校验主会话、子会话和请求身份，文件限于主会话附件范围。
+
+文件链接通过 gpui-kit `MarkdownPlugin` 和 `Link` 渲染，保留原始 Markdown 及其源范围；不重写模型正文。`filesystem/file_references.rs` 负责路径解析与相对路径边界，`documents/file_links.rs` 负责点击打开文件标签。文件增删、重命名触发行内引用重解析；显式打开的外部文件父目录加入非递归监听。任务与子智能体面板的呈现放在 `view/activity.rs`。
 
 配置命令使用明确的导航目标，避免把服务注册入口退化成设置大类；元数据未就绪时保留导航意图，加载后完成跳转。子智能体与角色模型表单使用 gpui-kit Form、Input、Textarea、Select，字段状态属于桌面层；原生文档转换、范围隔离、字段保留及冲突检查属于 `configuration/authoring`。明确带参数的命令继续交给 OMP。
 

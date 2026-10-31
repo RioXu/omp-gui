@@ -62,6 +62,35 @@ fn append(path: &Path, rows: &[Value]) {
     file.sync_all().unwrap();
 }
 #[test]
+fn native_history_restores_advisor_peer_messages_todos_and_finished_agents() {
+    let f = Fixture::new();
+    let native = f.store.create(&f.project, "activity").unwrap();
+    append(
+        &native.path,
+        &[
+            json!({"type":"message","id":"u","parentId":null,"message":{"role":"user","content":"review"}}),
+            json!({"type":"custom_message","id":"advice","parentId":"u","customType":"advisor","display":true,"content":"Check `README.md`"}),
+            json!({"type":"custom_message","id":"hidden","parentId":"advice","customType":"system-context","display":false,"content":"hidden"}),
+            json!({"type":"custom_message","id":"peer","parentId":"hidden","customType":"irc:incoming","display":true,"content":"<irc>wrapped</irc>","details":{"from":"scout","message":"Found a problem"}}),
+            json!({"type":"message","id":"tools","parentId":"peer","message":{"role":"toolResult","toolCallId":"x","details":{"phases":[{"name":"Review","tasks":[{"content":"inspect","status":"blocked","blocker":"waiting"}]}],"results":[{"id":"scout","agent":"scout","exitCode":0,"output":"done"}]}}}),
+            json!({"type":"custom","id":"todo-edit","parentId":"tools","customType":"user_todo_edit","data":{"phases":[{"name":"Edited","tasks":[]}]}}),
+        ],
+    );
+    let parsed = history::read(&native.path).unwrap();
+    assert_eq!(parsed.messages.len(), 3);
+    assert_eq!(parsed.messages[1].role, "custom");
+    assert!(
+        parsed.messages[1]
+            .label
+            .as_deref()
+            .unwrap()
+            .contains("Advisor")
+    );
+    assert_eq!(parsed.messages[2].text, "Found a problem");
+    assert_eq!(parsed.todos[0]["name"], "Edited");
+    assert_eq!(parsed.agents[0]["status"], "completed");
+}
+#[test]
 fn native_buckets_match_home_temp_absolute_and_extended_windows_paths() {
     assert_eq!(
         bucket(

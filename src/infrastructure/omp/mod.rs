@@ -1,6 +1,8 @@
 //! Native OMP client. No desktop/UI dependency is allowed in this adapter.
 mod client;
 mod diagnostics;
+mod display;
+pub(crate) use display::display_message;
 mod framing;
 mod messages;
 pub mod sessions;

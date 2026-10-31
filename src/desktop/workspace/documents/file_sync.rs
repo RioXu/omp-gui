@@ -24,11 +24,26 @@ impl Workspace {
 
     pub(in crate::desktop::workspace) fn watch_files(&mut self) {
         let sid = self.session().map(|s| s.id.clone()).unwrap_or_default();
-        if sid == self.document_state.watched_session {
+        let external: std::collections::BTreeSet<_> = self
+            .document_state
+            .tabs
+            .iter()
+            .filter(|t| !t.historical && t.path.is_absolute())
+            .filter_map(|t| t.path.parent().map(std::path::Path::to_owned))
+            .collect();
+        let signature = format!(
+            "{sid}|{}",
+            external
+                .iter()
+                .map(|p| p.to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("|")
+        );
+        if signature == self.document_state.watched_session {
             return;
         }
         self.document_state.watcher = None;
-        self.document_state.watched_session = sid.clone();
+        self.document_state.watched_session = signature;
         self.document_state.loading = false;
         self.document_state.refresh_pending = Some(Instant::now());
         let Some(s) = self.session() else {
@@ -42,6 +57,15 @@ impl Workspace {
         }
         let mut watcher =
             match notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+                let links_changed = match &event {
+                    Ok(e) => matches!(
+                        e.kind,
+                        EventKind::Create(_)
+                            | EventKind::Remove(_)
+                            | EventKind::Modify(notify::event::ModifyKind::Name(_))
+                    ),
+                    Err(_) => true,
+                };
                 let relevant = match event {
                     Ok(e) => {
                         !matches!(e.kind, EventKind::Access(_))
@@ -55,6 +79,7 @@ impl Workspace {
                 if relevant {
                     let _ = tx.send(FileEvent::Changed {
                         session: sid.clone(),
+                        links_changed,
                     });
                 }
             }) {
@@ -62,6 +87,9 @@ impl Workspace {
                 Err(_) => return,
             };
         if watcher.watch(&root, RecursiveMode::Recursive).is_ok() {
+            for parent in external {
+                let _ = watcher.watch(&parent, RecursiveMode::NonRecursive);
+            }
             self.document_state.watcher = Some(watcher);
         }
     }
@@ -137,7 +165,14 @@ impl Workspace {
     ) {
         let sid = self.session().map(|s| s.id.clone()).unwrap_or_default();
         match event {
-            FileEvent::Changed { session } if session == sid => {
+            FileEvent::Changed {
+                session,
+                links_changed,
+            } if session == sid => {
+                if links_changed {
+                    self.document_state.file_link_revision =
+                        self.document_state.file_link_revision.wrapping_add(1);
+                }
                 self.document_state
                     .refresh_pending
                     .get_or_insert_with(Instant::now);
@@ -147,6 +182,8 @@ impl Workspace {
                 match result {
                     Ok((files, changed)) => {
                         if self.document_state.files != files {
+                            self.document_state.file_link_revision =
+                                self.document_state.file_link_revision.wrapping_add(1);
                             self.document_state.tree.update(cx, |t, cx| {
                                 crate::desktop::workspace::documents::file_tree::update(
                                     t, &files, cx,
