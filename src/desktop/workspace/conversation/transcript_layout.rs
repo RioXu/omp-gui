@@ -65,17 +65,23 @@ impl Workspace {
             if let Some(entry) = self.runtime.texts.get_mut(&m.id) {
                 if entry.body != m.text {
                     entry.body = m.text.clone();
-                    entry.state.update(cx, |s, cx| s.set_text(&m.text, cx));
+                    let (display, offsets) = crate::desktop::markdown::prepare(&m.text);
+                    entry.offsets = offsets;
+                    entry
+                        .state
+                        .update(cx, |s, cx| s.set_text(display.as_ref(), cx));
                 }
             } else {
+                let (display, offsets) = crate::desktop::markdown::prepare(&m.text);
                 let state =
-                    cx.new(|cx| TextViewState::markdown(&m.text, cx).selectable(m.role != "user"));
+                    cx.new(|cx| TextViewState::markdown(&display, cx).selectable(m.role != "user"));
                 self.runtime.texts.insert(
                     m.id.clone(),
                     TextEntry {
                         state,
                         body: m.text.clone(),
                         source: Source::Message(m.id.clone()),
+                        offsets,
                     },
                 );
             }

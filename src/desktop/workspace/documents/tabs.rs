@@ -261,6 +261,7 @@ impl Workspace {
             fenced(&editor_text, language)
         };
         tab.entry = Some(TextEntry {
+            offsets: Default::default(),
             state: cx.new(|cx| TextViewState::markdown(&body, cx).selectable(true)),
             body,
             source: Source::File {

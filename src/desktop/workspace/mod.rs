@@ -63,6 +63,7 @@ pub(crate) struct TextEntry {
     pub state: Entity<TextViewState>,
     pub body: String,
     pub source: Source,
+    pub offsets: crate::desktop::markdown::SourceOffsets,
 }
 
 pub(crate) struct Workspace {

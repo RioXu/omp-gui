@@ -169,6 +169,7 @@ impl Workspace {
             language_for_path(&tab.path),
         );
         let entry = TextEntry {
+            offsets: Default::default(),
             state: cx.new(|cx| TextViewState::markdown(&body, cx).selectable(true)),
             body,
             source: Source::File {

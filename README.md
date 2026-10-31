@@ -46,7 +46,7 @@ cargo run -- --probe --data-dir ".\target\probe-data"
 | --- | --- |
 | [使用与配置](docs/usage.md) | 快捷键、队列、评论、文件标签、命令目标、模型与子智能体表单、数据范围及限制 |
 | [组件职责与维护约定](docs/architecture.md) | 模块边界、依赖方向、状态归属和行为约定 |
-| [构建、测试与验证](docs/testing.md) | Windows 构建、79 项离线测试、8 项显式本机测试、界面验证隔离与结果 |
+| [构建、测试与验证](docs/testing.md) | Windows 构建、83 项离线测试、8 项显式本机测试、界面验证隔离与结果 |
 | [变更与历史记录](docs/changelog.md) | 当前未发布改动和早期版本记录 |
 
 ## 数据与兼容

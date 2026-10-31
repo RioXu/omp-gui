@@ -89,9 +89,9 @@ impl Workspace {
         let mut detail = div().flex().flex_col().gap_2().min_w_0();
         if expanded {
             if block.kind == ProcessKind::Thinking {
-                detail = detail.child(TextView::markdown(
+                detail = detail.child(crate::desktop::markdown::view(
                     SharedString::from(format!("thinking-{key}")),
-                    block.text.clone(),
+                    &block.text,
                 ));
             } else if block.is_edit() {
                 if let Some(diff) = self.runtime.tool_diffs.get(&key) {

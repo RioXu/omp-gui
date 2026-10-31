@@ -135,7 +135,10 @@ impl Workspace {
                     );
                 if !message.text.is_empty() {
                     row = row.child(self.file_link_view(
-                        TextView::markdown(SharedString::from(key.clone()), message.text.clone()),
+                        crate::desktop::markdown::view(
+                            SharedString::from(key.clone()),
+                            &message.text,
+                        ),
                         cx,
                     ));
                 }
@@ -178,9 +181,9 @@ impl Workspace {
                 for key in ["description", "task", "assignment", "error", "output"] {
                     if let Some(text) = agent[key].as_str().filter(|s| !s.is_empty()) {
                         card = card.child(self.file_link_view(
-                            TextView::markdown(
+                            crate::desktop::markdown::view(
                                 SharedString::from(format!("agent-{id}-{key}")),
-                                text.to_owned(),
+                                text,
                             ),
                             cx,
                         ));

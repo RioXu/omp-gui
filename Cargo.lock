@@ -4451,6 +4451,7 @@ dependencies = [
  "gpui-kit",
  "gpui-pre",
  "image",
+ "markdown",
  "notify",
  "reqwest",
  "ropey",

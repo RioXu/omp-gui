@@ -164,14 +164,22 @@ impl Workspace {
                 );
             for entry in entries {
                 let state = entry.state.read(cx);
-                if !state.is_selecting() {
+                if !state.is_selecting()
+                    && entry
+                        .offsets
+                        .matches(state.rendered_text().source(), &entry.body)
+                {
                     let quote = state.selected_text();
                     if !quote.is_empty()
                         && let Some(range) = state.selected_source_range()
                     {
-                        selected =
-                            Anchor::new(entry.source.clone(), entry.body.clone(), range, quote)
-                                .ok();
+                        selected = Anchor::new(
+                            entry.source.clone(),
+                            entry.body.clone(),
+                            entry.offsets.original_range(range),
+                            quote,
+                        )
+                        .ok();
                     }
                 }
             }

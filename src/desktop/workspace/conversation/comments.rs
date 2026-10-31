@@ -43,7 +43,7 @@ impl Workspace {
     }
     pub fn open_anchor(&mut self, anchor: Anchor, cx: &mut Context<Self>) {
         if let Source::Message(id) = &anchor.source
-            && let Some((ix, state)) = self
+            && let Some((ix, state, offsets)) = self
                 .session()
                 .and_then(|s| s.messages.iter().position(|m| &m.id == id))
                 .and_then(|ix| {
@@ -51,7 +51,7 @@ impl Workspace {
                         .texts
                         .get(id)
                         .filter(|e| e.body == anchor.document)
-                        .map(|e| (ix, e.state.clone()))
+                        .map(|e| (ix, e.state.clone(), e.offsets.clone()))
                 })
         {
             let row = self.row_for_message(ix);
@@ -65,7 +65,10 @@ impl Workspace {
             self.invalidate_list();
             let color = cx.theme().selection;
             state.update(cx, |s, cx| {
-                if let Some(range) = s.rendered_text().range_for_source(anchor.range.clone()) {
+                if let Some(range) = s
+                    .rendered_text()
+                    .range_for_source(offsets.display_range(anchor.range.clone()))
+                {
                     let _ = s.set_range_highlights([RangeHighlight::new(range.clone(), color)], cx);
                     let _ = s.reveal_range(range, cx);
                 }
@@ -125,17 +128,21 @@ impl Workspace {
             self.document_state.diff = Some(state);
         }
         let body = anchor.document.clone();
-        let state = cx.new(|cx| TextViewState::markdown(&body, cx).selectable(true));
+        let (display, offsets) = crate::desktop::markdown::prepare(&body);
+        let state = cx.new(|cx| TextViewState::markdown(&display, cx).selectable(true));
         let color = cx.theme().selection;
         state.update(cx, |s, cx| {
             if anchor.exact_range
-                && let Some(r) = s.rendered_text().range_for_source(anchor.range.clone())
+                && let Some(r) = s
+                    .rendered_text()
+                    .range_for_source(offsets.display_range(anchor.range.clone()))
             {
                 let _ = s.set_range_highlights([RangeHighlight::new(r.clone(), color)], cx);
                 let _ = s.reveal_range(r, cx);
             }
         });
         self.document_state.text = Some(TextEntry {
+            offsets,
             state,
             body,
             source: anchor.source,
