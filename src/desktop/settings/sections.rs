@@ -3,7 +3,7 @@ use super::*;
 impl SettingsView {
     pub(super) fn render_special(&self, cx: &mut Context<Self>) -> AnyElement {
         let mut body = div().flex().flex_col().gap_3();
-        let ready = !self.catalog.root.as_os_str().is_empty() && !self.busy;
+        let ready = !self.catalog.root.as_os_str().is_empty() && !self.busy && !self.loading;
         match self.category {
             "常规" => {
                 body = body
@@ -28,6 +28,10 @@ impl SettingsView {
                             .text_color(cx.theme().muted_foreground)
                             .child(format!("当前执行目录：{}", self.cwd.display())),
                     );
+            }
+            "模型" if self.processing_speed => {
+                body = body.child(div().text_lg().child("速度与服务等级"))
+                    .child(div().text_sm().child("/fast 对应优先处理，/slow 对应 flex 或 Anthropic 低优先级。仅支持这些模式的模型生效；此处保存全局或项目的默认配置。"));
             }
             "模型" => {
                 body = body
@@ -74,7 +78,7 @@ impl SettingsView {
             "角色与提示词" | "技能" => {
                 let skill = self.category == "技能";
                 body=body.child(div().text_sm().child(if skill{"原生技能保存在 skills/<名称>/SKILL.md。下面的 skills.ignoredSkills 可停用技能，skills.customDirectories 可注册额外目录。"}else{"modelRoles 负责 default、advisor 等角色与模型的关联；agents/*.md 定义带系统提示词的子智能体。两者按 OMP 原生机制分别保存。"}))
-                .child(div().flex().gap_2().child(Input::new(&self.name)).child(Button::new("new-prompt").icon(IconName::Plus).label(if skill{"新建技能"}else{"新建子智能体"}).disabled(!ready).on_click(cx.listener(move|this,_,w,cx|this.create_prompt(skill,w,cx)))));
+                .child(div().flex().gap_2().when(skill, |d| d.child(Input::new(&self.name))).child(Button::new("new-prompt").icon(IconName::Plus).label(if skill{"新建技能"}else{"新建子智能体"}).disabled(!ready).on_click(cx.listener(move|this,_,w,cx|{ if skill { this.create_skill(w,cx) } else { this.open_agent(None,w,cx) } }))));
                 if !skill {
                     body = body.child(
                         div()
@@ -86,9 +90,7 @@ impl SettingsView {
                                     .small()
                                     .label("角色与模型关联…")
                                     .disabled(!ready)
-                                    .on_click(cx.listener(|this, _, w, cx| {
-                                        this.key("modelRoles".into(), w, cx)
-                                    })),
+                                    .on_click(cx.listener(|this, _, w, cx| this.open_roles(w, cx))),
                             )
                             .child(
                                 Button::new("system-prompt")
@@ -141,7 +143,11 @@ impl SettingsView {
                             .accessibility_label(label.clone())
                             .child(div().flex_1().text_left().child(label))
                             .on_click(cx.listener(move |this, _, w, cx| {
-                                this.file(path.clone(), "", w, cx)
+                                if skill {
+                                    this.file(path.clone(), "", w, cx)
+                                } else {
+                                    this.open_agent(Some(path.clone()), w, cx)
+                                }
                             })),
                     );
                 }

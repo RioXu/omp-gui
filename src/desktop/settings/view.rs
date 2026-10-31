@@ -5,6 +5,12 @@ impl Render for SettingsView {
         if let Some(registry) = &self.registry {
             return div().size_full().child(registry.clone());
         }
+        if let Some(editor) = &self.agent_editor {
+            return div().size_full().child(editor.clone());
+        }
+        if let Some(editor) = &self.role_editor {
+            return div().size_full().child(editor.clone());
+        }
         let theme = cx.theme().clone();
         let mut nav = div()
             .w_40()
@@ -25,6 +31,9 @@ impl Render for SettingsView {
                             .disable(self.edit.is_some())
                             .on_click(cx.listener(move |this, _, w, cx| {
                                 this.category = category;
+                                this.processing_speed = false;
+                                this.search.update(cx, |s, cx| s.set_value("", w, cx));
+                                this.pending_destination = None;
                                 this.prepare_controls(w, cx);
                                 cx.notify();
                             })),
@@ -181,6 +190,7 @@ impl Render for SettingsView {
                     .iter()
                     .filter(|(key, meta)| {
                         (settings::category(key) == self.category || !query.is_empty())
+                            && (!self.processing_speed || navigation::speed_setting(key))
                             && (!self.project || !key.starts_with("auth.broker."))
                             && (query.is_empty()
                                 || key.to_lowercase().contains(&query)

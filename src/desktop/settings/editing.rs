@@ -20,6 +20,10 @@ impl SettingsView {
         });
     }
     pub(super) fn key(&mut self, key: String, w: &mut Window, cx: &mut Context<Self>) {
+        if key == "modelRoles" {
+            self.open_roles(w, cx);
+            return;
+        }
         let Some(meta) = self.catalog.entries.get(&key) else {
             return;
         };
@@ -185,32 +189,17 @@ impl SettingsView {
         });
         cx.notify();
     }
-    pub(super) fn create_prompt(&mut self, skill: bool, w: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn create_skill(&mut self, w: &mut Window, cx: &mut Context<Self>) {
         let name = self.name.read(cx).value().trim().to_owned();
-        if !skill && ["main", "sub"].contains(&name.to_lowercase().as_str()) {
-            self.notice = "main 和 sub 是 OMP 保留名称，请选择其他子智能体名称".into();
-            cx.notify();
-            return;
-        }
         if let Err(e) = settings::native_name(&name) {
             self.notice = e.to_string();
             cx.notify();
             return;
         }
-        let path = if skill {
-            self.base().join("skills").join(&name).join("SKILL.md")
-        } else {
-            self.base().join("agents").join(format!("{name}.md"))
-        };
-        let template = if skill {
-            format!(
-                "---\nname: {name}\ndescription: 描述这个技能适用的任务\n---\n\n在这里编写技能指令。\n"
-            )
-        } else {
-            format!(
-                "---\nname: {name}\ndescription: 描述这个子智能体的职责\nmodel: \"@default\"\n---\n\n在这里编写子智能体系统提示词。\n"
-            )
-        };
+        let path = self.base().join("skills").join(&name).join("SKILL.md");
+        let template = format!(
+            "---\nname: {name}\ndescription: 描述这个技能适用的任务\n---\n\n在这里编写技能指令。\n"
+        );
         self.file(path, &template, w, cx);
     }
 }

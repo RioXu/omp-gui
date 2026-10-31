@@ -127,6 +127,9 @@ impl Workspace {
                 ("model", "选择和配置模型"),
                 ("models", "选择和配置模型"),
                 ("switch", "选择模型"),
+                ("fast", "配置速度与服务等级"),
+                ("slow", "配置速度与服务等级"),
+                ("tools", "配置工具调用"),
                 ("effort", "配置思考等级"),
                 ("mcp", "配置 MCP"),
                 ("plugins", "管理插件"),
@@ -152,10 +155,10 @@ impl Workspace {
                         });
                     matches.then(|| Completion {
                         label: format!("/{name}"),
-                        description: if let Some((category, _)) =
+                        description: if let Some(destination) =
                             super::settings_commands::settings_target(&format!("/{name}"))
                         {
-                            format!("打开设置 · {category}")
+                            format!("打开设置 · {}", destination.label())
                         } else {
                             c["description"].as_str().unwrap_or("").into()
                         },

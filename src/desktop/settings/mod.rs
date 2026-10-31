@@ -1,7 +1,11 @@
+mod authoring;
 mod controls;
 mod editing;
+mod editors;
+mod navigation;
 mod sections;
 mod view;
+pub(crate) use navigation::Destination;
 
 use crate::infrastructure::configuration::settings::{self, Catalog};
 use gpui_kit::component::scroll::ScrollableElement;
@@ -40,7 +44,11 @@ enum Edit {
 }
 pub(crate) struct SettingsView {
     rows_scroll: UniformListScrollHandle,
+    pending_destination: Option<Destination>,
+    processing_speed: bool,
     registry: Option<Entity<crate::desktop::services::RegistryView>>,
+    agent_editor: Option<Entity<editors::AgentEditor>>,
+    role_editor: Option<Entity<editors::RoleEditor>>,
     omp: String,
     cwd: PathBuf,
     catalog: Catalog,
@@ -79,11 +87,15 @@ const CATEGORIES: [&str; 10] = [
 impl SettingsView {
     pub(crate) fn navigate(
         &mut self,
-        category: &'static str,
-        query: &str,
+        destination: Destination,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.processing_speed = destination == Destination::ProcessingSpeed;
+        let (category, query) = match destination {
+            Destination::Page(category, query) => (category, query),
+            Destination::ModelServices | Destination::ProcessingSpeed => ("模型", ""),
+        };
         self.category = category;
         self.registry = None;
         self.search.update(cx, |input, cx| {
@@ -91,6 +103,15 @@ impl SettingsView {
         });
         self.rows_scroll.scroll_to_item(0, ScrollStrategy::Top);
         self.prepare_controls(window, cx);
+        if destination == Destination::ModelServices {
+            self.project = false;
+            if self.catalog.root.as_os_str().is_empty() {
+                self.pending_destination = Some(destination);
+            } else {
+                self.pending_destination = None;
+                self.open_registry(false, window, cx);
+            }
+        }
         cx.notify();
     }
     fn open_registry(&mut self, web: bool, w: &mut Window, cx: &mut Context<Self>) {
@@ -143,7 +164,11 @@ impl SettingsView {
         let cached = settings::cached(&omp, &cwd).unwrap_or_default();
         let mut this = Self {
             rows_scroll: UniformListScrollHandle::new(),
+            pending_destination: None,
+            processing_speed: false,
             registry: None,
+            agent_editor: None,
+            role_editor: None,
             omp,
             cwd,
             catalog: cached,
@@ -186,6 +211,9 @@ impl SettingsView {
                                     this.catalog = c;
                                     this.prepare_controls(window, cx);
                                     this.notice = "已读取本机 OMP 设置".into();
+                                    if let Some(destination) = this.pending_destination.take() {
+                                        this.navigate(destination, window, cx);
+                                    }
                                 }
                                 ResultEvent::Saved(Ok(())) => {
                                     this.notice =

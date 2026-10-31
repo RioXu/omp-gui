@@ -15,6 +15,7 @@ src/
     persistence/                  数据目录锁、原子保存与恢复
     configuration/
       settings.rs                 OMP 配置目录、范围、缓存和读写
+      authoring/                  子智能体文档、角色映射与原生模型能力
       providers/                  服务目录、模型覆盖、连接验证与凭据导入
     process.rs                    Windows 隐藏子进程的通用启动方式
   desktop/
@@ -30,6 +31,8 @@ src/
       initialization.rs           工作区装配和 GPUI 订阅
       preferences.rs              设置页入口、主题和面板偏好
     settings/                     配置页导航、类型控件和编辑交互
+      navigation.rs               命令对应的具体页面或功能目标
+      editors/                    子智能体与角色模型表单、共享模型选择器
     services/                     模型提供商及搜索服务的图形化管理
 tests/
   omp_integration.rs              本机 OMP 集成测试入口
@@ -49,6 +52,8 @@ scripts/                          开发与数据更新工具
 功能目录中的控制逻辑负责处理动作与更新状态，`view` 负责构建组件和绑定动作。OMP / 文件 / 配置后台任务发出结果，GPUI 实体在 UI 线程接收并更新状态。避免在渲染函数中执行磁盘、网络或子进程操作。
 
 OMP 适配器进一步分为：`client.rs` 管理进程及收发线程，`framing.rs` 校验帧与重组分片，`messages.rs` 提取文本，`installation.rs` 定位安装，`diagnostics.rs` 提供 `--probe`。协议解析不依赖窗口生命周期。
+
+配置命令使用明确的导航目标，避免把服务注册入口退化成设置大类；元数据未就绪时保留导航意图，加载后完成跳转。子智能体与角色模型表单使用 gpui-kit Form、Input、Textarea、Select，字段状态属于桌面层；原生文档转换、范围隔离、字段保留及冲突检查属于 `configuration/authoring`。明确带参数的命令继续交给 OMP。
 
 新增功能应放入其所属组件；跨界功能由工作区协调，不向领域层添加窗口状态，也不把界面目录树构建混入文件读取适配器。通常将文件控制在 300 行左右，但不为行数拆散紧密相关的行为。只为实际复用或依赖隔离增加抽象。
 

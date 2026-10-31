@@ -1,6 +1,7 @@
 use super::*;
+use crate::desktop::settings::Destination;
 
-pub(crate) fn settings_target(text: &str) -> Option<(&'static str, &'static str)> {
+pub(crate) fn settings_target(text: &str) -> Option<Destination> {
     let mut words = text.split_whitespace();
     let command = words.next()?;
     let argument = words.next();
@@ -8,20 +9,22 @@ pub(crate) fn settings_target(text: &str) -> Option<(&'static str, &'static str)
         return None;
     }
     if command == "/advisor" && argument == Some("configure") {
-        return Some(("角色与提示词", "advisor."));
+        return Some(Destination::Page("角色与提示词", "advisor."));
     }
     if argument.is_some() {
         return None;
     }
     Some(match command {
-        "/model" | "/models" | "/switch" => ("模型", ""),
-        "/effort" | "/thinking" => ("模型", "defaultThinkingLevel"),
-        "/modelpreset" => ("角色与提示词", "modelPreset"),
-        "/settings" => ("常规", ""),
-        "/mcp" => ("MCP", ""),
-        "/lsp" => ("LSP", ""),
-        "/skills" => ("技能", ""),
-        "/plugins" | "/plugin" => ("插件", ""),
+        "/model" | "/models" | "/switch" => Destination::ModelServices,
+        "/fast" | "/slow" => Destination::ProcessingSpeed,
+        "/tools" => Destination::Page("工具调用", ""),
+        "/effort" | "/thinking" => Destination::Page("模型", "defaultThinkingLevel"),
+        "/modelpreset" => Destination::Page("角色与提示词", "modelPreset"),
+        "/settings" => Destination::Page("常规", ""),
+        "/mcp" => Destination::Page("MCP", ""),
+        "/lsp" => Destination::Page("LSP", ""),
+        "/skills" => Destination::Page("技能", ""),
+        "/plugins" | "/plugin" => Destination::Page("插件", ""),
         _ => return None,
     })
 }
@@ -33,12 +36,12 @@ impl Workspace {
         w: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some((category, query)) = settings_target(text) else {
+        let Some(destination) = settings_target(text) else {
             return false;
         };
         self.settings(w, cx);
         if let Some(view) = &self.settings_view {
-            view.update(cx, |view, cx| view.navigate(category, query, w, cx));
+            view.update(cx, |view, cx| view.navigate(destination, w, cx));
         }
         self.composer_state
             .input
@@ -55,22 +58,31 @@ impl Workspace {
 
 #[cfg(test)]
 mod tests {
-    use super::settings_target;
+    use super::{Destination, settings_target};
     #[test]
     fn interactive_configuration_routes_without_swallowing_rpc_arguments() {
-        assert_eq!(settings_target(" /model \n"), Some(("模型", "")));
-        assert_eq!(settings_target("/models"), Some(("模型", "")));
+        assert_eq!(
+            settings_target(" /model \n"),
+            Some(Destination::ModelServices)
+        );
+        assert_eq!(settings_target("/models"), Some(Destination::ModelServices));
+        for cmd in ["/fast", "/slow"] {
+            assert_eq!(settings_target(cmd), Some(Destination::ProcessingSpeed));
+        }
         assert_eq!(
             settings_target("/effort"),
-            Some(("模型", "defaultThinkingLevel"))
+            Some(Destination::Page("模型", "defaultThinkingLevel"))
         );
-        assert_eq!(settings_target("/mcp"), Some(("MCP", "")));
+        assert_eq!(settings_target("/mcp"), Some(Destination::Page("MCP", "")));
         assert_eq!(
             settings_target("/advisor configure"),
-            Some(("角色与提示词", "advisor."))
+            Some(Destination::Page("角色与提示词", "advisor."))
         );
         for text in [
             "/effort high",
+            "/fast on",
+            "/slow off",
+            "/model deepseek/model",
             "/switch deepseek",
             "/mcp list",
             "/plugins enable a",
