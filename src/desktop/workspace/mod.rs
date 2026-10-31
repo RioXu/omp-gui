@@ -54,7 +54,8 @@ actions!(
         DismissCompletion,
         NextSearchMatch,
         PreviousSearchMatch,
-        CloseSearch
+        CloseSearch,
+        SaveDocument
     ]
 );
 

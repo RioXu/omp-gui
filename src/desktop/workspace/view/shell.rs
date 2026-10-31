@@ -52,6 +52,9 @@ impl Render for Workspace {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &SendPrompt, w, cx| this.send(w, cx)))
+            .on_action(
+                cx.listener(|this, _: &SaveDocument, w, cx| this.save_active_document(w, cx)),
+            )
             .on_action(cx.listener(|this, _: &FindInSession, w, cx| this.open_search(w, cx)))
             .on_action(cx.listener(|this, _: &AcceptCompletion, w, cx| {
                 this.accept_completion(this.composer_state.selected_completion, w, cx)

@@ -94,6 +94,8 @@ pub(super) fn run() {
             KeyBinding::new("ctrl-shift-b", workspace::TogglePanel, Some("Workspace")),
             KeyBinding::new("ctrl-n", workspace::NewSession, Some("Workspace")),
             KeyBinding::new("ctrl-o", workspace::OpenProject, Some("Workspace")),
+            KeyBinding::new("ctrl-s", workspace::SaveDocument, Some("Workspace")),
+            KeyBinding::new("ctrl-s", workspace::SaveDocument, Some("Workspace > Input")),
         ]);
         Theme::update(cx, |t| {
             t.font_family = "Microsoft YaHei UI".into();

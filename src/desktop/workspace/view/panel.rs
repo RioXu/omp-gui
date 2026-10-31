@@ -151,9 +151,10 @@ impl Workspace {
                                         ),
                                 )
                                 .when(!folder, |row| {
-                                    row.on_click(move |_, _, cx| {
+                                    row.on_click(move |_, w, cx| {
                                         let _ = weak.update(cx, |this, cx| {
                                             this.open_file(path.clone().into());
+                                            this.focus_document_editor(w, cx);
                                             cx.notify();
                                         });
                                     })

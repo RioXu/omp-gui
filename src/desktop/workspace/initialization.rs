@@ -181,6 +181,9 @@ impl Workspace {
             },
             document_state: DocumentState {
                 tabs: Vec::new(),
+                subscriptions: Default::default(),
+                prompt: None,
+                discard_permit: false,
                 active: None,
                 watcher: None,
                 watched_session: String::new(),
@@ -233,6 +236,12 @@ impl Workspace {
                 this.session_sync.pending_create = Some(project);
             }
         }
+        let close_view = cx.entity().downgrade();
+        window.on_window_should_close(cx, move |window, cx| {
+            close_view
+                .update(cx, |this, cx| this.should_close_window(window, cx))
+                .unwrap_or(true)
+        });
         this.scan_sessions();
         cx.spawn_in(window, async move |view, cx| {
             loop {

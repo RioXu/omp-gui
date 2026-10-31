@@ -4,13 +4,16 @@ use crate::desktop::workspace::TextEntry;
 use crate::domain::Snapshot;
 use crate::infrastructure::filesystem::changes::ChangedFile;
 use gpui_kit::{
-    Entity,
+    Entity, Subscription,
     component::{diff::DiffState, tree::TreeState},
 };
-use std::{path::PathBuf, sync::mpsc, time::Instant};
+use std::{collections::HashMap, path::PathBuf, sync::mpsc, time::Instant};
 
 pub(in crate::desktop::workspace) struct DocumentState {
     pub(in crate::desktop::workspace) tabs: Vec<DocumentTab>,
+    pub(in crate::desktop::workspace) subscriptions: HashMap<String, Subscription>,
+    pub(in crate::desktop::workspace) prompt: Option<String>,
+    pub(in crate::desktop::workspace) discard_permit: bool,
     pub(in crate::desktop::workspace) active: Option<String>,
     pub(in crate::desktop::workspace) watcher: Option<notify::RecommendedWatcher>,
     pub(in crate::desktop::workspace) watched_session: String,
@@ -43,6 +46,11 @@ pub(in crate::desktop::workspace) enum FileEvent {
     Snapshot {
         session: String,
         request: String,
-        result: Result<Snapshot, String>,
+        result: Result<LoadedDocument, String>,
     },
+}
+
+pub(in crate::desktop::workspace) struct LoadedDocument {
+    pub snapshot: Snapshot,
+    pub target: Option<PathBuf>,
 }

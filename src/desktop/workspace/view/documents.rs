@@ -49,9 +49,14 @@ impl Workspace {
             } else {
                 name
             };
+            let aria_label = if tab.dirty {
+                format!("{label}，未保存")
+            } else {
+                label.clone()
+            };
             tabs = tabs.child(
                 Tab::new()
-                    .aria_label(label.clone())
+                    .aria_label(aria_label)
                     .child(
                         div()
                             .truncate()
@@ -74,8 +79,16 @@ impl Workspace {
                             ),
                         )
                     })
-                    .on_click(cx.listener(move |this, _, _, cx| {
+                    .when(tab.dirty, |t| {
+                        t.prefix(
+                            div()
+                                .pl_3()
+                                .child(div().size(px(6.)).rounded_full().bg(cx.theme().primary)),
+                        )
+                    })
+                    .on_click(cx.listener(move |this, _, w, cx| {
                         this.activate_document(Some(key.clone()));
+                        this.focus_document_editor(w, cx);
                         cx.notify();
                     }))
                     .suffix(
@@ -91,9 +104,9 @@ impl Workspace {
                                     .xsmall()
                                     .icon(IconName::Close)
                                     .accessibility_label("关闭标签页")
-                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                    .on_click(cx.listener(move |this, _, w, cx| {
                                         cx.stop_propagation();
-                                        this.close_document(&close_key);
+                                        this.request_close_document(&close_key, w, cx);
                                         cx.notify();
                                     })),
                             )
@@ -136,7 +149,15 @@ impl Workspace {
                                 },
                             ));
                         }
-                        menu
+                        let weak = weak.clone();
+                        menu.separator()
+                            .item(PopupMenuItem::new("关闭所有文件标签页").on_click(
+                                move |_, w, cx| {
+                                    let _ = weak.update(cx, |this, cx| {
+                                        this.request_close_all_documents(w, cx)
+                                    });
+                                },
+                            ))
                     }),
             );
         }
@@ -215,7 +236,10 @@ impl Workspace {
         view = if let Some(diff) = &tab.diff {
             view.child(div().flex_1().min_h_0().child(Diff::new(diff).size_full()))
         } else if let Some(editor) = &tab.editor {
-            view.child(div().flex_1().min_h_0().child(file_editor(editor)))
+            view.child(div().flex_1().min_h_0().child(file_editor(
+                editor,
+                tab.buffer.is_none() || self.save_disabled,
+            )))
         } else if let Some(entry) = &tab.entry {
             view.child(
                 div()
@@ -254,6 +278,12 @@ impl Workspace {
                 .child(div().flex_1())
                 .child(if tab.historical {
                     "历史引用"
+                } else if tab.buffer.is_some() && !self.save_disabled {
+                    if tab.dirty {
+                        "未保存 · Ctrl+S"
+                    } else {
+                        "可编辑 · Ctrl+S"
+                    }
                 } else {
                     "只读"
                 })
@@ -266,9 +296,9 @@ impl Workspace {
     }
 }
 
-fn file_editor(editor: &Entity<EditorState>) -> Editor {
+fn file_editor(editor: &Entity<EditorState>, readonly: bool) -> Editor {
     Editor::new(editor)
-        .readonly(true)
+        .readonly(readonly)
         .appearance(false)
         .bordered(false)
         .size_full()

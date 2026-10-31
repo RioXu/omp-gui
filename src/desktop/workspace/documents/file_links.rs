@@ -86,10 +86,11 @@ impl MarkdownPlugin for FileLinks {
         .rounded_sm()
         .px_1()
         .child(StyledText::new(node.as_text().to_owned()).with_highlights(highlights))
-        .on_click(move |_, _, cx| {
+        .on_click(move |_, w, cx| {
             if let Some(path) = &path {
                 let _ = workspace.update(cx, |this, cx| {
                     this.open_document(path.clone(), false);
+                    this.focus_document_editor(w, cx);
                     cx.notify();
                 });
             }

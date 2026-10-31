@@ -127,8 +127,20 @@ impl Workspace {
         if self.running || self.db.sessions.get(ix).is_none_or(|s| s.deleted) {
             return;
         }
-        self.persist();
         let target = self.db.sessions[ix].id.clone();
+        if self.document_state.prompt.is_some() && !self.document_state.discard_permit {
+            return;
+        }
+        if self.active == Some(ix) {
+            self.settings_view = None;
+            self.activate_document(None);
+            cx.notify();
+            return;
+        }
+        if !self.guard_documents(documents::LeaveAction::Activate(target.clone()), window, cx) {
+            return;
+        }
+        self.persist();
         let cleanup_error = self.discard_empty_session_on_leave(&target);
         self.db.discard_blank_sessions(Some(&target));
         let ix = self
@@ -148,8 +160,7 @@ impl Workspace {
         self.expanded_process.clear();
         self.list.reset(0);
         self.clear_file_preview();
-        self.document_state.tabs.clear();
-        self.document_state.active = None;
+        self.clear_documents();
         self.settings_view = None;
         self.follow_up = None;
         self.document_state.files.clear();
@@ -194,6 +205,13 @@ impl Workspace {
             cx.notify();
             return;
         }
+        if !self.guard_documents(
+            documents::LeaveAction::NewSession(project.clone()),
+            window,
+            cx,
+        ) {
+            return;
+        }
         let mut session = Session::new(project_path(&project));
         if !self.demo {
             let Some(store) = self.session_sync.store.as_ref() else {
@@ -234,6 +252,19 @@ impl Workspace {
         let Some(ix) = self.db.sessions.iter().position(|s| s.id == sid) else {
             return;
         };
+        if self.active == Some(ix)
+            && (delete || !self.db.sessions[ix].archived)
+            && !self.guard_documents(
+                documents::LeaveAction::ManageSession {
+                    id: sid.to_owned(),
+                    delete,
+                },
+                window,
+                cx,
+            )
+        {
+            return;
+        }
         if delete && !self.demo {
             if self.active == Some(ix) {
                 self.engine = None;
@@ -265,6 +296,10 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.session().is_some_and(|s| s.id == sid) && self.has_dirty_documents(cx) {
+            self.status = "原生会话已移除，未保存的文件仍保留".into();
+            return;
+        }
         self.manage_local_session(sid, true, window, cx);
     }
     fn manage_local_session(
@@ -305,8 +340,7 @@ impl Workspace {
             self.tool_diffs.clear();
             self.list.reset(0);
             self.clear_file_preview();
-            self.document_state.tabs.clear();
-            self.document_state.active = None;
+            self.clear_documents();
             self.composer_state
                 .input
                 .update(cx, |i, cx| i.set_value("", window, cx));

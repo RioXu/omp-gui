@@ -1,4 +1,6 @@
 use super::*;
+use crate::domain::file_buffer::FileBuffer;
+use crate::infrastructure::filesystem::document_store;
 
 #[derive(Clone)]
 pub(crate) struct DocumentTab {
@@ -13,6 +15,9 @@ pub(crate) struct DocumentTab {
     pub diff: Option<Entity<DiffState>>,
     pub quote: Option<String>,
     pub error: Option<String>,
+    pub buffer: Option<FileBuffer>,
+    pub save_path: Option<PathBuf>,
+    pub dirty: bool,
 }
 
 impl Workspace {
@@ -39,6 +44,7 @@ impl Workspace {
             return;
         };
         self.document_state.tabs.remove(ix);
+        self.document_state.subscriptions.remove(key);
         if self.document_state.active.as_deref() == Some(key) {
             let next = ix
                 .checked_sub(1)
@@ -78,6 +84,9 @@ impl Workspace {
                 diff: None,
                 quote: None,
                 error: None,
+                buffer: None,
+                save_path: None,
+                dirty: false,
             });
             self.read_document(&key);
         }
@@ -101,25 +110,39 @@ impl Workspace {
             .document_state
             .tabs
             .iter_mut()
-            .find(|t| t.key == key && !t.historical && t.request.is_none())
+            .find(|t| t.key == key && !t.historical && !t.dirty && t.request.is_none())
         else {
             return;
         };
         let request = id();
         tab.request = Some(request.clone());
         let path = tab.path.clone();
+        let changes = tab.changes;
         let tx = self.document_state.tx.clone();
         if self.demo {
             let _ = tx.send(FileEvent::Snapshot {
                 session: sid,
                 request,
-                result: demo_snapshot.ok_or_else(|| "文件不存在".into()),
+                result: demo_snapshot
+                    .map(|snapshot| LoadedDocument {
+                        snapshot,
+                        target: None,
+                    })
+                    .ok_or_else(|| "文件不存在".into()),
             });
             return;
         }
         std::thread::spawn(move || {
-            let result =
-                project_files::document_snapshot(&root, &path).map_err(|e| format!("{e:#}"));
+            let result = (|| -> anyhow::Result<_> {
+                let target = if changes {
+                    None
+                } else {
+                    Some(document_store::target(&root, &path)?)
+                };
+                let snapshot = project_files::document_snapshot(&root, &path)?;
+                Ok(LoadedDocument { snapshot, target })
+            })()
+            .map_err(|e| format!("{e:#}"));
             let _ = tx.send(FileEvent::Snapshot {
                 session: sid,
                 request,
@@ -131,7 +154,7 @@ impl Workspace {
     pub(in crate::desktop::workspace) fn finish_document(
         &mut self,
         request: &str,
-        result: Result<Snapshot, String>,
+        result: Result<LoadedDocument, String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -144,48 +167,81 @@ impl Workspace {
             return;
         };
         self.document_state.tabs[ix].request = None;
-        let snapshot = match result {
-            Ok(snapshot) => snapshot,
+        if self.document_state.tabs[ix].is_dirty(cx) {
+            return;
+        }
+        let LoadedDocument { snapshot, target } = match result {
+            Ok(loaded) => loaded,
             Err(error) => {
                 self.document_state.tabs[ix].error = Some(error);
                 return;
             }
         };
         let tab = &mut self.document_state.tabs[ix];
+        let is_new = tab.editor.is_none();
         tab.error = None;
         if tab
             .snapshot
             .as_ref()
             .is_some_and(|s| s.text == snapshot.text && s.patch == snapshot.patch)
+            && tab
+                .buffer
+                .as_ref()
+                .is_none_or(|buffer| buffer.disk_text() == snapshot.text)
         {
             return;
         }
         let language = language_for_path(&tab.path);
+        let buffer = FileBuffer::new(&snapshot.text);
+        let editor_text = buffer.editor_text().to_owned();
+        let unchanged = tab
+            .buffer
+            .as_ref()
+            .is_some_and(|b| b.disk_text() == snapshot.text);
         if let Some(editor) = &tab.editor {
-            // Preserve the control and scroll position when the on-disk text changes.
-            editor.update(cx, |e, cx| {
-                let scroll = e.scroll_offset();
-                let selection = e.selected_range();
-                e.set_value(snapshot.text.clone(), window, cx);
-                let len = snapshot.text.len();
-                let boundary = |mut i: usize| {
-                    i = i.min(len);
-                    while !snapshot.text.is_char_boundary(i) {
-                        i -= 1;
-                    }
-                    i
-                };
-                e.set_selected_range(boundary(selection.start)..boundary(selection.end), cx);
-                e.set_scroll_offset(scroll, cx);
-            });
+            if !unchanged {
+                // Preserve the control and scroll position when the on-disk text changes.
+                editor.update(cx, |e, cx| {
+                    let scroll = e.scroll_offset();
+                    let selection = e.selected_range();
+                    e.set_value(editor_text.clone(), window, cx);
+                    let len = editor_text.len();
+                    let boundary = |mut i: usize| {
+                        i = i.min(len);
+                        while !editor_text.is_char_boundary(i) {
+                            i -= 1;
+                        }
+                        i
+                    };
+                    e.set_selected_range(boundary(selection.start)..boundary(selection.end), cx);
+                    e.set_scroll_offset(scroll, cx);
+                });
+            }
         } else {
             tab.editor = Some(cx.new(|cx| {
                 EditorState::new(window, cx)
                     .language(language)
                     .line_number(true)
-                    .default_value(snapshot.text.clone())
+                    .default_value(editor_text.clone())
             }));
         }
+        if !tab.changes && target.is_some() {
+            tab.buffer = Some(buffer);
+            tab.save_path = target;
+            if !self.document_state.subscriptions.contains_key(&tab.key) {
+                let key = tab.key.clone();
+                let editor = tab.editor.clone().unwrap();
+                let subscription = cx.subscribe(&editor, move |this, editor, event, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        this.editor_changed(&key, editor, cx);
+                    }
+                });
+                self.document_state
+                    .subscriptions
+                    .insert(tab.key.clone(), subscription);
+            }
+        }
+        tab.dirty = false;
         tab.diff = if tab.changes && !snapshot.patch.is_empty() {
             DiffFile::parse(&snapshot.patch)
                 .ok()
@@ -202,7 +258,7 @@ impl Workspace {
         let body = if tab.changes {
             snapshot.document()
         } else {
-            fenced(&snapshot.text, language)
+            fenced(&editor_text, language)
         };
         tab.entry = Some(TextEntry {
             state: cx.new(|cx| TextViewState::markdown(&body, cx).selectable(true)),
@@ -221,6 +277,11 @@ impl Workspace {
             s.snapshots.insert(snapshot.id.clone(), snapshot);
         }
         self.dirty = true;
+        if is_new
+            && self.document_state.active.as_deref() == Some(&self.document_state.tabs[ix].key)
+        {
+            self.focus_document_editor(window, cx);
+        }
     }
 
     pub(in crate::desktop::workspace) fn retain_historical_document(&mut self) {
@@ -245,6 +306,9 @@ impl Workspace {
             diff: self.document_state.diff.clone(),
             quote: self.document_state.quote.clone(),
             error: None,
+            buffer: None,
+            save_path: None,
+            dirty: false,
         });
         self.document_state.active = Some(key);
     }

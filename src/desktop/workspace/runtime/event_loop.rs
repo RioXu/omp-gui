@@ -107,6 +107,7 @@ impl Workspace {
             self.command(json!({"type":"get_subagents","id":"agents"}));
         }
         if self.selection_dirty && self.settings_view.is_none() && self.comment_editor.is_none() {
+            self.sync_selected_editor_snapshot(cx);
             self.selection_dirty = false;
             let mut selected = None;
             let active_ids = self

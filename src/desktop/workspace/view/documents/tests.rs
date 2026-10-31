@@ -1,8 +1,8 @@
 use super::file_editor;
 use crate::desktop::theme::apply_accent;
 use gpui_kit::{
-    AppContext, Background, Bounds, Context, Entity, IntoElement, Render, TestAppContext,
-    VisualTestContext, Window, WindowBounds, WindowOptions,
+    AppContext, Background, Bounds, Context, Entity, Focusable, IntoElement, Render,
+    TestAppContext, VisualTestContext, Window, WindowBounds, WindowOptions,
     component::{ActiveTheme, Theme, ThemeMode, input::EditorState},
     div, open_window, point,
     prelude::*,
@@ -11,6 +11,7 @@ use gpui_kit::{
 
 struct FileEditorFixture {
     editor: Entity<EditorState>,
+    readonly: bool,
 }
 
 impl Render for FileEditorFixture {
@@ -18,7 +19,7 @@ impl Render for FileEditorFixture {
         div()
             .size_full()
             .bg(cx.theme().background)
-            .child(file_editor(&self.editor))
+            .child(file_editor(&self.editor, self.readonly))
     }
 }
 
@@ -44,6 +45,7 @@ fn file_editor_gutter_and_body_paint_the_same_background_in_both_themes(cx: &mut
                 cx,
                 |window, cx| {
                     cx.new(|cx| FileEditorFixture {
+                        readonly: false,
                         editor: cx.new(|cx| {
                             EditorState::new(window, cx)
                                 .line_number(true)
@@ -80,5 +82,43 @@ fn file_editor_gutter_and_body_paint_the_same_background_in_both_themes(cx: &mut
                 "line-number gutter differs from document background in {mode:?}"
             );
         });
+    }
+}
+
+#[gpui_kit::test]
+fn file_editor_accepts_edits_while_readonly_views_reject_them(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    for readonly in [false, true] {
+        let (window, view) = cx.update(|cx| {
+            open_window(WindowOptions::default(), cx, |window, cx| {
+                cx.new(|cx| FileEditorFixture {
+                    readonly,
+                    editor: cx.new(|cx| EditorState::new(window, cx).default_value("original")),
+                })
+            })
+            .unwrap()
+        });
+        let mut visual = VisualTestContext::from_window(window, cx);
+        visual.run_until_parked();
+        visual.update(|window, cx| {
+            view.update(cx, |fixture, cx| {
+                fixture.editor.focus_handle(cx).focus(window, cx)
+            });
+            window.draw(cx).clear(cx);
+        });
+        visual.simulate_keystrokes("ctrl-a");
+        visual.simulate_input("edited 中文");
+        assert_eq!(
+            view.read_with(&visual, |fixture, cx| fixture
+                .editor
+                .read(cx)
+                .value()
+                .to_string()),
+            if readonly {
+                "original"
+            } else {
+                "edited 中文"
+            }
+        );
     }
 }

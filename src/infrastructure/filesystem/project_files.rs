@@ -44,7 +44,7 @@ pub(crate) fn snapshot(root: &Path, path: &Path) -> anyhow::Result<Snapshot> {
         .unwrap_or_default();
     Ok(Snapshot::new(path.to_owned(), before, text))
 }
-/// Absolute file links can explicitly open a read-only file outside this project.
+/// Absolute file links can explicitly open a local file outside this project.
 pub(crate) fn document_snapshot(root: &Path, path: &Path) -> anyhow::Result<Snapshot> {
     if path.is_absolute() {
         let resolved = fs::canonicalize(path)?;
