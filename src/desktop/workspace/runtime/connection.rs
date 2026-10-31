@@ -5,6 +5,10 @@ impl Workspace {
         if self.demo || self.save_disabled {
             return;
         }
+        if self.session_sync.store.is_none() {
+            self.scan_sessions();
+            return;
+        }
         self.engine = None;
         self.connected = false;
         self.running = false;
@@ -39,22 +43,37 @@ impl Workspace {
             );
             return;
         }
-        let result = OmpClient::start(
-            &self.db.omp_path,
-            s.cwd(),
-            &storage::data_dir().join("omp-sessions").join(&s.id),
-            s.omp_session
+        let Some(store) = self.session_sync.store.as_ref() else {
+            self.starting = false;
+            self.scan_sessions();
+            return;
+        };
+        let result = (|| -> anyhow::Result<_> {
+            anyhow::ensure!(
+                s.native_root.as_deref() == Some(store.root.to_string_lossy().as_ref()),
+                "会话尚未完成原生存储迁移"
+            );
+            let path = s
+                .omp_session
                 .as_deref()
-                .filter(|p| !s.messages.is_empty() || std::path::Path::new(p).is_file()),
-        );
+                .ok_or_else(|| anyhow::anyhow!("会话尚未绑定原生记录"))?;
+            anyhow::ensure!(
+                std::path::Path::new(path).is_file(),
+                "原生会话已移除，正在同步列表"
+            );
+            store.available(s.native_id.as_deref().unwrap_or_default())?;
+            OmpClient::start_project(&self.db.omp_path, s.cwd(), path)
+        })();
         match result {
             Ok(e) => {
                 self.engine = Some(e);
+                self.error = None;
                 self.status = "正在连接本机 OMP…".into();
             }
             Err(e) => {
                 self.starting = false;
                 self.error = Some(format!("{e:#}"));
+                self.status = "原生会话暂不可用 · 可查看历史".into();
             }
         }
     }

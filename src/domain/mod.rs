@@ -2,6 +2,7 @@
 mod comments;
 mod identity;
 mod messages;
+mod native_history;
 mod progress;
 mod projects;
 mod session;

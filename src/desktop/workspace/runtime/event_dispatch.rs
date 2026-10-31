@@ -3,6 +3,18 @@ use super::*;
 impl Workspace {
     pub fn on_frame(&mut self, f: Value, window: &mut Window, cx: &mut Context<Self>) {
         let kind = f["type"].as_str().unwrap_or("");
+        if matches!(
+            kind,
+            "message_start"
+                | "message_update"
+                | "message_end"
+                | "agent_start"
+                | "agent_end"
+                | "session_settled"
+                | "prompt_result"
+        ) {
+            self.session_sync.last_activity = Instant::now();
+        }
         match kind {
             "ready" => {
                 self.command(
@@ -121,6 +133,13 @@ impl Workspace {
                             && s.omp_session.as_deref() != Some(file)
                         {
                             s.omp_session = Some(file.into());
+                            self.dirty = true;
+                        }
+                        if let Some(native_id) = d["sessionId"].as_str()
+                            && let Some(s) = self.session_mut()
+                            && s.native_id.as_deref() != Some(native_id)
+                        {
+                            s.native_id = Some(native_id.into());
                             self.dirty = true;
                         }
                     }

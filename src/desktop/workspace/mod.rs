@@ -70,6 +70,7 @@ pub(crate) struct Workspace {
     document_state: DocumentState,
     search_state: SearchState,
     composer_state: ComposerState,
+    session_sync: conversation::session_sync::SessionSync,
     transcript: Vec<TranscriptRow>,
     tool_diffs: HashMap<String, Entity<DiffState>>,
     stopping: bool,

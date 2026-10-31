@@ -95,6 +95,7 @@ impl Workspace {
                 }
             });
         let mut this = Self {
+            session_sync: conversation::session_sync::SessionSync::default(),
             transcript: vec![],
             tool_diffs: HashMap::new(),
             stopping: false,
@@ -219,10 +220,13 @@ impl Workspace {
                 crate::infrastructure::configuration::settings::catalog(&config_omp, &config_cwd);
         });
         if let Some(project) = startup_project {
-            this.new_project_session(project, window, cx);
-        } else if !demo && this.active.is_some() {
-            this.connect();
+            if demo {
+                this.new_project_session(project, window, cx);
+            } else {
+                this.session_sync.pending_create = Some(project);
+            }
         }
+        this.scan_sessions();
         cx.spawn_in(window, async move |view, cx| {
             loop {
                 cx.background_executor()

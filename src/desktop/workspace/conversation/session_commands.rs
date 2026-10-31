@@ -48,6 +48,17 @@ impl Workspace {
             cx.notify();
             return;
         }
+        if s.omp_session
+            .as_deref()
+            .is_some_and(|p| !std::path::Path::new(p).is_file())
+        {
+            self.engine = None;
+            self.connected = false;
+            self.error = Some("原生会话已移除，正在同步列表".into());
+            self.scan_sessions();
+            cx.notify();
+            return;
+        }
         let request_id = id();
         if !self.running {
             self.in_flight_comments.clear();
@@ -104,6 +115,7 @@ impl Workspace {
                         &mut this.db,
                     );
                     this.persist();
+                    this.scan_sessions();
                     let _ = window;
                     cx.notify();
                 });
@@ -177,7 +189,29 @@ impl Workspace {
             cx.notify();
             return;
         }
-        self.db.sessions.push(Session::new(project_path(&project)));
+        let mut session = Session::new(project_path(&project));
+        if !self.demo {
+            let Some(store) = self.session_sync.store.as_ref() else {
+                self.session_sync.pending_create = Some(project);
+                self.scan_sessions();
+                self.status = "正在同步 OMP 项目会话…".into();
+                cx.notify();
+                return;
+            };
+            match store.create(session.cwd(), &session.title) {
+                Ok(native) => {
+                    session.native_root = Some(store.root.to_string_lossy().into_owned());
+                    session.native_id = Some(native.id);
+                    session.omp_session = Some(native.path.to_string_lossy().into_owned());
+                }
+                Err(e) => {
+                    self.error = Some(format!("创建原生会话失败：{e:#}"));
+                    cx.notify();
+                    return;
+                }
+            }
+        }
+        self.db.sessions.push(session);
         crate::infrastructure::filesystem::project_paths::normalize_workspace(&mut self.db);
         self.activate(self.db.sessions.len() - 1, window, cx);
     }
@@ -194,6 +228,49 @@ impl Workspace {
         let Some(ix) = self.db.sessions.iter().position(|s| s.id == sid) else {
             return;
         };
+        if delete && !self.demo {
+            if self.active == Some(ix) {
+                self.engine = None;
+                self.connected = false;
+                self.starting = false;
+            }
+            let result = self
+                .session_sync
+                .store
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("OMP 会话尚未同步"))
+                .and_then(|store| {
+                    store.delete(
+                        &self.db.sessions[ix],
+                        &storage::data_dir().join("omp-sessions"),
+                    )
+                });
+            if let Err(e) = result {
+                self.error = Some(format!("删除会话失败：{e:#}"));
+                cx.notify();
+                return;
+            }
+        }
+        self.manage_local_session(sid, delete, window, cx);
+    }
+    pub(in crate::desktop::workspace) fn remove_local_session(
+        &mut self,
+        sid: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.manage_local_session(sid, true, window, cx);
+    }
+    fn manage_local_session(
+        &mut self,
+        sid: &str,
+        delete: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(ix) = self.db.sessions.iter().position(|s| s.id == sid) else {
+            return;
+        };
         let active_id = self.session().map(|s| s.id.clone());
         let clear = self.active == Some(ix) && (delete || !self.db.sessions[ix].archived);
         if delete {
@@ -205,6 +282,9 @@ impl Workspace {
             self.engine = None;
             self.connected = false;
             self.starting = false;
+            self.running = false;
+            self.pending_send = None;
+            self.requests.clear();
             self.active = None;
             self.db.active = None;
             self.texts.clear();
@@ -235,7 +315,7 @@ impl Workspace {
         let weak = cx.entity().downgrade();
         w.open_dialog(cx,move|d,_,_|{
             let weak=weak.clone();let sid=sid.clone();
-            d.title("删除会话？").child("将移除 GUI 中的消息、评论和历史快照。项目文件及 OMP 独立保存的原生会话文件不会删除。")
+            d.title("删除会话？").child("将同步删除 OMP 原生会话及其附件，并移除 GUI 中的消息、评论和历史快照。项目文件不会删除；终端中也将无法再找到此会话。")
                 .footer(DialogFooter::new().child(DialogClose::new().trigger(|b|b.label("取消")))
                     .child(DialogAction::new().child(Button::new("confirm-delete-session").danger().label("删除会话"))))
                 .on_ok(move|_,w,cx|{let _=weak.update(cx,|this,cx|this.manage_session(&sid,true,w,cx));true})

@@ -2,6 +2,7 @@ use super::*;
 
 impl Workspace {
     pub fn poll(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.poll_sessions(window, cx);
         if self.starting
             && self.requests.is_empty()
             && self.last_state.elapsed() > Duration::from_secs(60)

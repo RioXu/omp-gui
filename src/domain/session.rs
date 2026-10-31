@@ -16,6 +16,13 @@ pub(crate) struct Session {
     #[serde(default)]
     pub branch: Option<String>,
     pub omp_session: Option<String>,
+    /// Native profile root. Once registered, a missing native file means deletion.
+    #[serde(default)]
+    pub native_root: Option<String>,
+    #[serde(default)]
+    pub native_id: Option<String>,
+    #[serde(default)]
+    pub native_revision: Option<String>,
     pub messages: Vec<Message>,
     pub comments: Vec<Comment>,
     pub snapshots: BTreeMap<String, Snapshot>,
@@ -33,6 +40,9 @@ impl Session {
             worktree: None,
             branch: None,
             omp_session: None,
+            native_root: None,
+            native_id: None,
+            native_revision: None,
             messages: vec![],
             comments: vec![],
             snapshots: BTreeMap::new(),

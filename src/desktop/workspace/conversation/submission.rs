@@ -51,14 +51,19 @@ impl Workspace {
                 .update(cx, |input, cx| input.set_value(restored, w, cx));
             self.follow_up = pending.follow_up;
         } else {
+            let mut new_title = None;
             if let Some(s) = self.session_mut() {
                 if s.title == "新建会话" {
                     s.title = pending.text.chars().take(28).collect();
                     if s.title.trim().is_empty() {
                         s.title = "评论跟进".into();
                     }
+                    new_title = Some(s.title.clone());
                 }
                 let (message_id, ids) = s.submit(pending.text.clone(), pending.follow_up);
+                if let Some(m) = s.messages.last_mut() {
+                    m.native_text = Some(pending.wire_text.clone());
+                }
                 let queued = pending.was_running
                     && !pending.delivered
                     && frame["data"]["agentInvoked"] != false;
@@ -76,6 +81,9 @@ impl Workspace {
                 }
                 self.in_flight_comments.sort();
                 self.in_flight_comments.dedup();
+            }
+            if let Some(name) = new_title {
+                self.command(json!({"type":"set_session_name","id":id(),"name":name}));
             }
             // A local slash command does not mean an already-running session settled.
             if frame["data"]["agentInvoked"] == false && !pending.was_running {

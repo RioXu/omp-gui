@@ -17,6 +17,7 @@ impl Session {
     }
     pub fn is_blank(&self) -> bool {
         self.title == "新建会话"
+            && self.omp_session.is_none()
             && self.messages.is_empty()
             && self.comments.is_empty()
             && self.draft.trim().is_empty()

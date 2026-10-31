@@ -28,15 +28,29 @@ impl Client {
         resume: Option<&str>,
     ) -> Result<Self> {
         std::fs::create_dir_all(session_dir)?;
+        Self::launch(executable, project, Some(session_dir), resume)
+    }
+    /// Use the same default project store as terminal OMP.
+    pub fn start_project(executable: &str, project: &Path, resume: &str) -> Result<Self> {
+        Self::launch(executable, project, None, Some(resume))
+    }
+    fn launch(
+        executable: &str,
+        project: &Path,
+        session_dir: Option<&Path>,
+        resume: Option<&str>,
+    ) -> Result<Self> {
+        let project = super::sessions::plain_path(project);
         let mut cmd = crate::infrastructure::process::hidden_command(executable);
         cmd.args(["--mode", "rpc-ui", "--no-title", "--cwd"])
-            .arg(project)
-            .arg("--session-dir")
-            .arg(session_dir)
-            .current_dir(project)
+            .arg(&project)
+            .current_dir(&project)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        if let Some(dir) = session_dir {
+            cmd.arg("--session-dir").arg(dir);
+        }
         if let Some(path) = resume {
             cmd.arg("--resume").arg(path);
         }

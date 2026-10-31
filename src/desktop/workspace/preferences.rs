@@ -39,7 +39,11 @@ impl Workspace {
                         this.db.omp_path = path.clone();
                         this.persist();
                         if !this.running {
-                            this.connect();
+                            this.engine = None;
+                            this.connected = false;
+                            this.starting = false;
+                            this.session_sync.store = None;
+                            this.scan_sessions();
                         }
                     }
                     crate::desktop::settings::SettingsEvent::Saved => {

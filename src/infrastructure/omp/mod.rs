@@ -3,6 +3,7 @@ mod client;
 mod diagnostics;
 mod framing;
 mod messages;
+pub mod sessions;
 pub use client::{Client, Event};
 pub use diagnostics::probe;
 pub use messages::message_text;

@@ -13,6 +13,7 @@ src/
   domain/                         会话、消息、评论、快照和历史规则
   infrastructure/
     omp/                          OMP 子进程、JSONL 协议与安装检测
+      sessions/                   原生会话发现、历史读取、迁移、创建删除和占用锁
     filesystem/                   项目文件、Git 状态与差异、目录身份归一化
     persistence/                  数据目录锁、原子保存与恢复
     configuration/
@@ -49,11 +50,15 @@ scripts/                          开发与数据更新工具
 
 ## 状态、交互与渲染
 
-`Workspace` 保留会话数据库、当前会话、持久化服务和跨功能协调。输入补全、查找、文档及模型控件的临时状态分别由 `ComposerState`、`SearchState`、`DocumentState`、`ModelControlState` 定义；字段和辅助类型只在工作区范围内开放。GPUI 仍通过一个工作区实体串行更新，避免为目录拆分增加相互订阅的实体。
+`Workspace` 保留会话数据库、当前会话、持久化服务和跨功能协调。输入补全、查找、文档、模型控件及原生会话同步的临时状态分别由 `ComposerState`、`SearchState`、`DocumentState`、`ModelControlState`、`SessionSync` 定义；字段和辅助类型只在工作区范围内开放。GPUI 仍通过一个工作区实体串行更新，避免为目录拆分增加相互订阅的实体。
 
 功能目录中的控制逻辑负责处理动作与更新状态，`view` 负责构建组件和绑定动作。OMP / 文件 / 配置后台任务发出结果，GPUI 实体在 UI 线程接收并更新状态。避免在渲染函数中执行磁盘、网络或子进程操作。
 
 OMP 适配器进一步分为：`client.rs` 管理进程及收发线程，`framing.rs` 校验帧与重组分片，`messages.rs` 提取文本，`installation.rs` 定位安装，`diagnostics.rs` 提供 `--probe`。协议解析不依赖窗口生命周期。
+
+`omp/sessions` 通过安装的 OMP 查询配置根目录，复用原生项目 JSONL 存储。`mod.rs` 负责发现与缓存，`history.rs` 读取标题槽和当前分支的消息、思考及工具结果，`paths.rs` 统一 Windows 路径和项目桶编码，`operations.rs` 创建、迁移和删除记录及附件，`lease.rs` 与 OMP 的 Windows 进程占用锁互操作。原始日志不由 GUI 消息缓存重写。
+
+`conversation/session_sync.rs` 在后台扫描已打开项目，并在 UI 线程合并结果；工作线程只接收轻量绑定信息，历史缓存共享且按原生文件修订跳过未变化记录。流式回复期间和早于最近消息事件的扫描不覆盖活动会话。`domain/native_history.rs` 按原生消息 ID 或有序文本匹配保留 GUI 消息 ID、评论关联与历史 Diff。持久化数据新增可缺省的原生绑定字段，兼容旧版工作区 JSON。
 
 配置命令使用明确的导航目标，避免把服务注册入口退化成设置大类；元数据未就绪时保留导航意图，加载后完成跳转。子智能体与角色模型表单使用 gpui-kit Form、Input、Textarea、Select，字段状态属于桌面层；原生文档转换、范围隔离、字段保留及冲突检查属于 `configuration/authoring`。明确带参数的命令继续交给 OMP。
 
@@ -63,6 +68,7 @@ OMP 适配器进一步分为：`client.rs` 管理进程及收发线程，`framin
 
 - 工作区 JSON 格式、数据目录、命令行参数和 OMP 协议不因模块整理改变。
 - 新会话使用映射项目目录，不创建分支或工作树；旧会话的执行路径兼容保留。同目录路径别名合并，不合并不同位置的同名目录。
+- 项目会话与同一 OMP profile 的终端存储同步。GUI 创建立即落盘，删除先取得原生占用锁并成功删除记录后才清理 GUI 数据；外部删除须连续确认，读失败不视为删除。归档保留为 GUI 扩展状态，评论和草稿不写入原生日志元数据。
 - 评论锚点绑定原始文本或不可变代码快照。展开/收起是临时展示状态，不修改历史内容。
 - 会话标签固定在最左且不可关闭；文件和变更标签可独立关闭，收起工作面板不关闭文档。切换会话清理其文档状态。异步读取结果必须匹配会话和请求，避免迟到结果覆盖当前文档。
 - 查找仅针对激活标签；文件监听刷新保留当前阅读位置和目录展开状态，历史快照不随磁盘修改。
@@ -86,7 +92,7 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 ```
 
-本地构建额外执行 `cargo build --locked`。当前测试清单、7 项本机集成测试的具体名称与依赖，以及 GUI 数据／OMP 配置的隔离方法统一维护在[验证说明](testing.md)，避免在多处保留过时计数和命令。
+本地构建额外执行 `cargo build --locked`。当前测试清单、本机集成测试的具体名称与依赖，以及 GUI 数据／OMP 配置的隔离方法统一维护在[验证说明](testing.md)，避免在多处保留过时计数和命令。
 
 ## 服务目录更新
 

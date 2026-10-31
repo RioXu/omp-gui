@@ -4,13 +4,15 @@
 
 ## 当前验证基线
 
-功能基线为 main 上的 `6876a13`，最后完成代码验证于 2026-10-31。本次文档维护重新核对了源码、命令路由及测试清单；没有重新运行真实模型任务，也不代表发布了新安装包。
+功能基线包含 `6876a13` 及后续原生会话同步改动，最后完成代码验证于 2026-10-31。本轮执行离线测试、会话同步的本机 OMP 集成测试和隔离窗口验证；没有发送真实模型提示词，也不代表发布了新安装包。
 
 | 项目 | 已有验证结果与范围 |
 | --- | --- |
-| 离线测试 | 50 项通过；本次清单核对仍为 50 项 |
-| 本机 OMP 集成测试 | 7 项，默认 `ignored`，不包含在 50 项离线测试中 |
+| 离线测试 | 56 项通过，新增项目桶、原生历史分支、迁移、双向删除、占用保护和 GUI 锚点保留覆盖 |
+| 本机 OMP 集成测试 | 8 项，默认 `ignored`；本轮单独通过会话同步场景，其余 7 项未重跑 |
 | 格式、Clippy、Windows 构建 | 功能基线已通过 |
+| 原生会话互操作 | 本机 OMP 按 ID 前缀恢复 GUI 创建的会话、原生新建与改名、共享占用锁及删除均通过；不调用模型 |
+| 会话同步界面 | 隔离窗口验证 GUI 新建落盘、终端新建自动出现、中文原生历史展示、外部删除自动移除及本地归档保留原生文件 |
 | 模型服务跳转 | 独立窗口验证 `/models` 的 Tab 确认；首次配置加载完成后自动进入服务与注册页。单元测试覆盖 `/model`、`/models` 及其他配置路由 |
 | 速度设置 | 独立窗口验证 `/fast` 的 Enter 确认；单元测试覆盖 `/fast`、`/slow` 和对应设置过滤 |
 | 子智能体表单 | 独立配置目录验证空名称时打开表单、必填提示、创建、保存及重新打开 |
@@ -69,6 +71,7 @@ cargo test --locked --test omp_integration -- --list
 | `live_slash_commands_and_unicode_file_mentions` | 验证原生命令及中文、空格路径引用，发送模型任务 |
 | `live_follow_up_waits_until_promoted` | 验证 follow-up 排队及提升为 steering，发送模型任务 |
 | `live_steering_and_stop_are_acknowledged_and_settle` | 验证 steering、停止确认及会话结束，发送模型任务 |
+| `installed_omp_discovers_gui_session_by_id_and_native_creation_is_imported` | 隔离原生会话互操作，要求显式设置测试配置目录；使用占位提供商凭据，不发送提示词 |
 
 这些测试依赖当前安装和账户环境；真实模型任务消耗额度，应在已有相应授权时运行。只选择需要验证的场景，例如：
 
@@ -79,6 +82,17 @@ cargo test --locked --test omp_integration live_slash_commands_and_unicode_file_
 ```
 
 不要把所有 `--ignored` 场景自动并入默认 CI。注册表测试还包含对本机特定提供商的断言，不能据其失败直接推断所有账户环境都不兼容。
+
+运行原生会话互操作场景（测试会在此专用目录写入占位模型配置）：
+
+```powershell
+$syncRoot = Join-Path (Get-Location) 'target/session-sync-test'
+$env:PI_CODING_AGENT_DIR = "$syncRoot/omp"
+$env:PI_TEST_SESSION_OWNERS_DIR = "$syncRoot/owners"
+cargo test --locked --test omp_integration installed_omp_discovers_gui_session -- --ignored --nocapture
+```
+
+测试会拒绝专用目录之外的配置路径。仅在当前 PowerShell 会话设置环境变量，完成后移除变量或关闭该会话。
 
 ## 界面验证隔离
 

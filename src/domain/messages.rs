@@ -13,6 +13,11 @@ pub(crate) struct Message {
     pub process: Vec<ProcessBlock>,
     #[serde(default)]
     pub state: MessageState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_id: Option<String>,
+    /// Wire prompt can include GUI comment context, unlike the displayed text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_text: Option<String>,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub(crate) enum MessageState {
@@ -33,6 +38,8 @@ impl Message {
             comments: vec![],
             process: vec![],
             state: MessageState::Normal,
+            native_id: None,
+            native_text: None,
         }
     }
 }
