@@ -58,6 +58,8 @@ scripts/                          开发与数据更新工具
 
 OMP 适配器进一步分为：`client.rs` 管理进程及收发线程，`framing.rs` 校验帧与重组分片，`messages.rs` 提取文本，`installation.rs` 定位安装，`diagnostics.rs` 提供 `--probe`。协议解析不依赖窗口生命周期。
 
+文件标签复用 gpui-kit `Editor` 与已有语言映射。构建启用 `syntect` feature 后使用组件内置的语法高亮后端，语义颜色沿用当前主题，正文及行号背景仍由统一主题设置控制。
+
 `omp/sessions` 通过安装的 OMP 查询配置根目录，复用原生项目 JSONL 存储。`mod.rs` 负责发现与缓存，`history.rs` 读取标题槽和当前分支的消息、思考及工具结果，`paths.rs` 统一 Windows 路径和项目桶编码，`operations.rs` 创建、迁移和删除记录及附件，`lease.rs` 与 OMP 的 Windows 进程占用锁互操作。原始日志不由 GUI 消息缓存重写。
 
 `conversation/session_sync.rs` 在后台扫描已打开项目，并在 UI 线程合并结果；工作线程只接收轻量绑定信息，历史缓存共享且按原生文件修订跳过未变化记录。流式回复期间和早于最近消息事件的扫描不覆盖活动会话。`domain/native_history.rs` 按原生消息 ID 或有序文本匹配保留 GUI 消息 ID、评论关联与历史 Diff。持久化数据新增可缺省的原生绑定字段，兼容旧版工作区 JSON。
