@@ -1,5 +1,5 @@
 //! Manage the OMP child process and asynchronous JSONL transport.
-use super::framing::{Decoder, MAX_FRAME};
+use super::framing::{Decoder, MAX_FRAME, MAX_MESSAGE};
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::Value;
 use std::{
@@ -69,8 +69,8 @@ impl Client {
                     let mut bytes = serde_json::to_vec(&frame)?;
                     bytes.push(b'\n');
                     ensure!(
-                        bytes.len() <= MAX_FRAME,
-                        "发送内容超过 OMP 单帧限制，请缩短指令"
+                        bytes.len() <= MAX_MESSAGE,
+                        "消息及附件超过 64 MiB，请减少附件"
                     );
                     stdin.write_all(&bytes)?;
                     stdin.flush()?;
@@ -127,8 +127,11 @@ impl Client {
         Ok(Self { child, tx, events })
     }
     pub fn send(&self, frame: Value) -> Result<()> {
-        if serde_json::to_vec(&frame)?.len() + 1 > MAX_FRAME {
-            bail!("消息过长，请缩短后重试");
+        // Native rpc-input parses complete JSONL commands (including images).
+        // MAX_FRAME applies to received physical frames; outgoing commands are
+        // bounded by the logical message limit instead.
+        if serde_json::to_vec(&frame)?.len() + 1 > MAX_MESSAGE {
+            bail!("消息及附件超过 64 MiB，请减少附件后重试");
         }
         self.tx.send(frame).context("OMP 连接已关闭")
     }

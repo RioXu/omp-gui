@@ -1,5 +1,7 @@
 //! Serializable conversation rules and data. No OS, OMP-process or GPUI dependency.
 pub(crate) mod activity;
+pub(crate) mod attachments;
+pub(crate) use attachments::Attachment;
 mod comments;
 pub(crate) mod file_buffer;
 mod identity;

@@ -4,14 +4,20 @@ use crate::infrastructure::filesystem::project_paths::project_path;
 impl Workspace {
     pub fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.save_disabled {
-            self.error = Some("当前窗口为只读状态，无法发送或保存。请先解决数据目录问题。".into());
+            self.runtime.error =
+                Some("当前窗口为只读状态，无法发送或保存。请先解决数据目录问题。".into());
             cx.notify();
             return;
         }
-        if self.stopping || self.pending_send.is_some() || self.steering_request.is_some() {
+        if self.runtime.stopping
+            || self.runtime.pending_send.is_some()
+            || self.runtime.steering_request.is_some()
+            || self.importing_attachments()
+        {
             return;
         }
         let text = self
+            .runtime
             .composer_state
             .input
             .read(cx)
@@ -25,26 +31,52 @@ impl Workspace {
             self.open_project(window, cx);
             return;
         };
-        if text.trim().is_empty() && !s.comments.iter().any(|c| !c.sent) {
+        if text.trim().is_empty()
+            && !s.comments.iter().any(|c| !c.sent)
+            && s.draft_attachments.is_empty()
+        {
             return;
         }
-        let prompt = s.prompt(&text, self.follow_up.as_deref());
+        let prompt = s.prompt(&text, self.runtime.follow_up.as_deref());
+        let attachments = s.draft_attachments.clone();
+        let (prompt, images) =
+            match crate::infrastructure::filesystem::attachments::prompt(&prompt, &attachments) {
+                Ok(prepared) => prepared,
+                Err(error) => {
+                    self.runtime.error = Some(format!("{error:#}"));
+                    cx.notify();
+                    return;
+                }
+            };
+        if !images.is_empty() && !self.demo && !self.image_input_available() {
+            self.runtime.error = Some(
+                "当前模型及已配置模型均不支持图片；请先在模型设置中配置视觉模型。附件已保留。"
+                    .into(),
+            );
+            cx.notify();
+            return;
+        }
         if self.demo {
-            let follow = self.follow_up.take();
+            let follow = self.runtime.follow_up.take();
             if let Some(s) = self.session_mut() {
                 s.submit(text, follow);
+                if let Some(m) = s.messages.last_mut() {
+                    m.attachments = std::mem::take(&mut s.draft_attachments);
+                }
+                s.draft.clear();
             }
-            self.composer_state
+            self.runtime
+                .composer_state
                 .input
                 .update(cx, |i, cx| i.set_value("", window, cx));
-            self.status = "演示：已保留评论记录，未调用模型".into();
+            self.runtime.status = "演示：已保留评论记录，未调用模型".into();
             self.sync_texts(cx);
             self.persist();
             cx.notify();
             return;
         }
-        if !self.connected {
-            self.error = Some("OMP 尚未连接，请稍后发送或在设置中重新连接".into());
+        if !self.runtime.connected {
+            self.runtime.error = Some("OMP 尚未连接，请稍后发送或在设置中重新连接".into());
             cx.notify();
             return;
         }
@@ -52,48 +84,57 @@ impl Workspace {
             .as_deref()
             .is_some_and(|p| !std::path::Path::new(p).is_file())
         {
-            self.engine = None;
-            self.connected = false;
-            self.error = Some("原生会话已移除，正在同步列表".into());
+            self.runtime.engine = None;
+            self.runtime.connected = false;
+            self.runtime.error = Some("原生会话已移除，正在同步列表".into());
             self.scan_sessions();
             cx.notify();
             return;
         }
         let request_id = id();
-        if !self.running {
-            self.in_flight_comments.clear();
-            self.submitted_inputs.clear();
-            self.interrupted_run = false;
-            self.run_message_start = self.session().map(|s| s.messages.len()).unwrap_or(0);
+        if !self.runtime.running {
+            self.runtime.in_flight_comments.clear();
+            self.runtime.submitted_inputs.clear();
+            self.runtime.interrupted_run = false;
+            self.runtime.run_message_start = self.session().map(|s| s.messages.len()).unwrap_or(0);
         }
-        if let Some(e) = &self.engine {
+        if let Some(e) = &self.runtime.engine {
             let mut frame = json!({"type":"prompt","id":request_id,"message":prompt});
-            if self.running {
+            if !images.is_empty() {
+                frame["images"] = json!(images);
+            }
+            if self.runtime.running {
                 frame["streamingBehavior"] = json!("followUp");
             }
             match e.send(frame) {
                 Ok(()) => {
-                    self.pending_send = Some(PendingSubmission {
+                    self.runtime.pending_send = Some(PendingSubmission {
                         id: request_id,
                         text,
-                        follow_up: self.follow_up.take(),
-                        was_running: self.running,
+                        follow_up: self.runtime.follow_up.take(),
+                        was_running: self.runtime.running,
                         wire_text: prompt,
                         delivered: false,
+                        attachments,
                     });
-                    self.composer_state
+                    if let Some(s) = self.session_mut() {
+                        s.draft.clear();
+                        s.draft_attachments.clear();
+                    }
+                    self.runtime
+                        .composer_state
                         .input
                         .update(cx, |i, cx| i.set_value("", window, cx));
-                    self.running = true;
-                    self.status = "正在提交指令…".into();
+                    self.runtime.running = true;
+                    self.runtime.status = "正在提交指令…".into();
                 }
-                Err(e) => self.error = Some(e.to_string()),
+                Err(e) => self.runtime.error = Some(e.to_string()),
             }
         }
         cx.notify();
     }
     pub fn open_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.running || self.save_disabled {
+        if self.save_disabled {
             return;
         }
         let paths = cx.prompt_for_paths(PathPromptOptions {
@@ -124,7 +165,7 @@ impl Workspace {
         .detach();
     }
     pub fn activate(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if self.running || self.db.sessions.get(ix).is_none_or(|s| s.deleted) {
+        if self.db.sessions.get(ix).is_none_or(|s| s.deleted) {
             return;
         }
         let target = self.db.sessions[ix].id.clone();
@@ -141,48 +182,43 @@ impl Workspace {
             return;
         }
         self.persist();
+        let previous = self.session().map(|s| s.id.clone());
         let cleanup_error = self.discard_empty_session_on_leave(&target);
-        self.db.discard_blank_sessions(Some(&target));
         let ix = self
             .db
             .sessions
             .iter()
             .position(|s| s.id == target)
             .unwrap();
+        self.active = previous.and_then(|id| self.db.sessions.iter().position(|s| s.id == id));
+        self.switch_session_runtime(&target, window, cx);
         self.active = Some(ix);
-        self.db.active = Some(self.db.sessions[ix].id.clone());
-        self.texts.clear();
+        self.db.active = Some(target);
         self.search_state.hits.clear();
+        self.search_state.rendered_text.clear();
         self.search_state.index = 0;
-        self.composer_state.dismissed = false;
-        self.transcript.clear();
-        self.tool_diffs.clear();
-        self.expanded_process.clear();
-        self.list.reset(0);
         self.clear_file_preview();
         self.clear_documents();
         self.settings_view = None;
-        self.follow_up = None;
+        self.comment_editor = None;
+        self.editing_comment = None;
         self.document_state.files.clear();
         self.document_state.changes.clear();
-        self.todos = self.db.sessions[ix].todos.clone();
-        self.agents = self.db.sessions[ix].agents.clone();
-        self.collaboration = Default::default();
-        self.error = None;
-        self.composer_state.input.update(cx, |i, cx| {
-            i.set_value(self.db.sessions[ix].draft.clone(), window, cx)
-        });
+        self.runtime.todos = self.db.sessions[ix].todos.clone();
+        self.runtime.agents = self.db.sessions[ix].agents.clone();
         self.sync_texts(cx);
-        self.connect();
+        if self.runtime.engine.is_none() {
+            self.connect();
+        }
         if let Some(error) = cleanup_error {
-            self.error = Some(error);
+            self.runtime.error = Some(error);
         }
         self.refresh_files(cx);
         self.persist();
         cx.notify();
     }
     pub fn new_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.running || self.save_disabled {
+        if self.save_disabled {
             return;
         }
         if let Some(s) = self.session() {
@@ -197,11 +233,11 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.running || self.save_disabled {
+        if self.save_disabled {
             return;
         }
         if !project.is_dir() {
-            self.error = Some("项目目录不存在".into());
+            self.runtime.error = Some("项目目录不存在".into());
             cx.notify();
             return;
         }
@@ -217,7 +253,7 @@ impl Workspace {
             let Some(store) = self.session_sync.store.as_ref() else {
                 self.session_sync.pending_create = Some(project);
                 self.scan_sessions();
-                self.status = "正在同步 OMP 项目会话…".into();
+                self.runtime.status = "正在同步 OMP 项目会话…".into();
                 cx.notify();
                 return;
             };
@@ -228,7 +264,7 @@ impl Workspace {
                     session.omp_session = Some(native.path.to_string_lossy().into_owned());
                 }
                 Err(e) => {
-                    self.error = Some(format!("创建原生会话失败：{e:#}"));
+                    self.runtime.error = Some(format!("创建原生会话失败：{e:#}"));
                     cx.notify();
                     return;
                 }
@@ -246,7 +282,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.running || self.save_disabled {
+        if self.save_disabled {
             return;
         }
         let Some(ix) = self.db.sessions.iter().position(|s| s.id == sid) else {
@@ -265,11 +301,17 @@ impl Workspace {
         {
             return;
         }
+        if self.session_is_running(sid) {
+            self.runtime.error = Some("请先停止该会话，再归档或删除。".into());
+            cx.notify();
+            return;
+        }
+        self.background.remove(sid);
         if delete && !self.demo {
             if self.active == Some(ix) {
-                self.engine = None;
-                self.connected = false;
-                self.starting = false;
+                self.runtime.engine = None;
+                self.runtime.connected = false;
+                self.runtime.starting = false;
             }
             let result = self
                 .session_sync
@@ -283,7 +325,7 @@ impl Workspace {
                     )
                 });
             if let Err(e) = result {
-                self.error = Some(format!("删除会话失败：{e:#}"));
+                self.runtime.error = Some(format!("删除会话失败：{e:#}"));
                 cx.notify();
                 return;
             }
@@ -297,7 +339,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         if self.session().is_some_and(|s| s.id == sid) && self.has_dirty_documents(cx) {
-            self.status = "原生会话已移除，未保存的文件仍保留".into();
+            self.runtime.status = "原生会话已移除，未保存的文件仍保留".into();
             return;
         }
         self.manage_local_session(sid, true, window, cx);
@@ -315,33 +357,43 @@ impl Workspace {
         let active_id = self.session().map(|s| s.id.clone());
         let clear = self.active == Some(ix) && (delete || !self.db.sessions[ix].archived);
         if delete {
+            self.background.remove(sid);
             self.db.remove_session(sid);
+            if !self.save_disabled
+                && let Err(error) = crate::infrastructure::filesystem::attachments::remove_session(
+                    &storage::data_dir().join("attachments"),
+                    sid,
+                )
+            {
+                self.runtime.error = Some(format!("会话已移除，但附件缓存暂未清理：{error:#}"));
+            }
         } else {
             self.db.sessions[ix].archived = !self.db.sessions[ix].archived;
         }
         if clear {
-            self.engine = None;
-            self.connected = false;
-            self.starting = false;
-            self.running = false;
-            self.pending_send = None;
-            self.requests.clear();
-            self.todos.clear();
-            self.agents.clear();
-            self.collaboration = Default::default();
+            self.runtime.engine = None;
+            self.runtime.connected = false;
+            self.runtime.starting = false;
+            self.runtime.running = false;
+            self.runtime.pending_send = None;
+            self.runtime.requests.clear();
+            self.runtime.todos.clear();
+            self.runtime.agents.clear();
+            self.runtime.collaboration = Default::default();
             self.active = None;
             self.db.active = None;
-            self.texts.clear();
+            self.runtime.texts.clear();
             self.search_state.hits.clear();
             self.search_state.rendered_text.clear();
-            self.composer_state.commands.clear();
+            self.runtime.composer_state.commands.clear();
             self.document_state.files.clear();
-            self.transcript.clear();
-            self.tool_diffs.clear();
-            self.list.reset(0);
+            self.runtime.transcript.clear();
+            self.runtime.tool_diffs.clear();
+            self.runtime.list.reset(0);
             self.clear_file_preview();
             self.clear_documents();
-            self.composer_state
+            self.runtime
+                .composer_state
                 .input
                 .update(cx, |i, cx| i.set_value("", window, cx));
         } else {

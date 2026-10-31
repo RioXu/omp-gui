@@ -11,7 +11,6 @@ use composer::ComposerState;
 use conversation::demo::demo_session;
 use conversation::submission::{PendingSubmission, SubmittedInput};
 use documents::DocumentState;
-use runtime::ModelControlState;
 use search::SearchState;
 
 use crate::domain::Anchor;
@@ -67,21 +66,14 @@ pub(crate) struct TextEntry {
 }
 
 pub(crate) struct Workspace {
-    model_controls: ModelControlState,
+    runtime: runtime::SessionRuntime,
+    background: HashMap<String, runtime::SessionRuntime>,
+    polling_background: bool,
+    attachment_imports: composer::AttachmentImports,
     document_state: DocumentState,
     search_state: SearchState,
-    composer_state: ComposerState,
     session_sync: conversation::session_sync::SessionSync,
-    collaboration: runtime::collaboration::CollaborationState,
-    transcript: Vec<TranscriptRow>,
-    tool_diffs: HashMap<String, Entity<DiffState>>,
-    stopping: bool,
-    interrupted_run: bool,
-    run_message_start: usize,
-    submitted_inputs: Vec<SubmittedInput>,
-    expanded_process: std::collections::HashSet<String>,
     selection_dirty: bool,
-    text_update_pending: bool,
     settings_view: Option<Entity<crate::desktop::settings::SettingsView>>,
     show_archived: bool,
     collapsed_projects: std::collections::HashSet<PathBuf>,
@@ -90,38 +82,15 @@ pub(crate) struct Workspace {
     persistence: Persistence,
     save_disabled: bool,
     comment_input: Entity<TextareaState>,
-    answer_input: Entity<InputState>,
     focus: FocusHandle,
-    texts: HashMap<String, TextEntry>,
     panel_open: bool,
     panel_tab: &'static str,
-    engine: Option<OmpClient>,
-    connected: bool,
-    running: bool,
-    starting: bool,
-    status: String,
-    error: Option<String>,
-    todos: Vec<Value>,
-    agents: Vec<Value>,
-    context_percent: f64,
-    context_limit: u64,
-    active_tools: HashMap<String, String>,
-    requests: VecDeque<Value>,
     selected: Option<Anchor>,
     selection_point: Point<Pixels>,
     comment_editor: Option<Anchor>,
     editing_comment: Option<String>,
     pending_open: bool,
-    follow_up: Option<String>,
-    in_flight_comments: Vec<String>,
-    rpc_messages: HashMap<String, String>,
-    pending_send: Option<PendingSubmission>,
-    queued_inputs: Vec<String>,
-    steered_inputs: Vec<String>,
-    steering_request: Option<String>,
-    list: ListState,
     demo: bool,
-    last_state: Instant,
     last_save: Instant,
     dirty: bool,
     _subscriptions: Vec<Subscription>,
@@ -139,7 +108,7 @@ impl Workspace {
             return;
         }
         if let Err(e) = self.persistence.save(&self.db) {
-            self.error = Some(e.to_string());
+            self.runtime.error = Some(e.to_string());
         }
         self.dirty = false;
         self.last_save = Instant::now();

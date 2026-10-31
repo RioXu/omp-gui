@@ -39,47 +39,10 @@ impl Workspace {
                 db.projects.push(session.project.clone());
             }
         }
-        let input = cx.new(|cx| {
-            TextareaState::new(window, cx)
-                .auto_grow(2, 7)
-                .placeholder("继续描述任务，@ 引用文件，/ 使用命令")
-        });
-        if let Some(ix) = active {
-            input.update(cx, |i, cx| {
-                i.set_value(db.sessions[ix].draft.clone(), window, cx)
-            });
-        }
-        let subscription = cx.subscribe_in(&input, window, |this, input, event, window, cx| {
-            if matches!(event, InputEvent::Change) {
-                this.composer_state.selected_completion = 0;
-                this.composer_state.dismissed = false;
-                if input.read(cx).value().contains('@') && this.document_state.files.is_empty() {
-                    this.refresh_files(cx);
-                }
-                cx.notify();
-            }
-            if matches!(event, InputEvent::Change)
-                && let Some(s) = this.session_mut()
-            {
-                s.draft = input.read(cx).value().to_string();
-                this.dirty = true;
-                cx.notify();
-            }
-            if matches!(
-                event,
-                InputEvent::PressEnter {
-                    secondary: true,
-                    ..
-                }
-            ) {
-                cx.spawn_in(window, async move |this, cx| {
-                    let _ = this.update_in(cx, |this, w, cx| this.send(w, cx));
-                })
-                .detach();
-            }
-        });
+        let draft = active
+            .map(|ix| db.sessions[ix].draft.clone())
+            .unwrap_or_default();
         let (file_tx, file_rx) = mpsc::channel();
-        let input_observation = cx.observe(&input, |_, _, cx| cx.notify());
         let activation_subscription = cx.observe_window_activation(window, |this, window, cx| {
             if !window.is_window_active() {
                 gpui_kit::base::TextSelection::end(window, cx);
@@ -95,20 +58,12 @@ impl Workspace {
                 }
             });
         let mut this = Self {
+            runtime: Self::new_session_runtime(window, cx, demo, draft, error),
+            background: HashMap::new(),
+            polling_background: false,
+            attachment_imports: Default::default(),
             session_sync: conversation::session_sync::SessionSync::default(),
-            collaboration: Default::default(),
-            transcript: vec![],
-            tool_diffs: HashMap::new(),
-            stopping: false,
-            interrupted_run: false,
-            run_message_start: 0,
-            submitted_inputs: vec![],
-            queued_inputs: vec![],
-            steered_inputs: vec![],
-            steering_request: None,
-            expanded_process: Default::default(),
             selection_dirty: false,
-            text_update_pending: false,
             settings_view: None,
             show_archived: false,
             collapsed_projects: Default::default(),
@@ -121,54 +76,19 @@ impl Workspace {
                     .auto_grow(3, 8)
                     .placeholder("针对所选片段留下意见…")
             }),
-            answer_input: cx.new(|cx| InputState::new(window, cx)),
             focus: cx.focus_handle(),
-            texts: HashMap::new(),
             panel_open: false,
             panel_tab: "变更",
-            engine: None,
-            connected: false,
-            running: false,
-            starting: false,
-            status: if demo {
-                "演示模式 · 不调用模型".into()
-            } else {
-                "选择项目以连接 OMP".into()
-            },
-            error,
-            todos: vec![],
-            agents: vec![],
-            context_percent: 0.,
-            context_limit: 0,
-            active_tools: HashMap::new(),
-            requests: VecDeque::new(),
             selected: None,
             selection_point: Point::default(),
             comment_editor: None,
             editing_comment: None,
             pending_open: false,
-            follow_up: None,
-            in_flight_comments: vec![],
-            rpc_messages: HashMap::new(),
-            pending_send: None,
-            list: ListState::new(0, ListAlignment::Bottom, px(600.)),
             demo,
-            last_state: Instant::now(),
             last_save: Instant::now(),
             dirty: false,
-            _subscriptions: vec![
-                subscription,
-                input_observation,
-                search_subscription,
-                activation_subscription,
-            ],
+            _subscriptions: vec![search_subscription, activation_subscription],
             _data_lock: lock.ok(),
-            composer_state: ComposerState {
-                input,
-                commands: vec![],
-                selected_completion: 0,
-                dismissed: false,
-            },
             search_state: SearchState {
                 input: search_input,
                 open: false,
@@ -203,21 +123,10 @@ impl Workspace {
                 historical: false,
                 loading: false,
             },
-            model_controls: ModelControlState {
-                available: vec![],
-                current: Value::Null,
-                levels: vec![],
-                levels_request: None,
-                auto: false,
-                entries_cursor: None,
-                pending: None,
-                label: "默认模型".into(),
-                thinking: "自动".into(),
-            },
         };
         if let Some(ix) = this.active {
-            this.todos = this.db.sessions[ix].todos.clone();
-            this.agents = this.db.sessions[ix].agents.clone();
+            this.runtime.todos = this.db.sessions[ix].todos.clone();
+            this.runtime.agents = this.db.sessions[ix].agents.clone();
         }
         this.sync_texts(cx);
         let config_cwd = this

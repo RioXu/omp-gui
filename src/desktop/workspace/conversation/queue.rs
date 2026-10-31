@@ -2,21 +2,25 @@ use super::*;
 
 impl Workspace {
     pub fn steer_queued(&mut self, text: String, cx: &mut Context<Self>) {
-        if self.stopping || self.pending_send.is_some() || self.steering_request.is_some() {
+        if self.runtime.stopping
+            || self.runtime.pending_send.is_some()
+            || self.runtime.steering_request.is_some()
+        {
             return;
         }
-        self.steering_request = Some(text.clone());
+        self.runtime.steering_request = Some(text.clone());
         self.command(json!({"type":"promote_queued_message","id":"steer-queued","message":text}));
-        self.status = "正在向 OMP 提交指示…".into();
+        self.runtime.status = "正在向 OMP 提交指示…".into();
         cx.notify();
     }
     pub(in crate::desktop::workspace) fn queue_delivered(&mut self, text: &str) {
-        if let Some(pending) = &mut self.pending_send
+        if let Some(pending) = &mut self.runtime.pending_send
             && pending.wire_text.trim() == text.trim()
         {
             pending.delivered = true;
         }
         let entry = self
+            .runtime
             .submitted_inputs
             .iter()
             .find(|e| {
@@ -36,8 +40,8 @@ impl Workspace {
                 message.state = MessageState::Normal;
                 s.messages.push(message);
             }
-            self.in_flight_comments.extend(comments);
-            self.text_update_pending = true;
+            self.runtime.in_flight_comments.extend(comments);
+            self.runtime.text_update_pending = true;
             self.dirty = true;
         }
     }

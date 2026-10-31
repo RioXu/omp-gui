@@ -13,7 +13,7 @@ impl Workspace {
                 | "session_settled"
                 | "prompt_result"
         ) {
-            self.session_sync.last_activity = Instant::now();
+            self.runtime.last_activity = Instant::now();
         }
         match kind {
             "ready" => {
@@ -41,30 +41,31 @@ impl Workspace {
                     ]
                     .contains(&command)
                     {
-                        self.error = Some(f["error"].as_str().unwrap_or("OMP 请求失败").into());
+                        self.runtime.error =
+                            Some(f["error"].as_str().unwrap_or("OMP 请求失败").into());
                     }
                     if command == "prompt" {
                         self.accept_submission(&f, window, cx);
                     }
                     if command == "abort_and_restore_queue" {
-                        self.stopping = false;
+                        self.runtime.stopping = false;
                     }
                     if command == "promote_queued_message" {
-                        self.steering_request = None;
+                        self.runtime.steering_request = None;
                         self.request_state();
                     }
                     return;
                 }
                 match f["command"].as_str().unwrap_or("") {
                     "get_available_commands" => {
-                        self.composer_state.commands = f["data"]["commands"]
+                        self.runtime.composer_state.commands = f["data"]["commands"]
                             .as_array()
                             .cloned()
                             .unwrap_or_default();
                     }
                     "promote_queued_message" => {
-                        self.steering_request = None;
-                        self.status = if f["data"]["promoted"] == true {
+                        self.runtime.steering_request = None;
+                        self.runtime.status = if f["data"]["promoted"] == true {
                             "指示已提交，接收时机由 OMP 决定"
                         } else {
                             "该指令已被模型接收"
@@ -74,54 +75,60 @@ impl Workspace {
                     }
                     "get_state" => {
                         let d = &f["data"];
-                        self.connected = true;
-                        self.starting = false;
-                        if d["isSettled"].is_boolean() && self.pending_send.is_none() {
-                            self.running = d["isSettled"] == false;
+                        self.runtime.connected = true;
+                        self.runtime.starting = false;
+                        if d["isSettled"].is_boolean() && self.runtime.pending_send.is_none() {
+                            self.runtime.running = d["isSettled"] == false;
                         }
-                        self.queued_inputs = ["followUp"]
+                        self.runtime.queued_inputs = ["followUp"]
                             .into_iter()
                             .flat_map(|key| {
                                 d["queuedMessages"][key].as_array().into_iter().flatten()
                             })
                             .filter_map(|v| v.as_str().map(str::to_owned))
                             .collect();
-                        self.steered_inputs = d["queuedMessages"]["steering"]
+                        self.runtime.steered_inputs = d["queuedMessages"]["steering"]
                             .as_array()
                             .into_iter()
                             .flatten()
                             .filter_map(|v| v.as_str().map(str::to_owned))
                             .collect();
-                        self.status = if self.running {
-                            self.active_tools
+                        self.runtime.status = if self.runtime.running {
+                            self.runtime
+                                .active_tools
                                 .values()
                                 .next()
                                 .map(|name| format!("正在执行 {name}"))
                                 .unwrap_or("OMP 正在思考…".into())
-                        } else if self.interrupted_run {
+                        } else if self.runtime.interrupted_run {
                             "已停止".into()
                         } else {
                             "本地 OMP 已连接".into()
                         };
-                        self.model_controls.label =
+                        self.runtime.model_controls.label =
                             d["model"]["id"].as_str().unwrap_or("未配置模型").into();
                         let model_changed =
-                            super::model_controls::model_key(&self.model_controls.current)
+                            super::model_controls::model_key(&self.runtime.model_controls.current)
                                 != super::model_controls::model_key(&d["model"]);
-                        self.model_controls.current = d["model"].clone();
+                        self.runtime.model_controls.current = d["model"].clone();
                         if model_changed {
                             self.request_thinking_levels();
                             self.request_thinking_source();
                         }
-                        self.model_controls.thinking =
+                        self.runtime.model_controls.thinking =
                             d["thinkingLevel"].as_str().unwrap_or("自动").into();
-                        self.context_percent = d["contextUsage"]["percent"].as_f64().unwrap_or(0.);
-                        self.context_limit = d["contextUsage"]["contextWindow"]
+                        self.runtime.context_percent =
+                            d["contextUsage"]["percent"].as_f64().unwrap_or(0.);
+                        self.runtime.context_used = d["contextUsage"]["tokens"]
+                            .as_f64()
+                            .filter(|tokens| tokens.is_finite() && *tokens >= 0.)
+                            .map(|tokens| tokens.round() as u64);
+                        self.runtime.context_limit = d["contextUsage"]["contextWindow"]
                             .as_u64()
                             .or_else(|| d["model"]["contextWindow"].as_u64())
                             .unwrap_or(0);
-                        self.todos = crate::domain::activity::merge_todo_snapshot(
-                            &self.todos,
+                        self.runtime.todos = crate::domain::activity::merge_todo_snapshot(
+                            &self.runtime.todos,
                             d["todoPhases"]
                                 .as_array()
                                 .map(Vec::as_slice)
@@ -152,7 +159,7 @@ impl Workspace {
                         }
                     }
                     "get_available_models" => {
-                        self.model_controls.available = f["data"]["models"]
+                        self.runtime.model_controls.available = f["data"]["models"]
                             .as_array()
                             .or_else(|| f["data"].as_array())
                             .cloned()
@@ -170,7 +177,7 @@ impl Workspace {
                         }
                     }
                     "set_todos" => {
-                        self.todos = f["data"]["todoPhases"]
+                        self.runtime.todos = f["data"]["todoPhases"]
                             .as_array()
                             .cloned()
                             .unwrap_or_default();
@@ -191,12 +198,12 @@ impl Workspace {
                 }
             }
             "available_commands_update" => {
-                self.composer_state.commands =
+                self.runtime.composer_state.commands =
                     f["commands"].as_array().cloned().unwrap_or_default();
             }
             "agent_start" => {
-                self.running = true;
-                self.status = "OMP 正在处理…".into();
+                self.runtime.running = true;
+                self.runtime.status = "OMP 正在处理…".into();
             }
             "session_info_update" => {
                 if let Some(title) = f["title"].as_str().filter(|s| !s.trim().is_empty())
@@ -216,13 +223,13 @@ impl Workspace {
                     self.request_state();
                     return;
                 }
-                self.queued_inputs.clear();
-                self.steered_inputs.clear();
-                self.running = false;
-                self.active_tools.clear();
-                self.interrupted_run |= f["status"] == "aborted";
-                if self.interrupted_run {
-                    let start = self.run_message_start;
+                self.runtime.queued_inputs.clear();
+                self.runtime.steered_inputs.clear();
+                self.runtime.running = false;
+                self.runtime.active_tools.clear();
+                self.runtime.interrupted_run |= f["status"] == "aborted";
+                if self.runtime.interrupted_run {
+                    let start = self.runtime.run_message_start;
                     if let Some(s) = self.session_mut()
                         && let Some(m) = s
                             .messages
@@ -240,16 +247,16 @@ impl Workspace {
                     }
                 }
                 self.refresh_transcript();
-                self.status = if self.interrupted_run {
+                self.runtime.status = if self.runtime.interrupted_run {
                     "已停止"
                 } else {
                     "本轮已完成"
                 }
                 .into();
                 if f["status"] == "error" || f["status"] == "aborted" {
-                    self.status = "本轮已停止".into();
+                    self.runtime.status = "本轮已停止".into();
                     if let Some(e) = f["error"].as_str() {
-                        self.error = Some(e.into());
+                        self.runtime.error = Some(e.into());
                     }
                 }
                 self.request_state();
@@ -257,7 +264,7 @@ impl Workspace {
                 self.persist();
             }
             "message_start" | "message_update" | "message_end" => {
-                self.text_update_pending = true;
+                self.runtime.text_update_pending = true;
                 let m = &f["message"];
                 if m["role"] == "user" {
                     self.queue_delivered(&crate::infrastructure::omp::message_text(m));
@@ -272,7 +279,12 @@ impl Workspace {
                             .unwrap_or_else(|| {
                                 format!("{}:{}:{}", m["role"], m["customType"], m["timestamp"])
                             });
-                        let mid = self.rpc_messages.entry(rid).or_insert_with(id).clone();
+                        let mid = self
+                            .runtime
+                            .rpc_messages
+                            .entry(rid)
+                            .or_insert_with(id)
+                            .clone();
                         message.id = mid.clone();
                         if let Some(s) = self.session_mut() {
                             if let Some(existing) = s.messages.iter_mut().find(|m| m.id == mid) {
@@ -297,8 +309,13 @@ impl Workspace {
                     return;
                 }
                 let rid = f["messageId"].as_str().unwrap_or("stream").to_string();
-                let mid = self.rpc_messages.entry(rid).or_insert_with(id).clone();
-                let linked = self.in_flight_comments.clone();
+                let mid = self
+                    .runtime
+                    .rpc_messages
+                    .entry(rid)
+                    .or_insert_with(id)
+                    .clone();
+                let linked = self.runtime.in_flight_comments.clone();
                 if let Some(s) = self.session_mut() {
                     if let Some(existing) = s.messages.iter_mut().find(|m| m.id == mid) {
                         existing.text = text;
@@ -340,16 +357,18 @@ impl Workspace {
             "tool_execution_start" => {
                 let name = f["toolName"].as_str().unwrap_or("工具");
                 let call_id = f["toolCallId"].as_str().unwrap_or_default().to_owned();
-                self.active_tools.insert(call_id.clone(), name.into());
-                let start = self.run_message_start;
+                self.runtime
+                    .active_tools
+                    .insert(call_id.clone(), name.into());
+                let start = self.runtime.run_message_start;
                 if let Some(s) = self.session_mut() {
                     s.start_tool(&call_id, name, &f["args"], start);
                 }
-                self.text_update_pending = true;
+                self.runtime.text_update_pending = true;
             }
             "tool_execution_end" => {
                 let call_id = f["toolCallId"].as_str().unwrap_or_default();
-                self.active_tools.remove(call_id);
+                self.runtime.active_tools.remove(call_id);
                 self.update_tool_activity(&f["result"]["details"]);
                 if let Some(s) = self.session_mut() {
                     for block in s
@@ -396,34 +415,39 @@ impl Workspace {
                     self.command(json!({"type":"get_subagents","id":"agents"}));
                 }
             }
-            "extension_ui_request" => {
-                match f["method"].as_str().unwrap_or("") {
-                    "select" | "confirm" | "input" | "editor" => {
-                        if f["secret"] == true {
-                            self.command(json!({"type":"extension_ui_response","id":f["id"],"cancelled":true}));
-                            self.error = Some("请在 OMP 终端完成敏感凭据输入后重新连接".into());
-                        } else {
-                            self.requests.push_back(f);
-                        }
+            "extension_ui_request" => match f["method"].as_str().unwrap_or("") {
+                "select" | "confirm" | "input" | "editor" => {
+                    if f["secret"] == true {
+                        self.command(
+                            json!({"type":"extension_ui_response","id":f["id"],"cancelled":true}),
+                        );
+                        self.runtime.error = Some("请在 OMP 终端完成敏感凭据输入后重新连接".into());
+                    } else {
+                        self.runtime.requests.push_back(f);
                     }
-                    "cancel" => {
-                        self.requests.retain(|r| r["id"] != f["targetId"]);
-                    }
-                    "notify" => {
-                        self.status = f["message"].as_str().unwrap_or("").into();
-                    }
-                    "set_editor_text" => {
-                        if let Some(text) = f["text"].as_str() {
-                            self.composer_state
-                                .input
-                                .update(cx, |i, cx| i.set_value(text.to_string(), window, cx));
-                        }
-                    }
-                    _ => {}
                 }
-            }
+                "cancel" => {
+                    self.runtime.requests.retain(|r| r["id"] != f["targetId"]);
+                }
+                "notify" => {
+                    self.runtime.status = f["message"].as_str().unwrap_or("").into();
+                }
+                "set_editor_text" => {
+                    if let Some(text) = f["text"].as_str() {
+                        self.runtime
+                            .composer_state
+                            .input
+                            .update(cx, |i, cx| i.set_value(text.to_string(), window, cx));
+                        if let Some(s) = self.session_mut() {
+                            s.draft = text.into();
+                        }
+                        self.dirty = true;
+                    }
+                }
+                _ => {}
+            },
             "notice" | "extension_error" | "rpc_frame_error" => {
-                self.error = Some(
+                self.runtime.error = Some(
                     f["message"]
                         .as_str()
                         .or_else(|| f["error"].as_str())

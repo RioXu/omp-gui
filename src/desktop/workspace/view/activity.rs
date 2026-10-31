@@ -9,7 +9,7 @@ use gpui_kit::component::{
 impl Workspace {
     pub(in crate::desktop::workspace) fn render_todos(&self, cx: &mut Context<Self>) -> AnyElement {
         let mut body = div().flex().flex_col().gap_4().px_2();
-        if self.todos.is_empty() {
+        if self.runtime.todos.is_empty() {
             body = body.child(
                 div()
                     .text_sm()
@@ -17,7 +17,7 @@ impl Workspace {
                     .child("OMP 尚未创建任务清单"),
             );
         }
-        for (phase_ix, phase) in self.todos.iter().enumerate() {
+        for (phase_ix, phase) in self.runtime.todos.iter().enumerate() {
             let tasks: Vec<_> = phase["tasks"].as_array().into_iter().flatten().collect();
             let done = tasks.iter().filter(|t| t["status"] == "completed").count();
             let mut rows = div()
@@ -65,8 +65,9 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let mut body = div().flex().flex_col().gap_2().px_2();
-        if let Some(id) = &self.collaboration.selected {
+        if let Some(id) = &self.runtime.collaboration.selected {
             let name = self
+                .runtime
                 .agents
                 .iter()
                 .find(|a| a["id"].as_str() == Some(id.as_str()))
@@ -79,7 +80,7 @@ impl Workspace {
                         .small()
                         .label("返回子智能体列表")
                         .on_click(cx.listener(|this, _, _, cx| {
-                            this.collaboration = Default::default();
+                            this.runtime.collaboration = Default::default();
                             cx.notify();
                         })),
                 )
@@ -89,7 +90,7 @@ impl Workspace {
                         .font_weight(FontWeight::MEDIUM)
                         .child(format!("{name} · 会话历史")),
                 );
-            if let Some(error) = &self.collaboration.error {
+            if let Some(error) = &self.runtime.collaboration.error {
                 body = body.child(
                     div()
                         .text_sm()
@@ -97,19 +98,19 @@ impl Workspace {
                         .child(error.clone()),
                 );
             }
-            if self.collaboration.messages.is_empty() {
+            if self.runtime.collaboration.messages.is_empty() {
                 body = body.child(
                     div()
                         .text_sm()
                         .text_color(cx.theme().muted_foreground)
-                        .child(if self.collaboration.loading {
+                        .child(if self.runtime.collaboration.loading {
                             "正在读取子会话…"
                         } else {
                             "子会话暂未写入消息"
                         }),
                 );
             }
-            for message in &self.collaboration.messages {
+            for message in &self.runtime.collaboration.messages {
                 let key = format!("child-{id}-{}", message.id);
                 let label = message
                     .label
@@ -144,7 +145,7 @@ impl Workspace {
                 body = body.child(row);
             }
         } else {
-            if self.agents.is_empty() {
+            if self.runtime.agents.is_empty() {
                 body = body.child(
                     div()
                         .text_sm()
@@ -152,7 +153,7 @@ impl Workspace {
                         .child("本次会话没有子智能体"),
                 );
             }
-            for agent in &self.agents {
+            for agent in &self.runtime.agents {
                 let id = agent["id"].as_str().unwrap_or_default().to_owned();
                 let name = agent["name"]
                     .as_str()

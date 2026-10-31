@@ -1,4 +1,5 @@
 use super::*;
+use gpui_kit::component::{progress::ProgressCircle, shimmer::ShimmerText};
 
 impl Workspace {
     pub(in crate::desktop::workspace) fn render_pending(
@@ -94,19 +95,20 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme().clone();
+        let paste_view = cx.entity().downgrade();
         let models = crate::desktop::workspace::runtime::model_controls::model_groups(
-            &self.model_controls.available,
+            &self.runtime.model_controls.available,
         );
         let selected_model = crate::desktop::workspace::runtime::model_controls::model_key(
-            &self.model_controls.current,
+            &self.runtime.model_controls.current,
         );
-        let provider = self.model_controls.current["provider"]
+        let provider = self.runtime.model_controls.current["provider"]
             .as_str()
             .unwrap_or("");
         let model_label = if provider.is_empty() {
-            self.model_controls.label.clone()
+            self.runtime.model_controls.label.clone()
         } else {
-            format!("{provider} / {}", self.model_controls.label)
+            format!("{provider} / {}", self.runtime.model_controls.label)
         };
         let weak = cx.entity().downgrade();
         let model = Button::new("model-picker")
@@ -114,10 +116,10 @@ impl Workspace {
             .small()
             .label(model_label)
             .disabled(
-                self.running
-                    || !self.connected
+                self.runtime.running
+                    || !self.runtime.connected
                     || models.is_empty()
-                    || self.model_controls.pending.is_some(),
+                    || self.runtime.model_controls.pending.is_some(),
             )
             .dropdown_menu(move |menu, _, _| {
                 let mut menu = menu.scrollable(true);
@@ -146,10 +148,10 @@ impl Workspace {
                 menu
             });
         let levels = self.thinking_options();
-        let selected_level = if self.model_controls.auto {
+        let selected_level = if self.runtime.model_controls.auto {
             "auto".to_owned()
         } else {
-            self.model_controls.thinking.clone()
+            self.runtime.model_controls.thinking.clone()
         };
         let weak = cx.entity().downgrade();
         let thinking = Button::new("thinking")
@@ -158,12 +160,12 @@ impl Workspace {
             .label(format!("推理：{selected_level}"))
             .tooltip(format!(
                 "当前模型的有效推理强度：{}",
-                self.model_controls.thinking
+                self.runtime.model_controls.thinking
             ))
             .disabled(
-                self.running
-                    || !self.connected
-                    || self.model_controls.pending.is_some()
+                self.runtime.running
+                    || !self.runtime.connected
+                    || self.runtime.model_controls.pending.is_some()
                     || !levels.iter().any(|l| l != "off"),
             )
             .dropdown_menu(move |mut menu, _, _| {
@@ -202,7 +204,7 @@ impl Workspace {
             .mx_auto()
             .gap_2()
             .child(self.render_pending(cx));
-        if let Some(cid) = &self.follow_up {
+        if let Some(cid) = &self.runtime.follow_up {
             inner = inner.child(
                 div()
                     .flex()
@@ -215,15 +217,16 @@ impl Workspace {
                             .xsmall()
                             .label("取消")
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.follow_up = None;
+                                this.runtime.follow_up = None;
                                 cx.notify();
                             })),
                     ),
             );
         }
-        for (ix, wire) in self.queued_inputs.iter().enumerate() {
+        for (ix, wire) in self.runtime.queued_inputs.iter().enumerate() {
             let message = wire.clone();
             let text = self
+                .runtime
                 .submitted_inputs
                 .iter()
                 .find(|e| &e.wire_text == wire)
@@ -255,9 +258,9 @@ impl Workspace {
                             .small()
                             .label("指示")
                             .disabled(
-                                self.stopping
-                                    || self.steering_request.is_some()
-                                    || self.pending_send.is_some(),
+                                self.runtime.stopping
+                                    || self.runtime.steering_request.is_some()
+                                    || self.runtime.pending_send.is_some(),
                             )
                             .tooltip("转为 OMP steering 指示；接收时机遵循 OMP")
                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -266,8 +269,9 @@ impl Workspace {
                     ),
             );
         }
-        for wire in &self.steered_inputs {
+        for wire in &self.runtime.steered_inputs {
             let text = self
+                .runtime
                 .submitted_inputs
                 .iter()
                 .find(|e| &e.wire_text == wire)
@@ -300,10 +304,30 @@ impl Workspace {
                     .bg(theme.muted)
                     .border_1()
                     .border_color(theme.border)
+                    .drag_over::<ExternalPaths>(|style, _, _, cx| {
+                        style.border_color(cx.theme().primary)
+                    })
+                    .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
+                        this.import_attachments(
+                            paths
+                                .0
+                                .iter()
+                                .cloned()
+                                .map(crate::infrastructure::filesystem::attachments::Source::File)
+                                .collect(),
+                            cx,
+                        );
+                    }))
+                    .child(self.render_draft_attachments(cx))
                     .child(
-                        Textarea::new(&self.composer_state.input)
+                        Textarea::new(&self.runtime.composer_state.input)
                             .appearance(false)
-                            .aria_label("给 OMP 的指令"),
+                            .aria_label("给 OMP 的指令")
+                            .on_paste(move |item, _, cx| {
+                                paste_view
+                                    .update(cx, |this, cx| this.paste_attachments(item, cx))
+                                    .unwrap_or(false)
+                            }),
                     )
                     .child(
                         div()
@@ -313,16 +337,16 @@ impl Workspace {
                             .child(model)
                             .child(thinking)
                             .child(div().flex_1())
-                            .when(self.running, |row| {
+                            .when(self.runtime.running, |row| {
                                 row.child(
                                     Button::new("stop")
                                         .small()
-                                        .label(if self.stopping {
+                                        .label(if self.runtime.stopping {
                                             "正在停止…"
                                         } else {
                                             "停止"
                                         })
-                                        .disabled(self.stopping)
+                                        .disabled(self.runtime.stopping)
                                         .tooltip("停止生成，并取回未执行的追加指令")
                                         .on_click(cx.listener(|this, _, _, cx| this.stop(cx))),
                                 )
@@ -332,12 +356,18 @@ impl Workspace {
                                     .primary()
                                     .small()
                                     .icon(IconName::ArrowUp)
-                                    .label(if self.running { "追加" } else { "发送" })
+                                    .label(if self.runtime.running {
+                                        "追加"
+                                    } else {
+                                        "发送"
+                                    })
                                     .disabled(
-                                        self.pending_send.is_some()
-                                            || self.steering_request.is_some()
-                                            || self.stopping
+                                        self.runtime.pending_send.is_some()
+                                            || self.runtime.steering_request.is_some()
+                                            || self.runtime.stopping
+                                            || self.importing_attachments()
                                             || (self
+                                                .runtime
                                                 .composer_state
                                                 .input
                                                 .read(cx)
@@ -345,10 +375,11 @@ impl Workspace {
                                                 .trim()
                                                 .is_empty()
                                                 && !self.session().is_some_and(|s| {
-                                                    s.comments.iter().any(|c| !c.sent)
+                                                    !s.draft_attachments.is_empty()
+                                                        || s.comments.iter().any(|c| !c.sent)
                                                 })),
                                     )
-                                    .tooltip(if self.running {
+                                    .tooltip(if self.runtime.running {
                                         "Ctrl+Enter · 等待本轮完成后发送"
                                     } else {
                                         "Ctrl+Enter"
@@ -365,9 +396,12 @@ impl Workspace {
                     .text_xs()
                     .text_color(theme.muted_foreground)
                     .child(if self.demo {
-                        "演示模式，不调用模型".into()
+                        div().child("演示模式，不调用模型").into_any_element()
+                    } else if self.runtime.running || self.runtime.starting || self.runtime.stopping
+                    {
+                        ShimmerText::new(self.runtime.status.clone()).into_any_element()
                     } else {
-                        self.status.clone()
+                        div().child(self.runtime.status.clone()).into_any_element()
                     })
                     .child(div().flex_1())
                     .child(
@@ -384,26 +418,48 @@ impl Workspace {
                         div()
                             .id("context-usage")
                             .tooltip({
-                                let limit = self.context_limit;
+                                let label = context_label(
+                                    self.runtime.context_used,
+                                    self.runtime.context_limit,
+                                );
                                 move |w, cx| {
-                                    gpui_kit::component::tooltip::Tooltip::new(format!(
-                                        "当前模型最大上下文：{limit} tokens"
-                                    ))
-                                    .build(w, cx)
+                                    gpui_kit::component::tooltip::Tooltip::new(label.clone())
+                                        .build(w, cx)
                                 }
                             })
-                            .child(format!(
-                                "上下文 {:.0}% · 上限 {}",
-                                self.context_percent,
-                                if self.context_limit > 0 {
-                                    format!("{}K", self.context_limit / 1000)
-                                } else {
-                                    "未知".into()
-                                }
-                            )),
+                            .child(
+                                ProgressCircle::new("context-circle")
+                                    .with_size(px(18.))
+                                    .value(if self.runtime.context_percent.is_finite() {
+                                        self.runtime.context_percent as f32
+                                    } else {
+                                        0.
+                                    })
+                                    .color(if self.runtime.context_percent >= 90. {
+                                        theme.danger
+                                    } else {
+                                        theme.primary
+                                    })
+                                    .accessibility_label(context_label(
+                                        self.runtime.context_used,
+                                        self.runtime.context_limit,
+                                    )),
+                            ),
                     ),
             );
         area = area.child(inner);
         area.into_any_element()
     }
+}
+
+fn context_label(used: Option<u64>, limit: u64) -> String {
+    format!(
+        "上下文：已用 {} / 总量 {} tokens",
+        used.map(|v| v.to_string()).unwrap_or_else(|| "未知".into()),
+        if limit > 0 {
+            limit.to_string()
+        } else {
+            "未知".into()
+        }
+    )
 }

@@ -5,7 +5,7 @@ use std::ops::Range;
 
 impl Workspace {
     pub(in crate::desktop::workspace) fn clear_search_marks(&mut self, cx: &mut Context<Self>) {
-        for entry in self.texts.values() {
+        for entry in self.runtime.texts.values() {
             entry.state.update(cx, |s, cx| {
                 let _ = s.set_range_highlights([], cx);
             });

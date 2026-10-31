@@ -8,3 +8,7 @@ pub(in crate::desktop::workspace) mod model_controls;
 
 mod model_state;
 pub(in crate::desktop::workspace) use model_state::ModelControlState;
+
+mod session_state;
+pub(in crate::desktop::workspace) use session_state::SessionRuntime;
+mod sessions;

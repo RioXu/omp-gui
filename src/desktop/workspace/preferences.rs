@@ -3,7 +3,7 @@ use crate::desktop::theme::apply_accent;
 
 impl Workspace {
     pub fn answer_request(&mut self, value: Option<String>, confirmed: Option<bool>) {
-        if let Some(r) = self.requests.pop_front() {
+        if let Some(r) = self.runtime.requests.pop_front() {
             let mut f = json!({"type":"extension_ui_response","id":r["id"]});
             if let Some(v) = value {
                 f["value"] = json!(v);
@@ -38,10 +38,10 @@ impl Workspace {
                     crate::desktop::settings::SettingsEvent::OmpPath(path) => {
                         this.db.omp_path = path.clone();
                         this.persist();
-                        if !this.running {
-                            this.engine = None;
-                            this.connected = false;
-                            this.starting = false;
+                        if !this.runtime.running {
+                            this.runtime.engine = None;
+                            this.runtime.connected = false;
+                            this.runtime.starting = false;
                             this.session_sync.store = None;
                             this.scan_sessions();
                         }
@@ -53,7 +53,7 @@ impl Workspace {
                         this.request_thinking_source();
                     }
                     crate::desktop::settings::SettingsEvent::Reconnect => {
-                        if !this.running {
+                        if !this.runtime.running {
                             this.connect();
                         }
                     }

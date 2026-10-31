@@ -27,6 +27,8 @@ pub(crate) struct Session {
     pub comments: Vec<Comment>,
     pub snapshots: BTreeMap<String, Snapshot>,
     pub draft: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub draft_attachments: Vec<super::Attachment>,
     pub updated: u64,
     #[serde(default)]
     pub todos: Vec<serde_json::Value>,
@@ -51,6 +53,7 @@ impl Session {
             comments: vec![],
             snapshots: BTreeMap::new(),
             draft: String::new(),
+            draft_attachments: vec![],
             updated: now(),
             todos: vec![],
             agents: vec![],

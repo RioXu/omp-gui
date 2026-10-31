@@ -43,13 +43,14 @@ impl Workspace {
         if let Some(view) = &self.settings_view {
             view.update(cx, |view, cx| view.navigate(destination, w, cx));
         }
-        self.composer_state
+        self.runtime
+            .composer_state
             .input
             .update(cx, |input, cx| input.set_value("", w, cx));
         if let Some(s) = self.session_mut() {
             s.draft.clear();
         }
-        self.composer_state.dismissed = true;
+        self.runtime.composer_state.dismissed = true;
         self.dirty = true;
         cx.notify();
         true

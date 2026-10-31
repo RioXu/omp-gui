@@ -41,6 +41,9 @@ impl Session {
                     let old = previous[ix].take().unwrap();
                     incoming.id = old.id;
                     incoming.comments = old.comments;
+                    if !old.attachments.is_empty() {
+                        incoming.attachments = old.attachments;
+                    }
                     if incoming.role == "user" {
                         incoming.native_text = Some(incoming.text);
                         incoming.text = old.text;

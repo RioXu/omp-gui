@@ -35,30 +35,30 @@ impl Default for CollaborationState {
 }
 impl Workspace {
     pub(in crate::desktop::workspace) fn update_tool_activity(&mut self, details: &Value) {
-        merge_tool_activity(&mut self.todos, &mut self.agents, details);
+        merge_tool_activity(&mut self.runtime.todos, &mut self.runtime.agents, details);
         self.save_activity();
     }
     pub(in crate::desktop::workspace) fn save_activity(&mut self) {
         if let Some(ix) = self.active {
             let session = &mut self.db.sessions[ix];
-            if session.todos != self.todos || session.agents != self.agents {
-                session.todos.clone_from(&self.todos);
-                session.agents.clone_from(&self.agents);
+            if session.todos != self.runtime.todos || session.agents != self.runtime.agents {
+                session.todos.clone_from(&self.runtime.todos);
+                session.agents.clone_from(&self.runtime.agents);
                 self.dirty = true;
             }
         }
     }
     pub(in crate::desktop::workspace) fn on_subagent(&mut self, payload: &Value) {
-        merge_agent(&mut self.agents, payload);
+        merge_agent(&mut self.runtime.agents, payload);
         self.save_activity();
     }
     pub(in crate::desktop::workspace) fn open_subagent(&mut self, id: String) {
-        self.collaboration = Default::default();
-        self.collaboration.selected = Some(id);
+        self.runtime.collaboration = Default::default();
+        self.runtime.collaboration.selected = Some(id);
         self.read_subagent();
     }
     fn read_subagent(&mut self) {
-        let Some(agent_id) = self.collaboration.selected.clone() else {
+        let Some(agent_id) = self.runtime.collaboration.selected.clone() else {
             return;
         };
         let Some(s) = self.session() else {
@@ -69,6 +69,7 @@ impl Workspace {
         };
         let artifacts = PathBuf::from(primary).with_extension("");
         let path = self
+            .runtime
             .agents
             .iter()
             .find(|a| a["id"] == agent_id)
@@ -76,11 +77,11 @@ impl Workspace {
             .map(PathBuf::from)
             .unwrap_or_else(|| artifacts.join(format!("{agent_id}.jsonl")));
         let session = s.id.clone();
-        let tx = self.collaboration.tx.clone();
+        let tx = self.runtime.collaboration.tx.clone();
         let request = id();
-        self.collaboration.request = request.clone();
-        self.collaboration.loading = true;
-        self.collaboration.last_read = Instant::now();
+        self.runtime.collaboration.request = request.clone();
+        self.runtime.collaboration.loading = true;
+        self.runtime.collaboration.last_read = Instant::now();
         std::thread::spawn(move || {
             let result = (|| -> anyhow::Result<_> {
                 anyhow::ensure!(
@@ -103,29 +104,29 @@ impl Workspace {
         });
     }
     pub(in crate::desktop::workspace) fn poll_collaboration(&mut self, cx: &mut Context<Self>) {
-        let results: Vec<_> = self.collaboration.rx.try_iter().collect();
+        let results: Vec<_> = self.runtime.collaboration.rx.try_iter().collect();
         for result in results {
             if self.session().is_none_or(|s| s.id != result.session)
-                || self.collaboration.selected.as_ref() != Some(&result.agent)
-                || self.collaboration.request != result.request
+                || self.runtime.collaboration.selected.as_ref() != Some(&result.agent)
+                || self.runtime.collaboration.request != result.request
             {
                 continue;
             }
-            self.collaboration.loading = false;
+            self.runtime.collaboration.loading = false;
             match result.result {
                 Ok(messages) => {
-                    self.collaboration.messages = messages;
-                    self.collaboration.error = None;
+                    self.runtime.collaboration.messages = messages;
+                    self.runtime.collaboration.error = None;
                 }
-                Err(error) => self.collaboration.error = Some(error),
+                Err(error) => self.runtime.collaboration.error = Some(error),
             }
             cx.notify();
         }
         if self.panel_open
             && self.panel_tab == "子智能体"
-            && self.collaboration.selected.is_some()
-            && !self.collaboration.loading
-            && self.collaboration.last_read.elapsed() > Duration::from_secs(2)
+            && self.runtime.collaboration.selected.is_some()
+            && !self.runtime.collaboration.loading
+            && self.runtime.collaboration.last_read.elapsed() > Duration::from_secs(2)
         {
             self.read_subagent();
         }

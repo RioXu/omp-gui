@@ -138,7 +138,8 @@ impl Workspace {
                         .get(self.search_state.index)
                         .filter(|(id, _)| Some(id.as_str()) == message)
                         .and_then(|(id, range)| {
-                            self.texts
+                            self.runtime
+                                .texts
                                 .get(id)
                                 .map(|entry| (entry.state.read(cx).rendered_text(), range.clone()))
                         }),

@@ -28,7 +28,11 @@ impl Workspace {
                 editor.focus_handle(cx).focus(w, cx);
             }
         } else {
-            self.composer_state.input.focus_handle(cx).focus(w, cx);
+            self.runtime
+                .composer_state
+                .input
+                .focus_handle(cx)
+                .focus(w, cx);
         }
         cx.notify();
     }
@@ -47,6 +51,7 @@ impl Workspace {
         let first_match = previous.is_none();
         self.search_state.hits.clear();
         self.search_state.rendered_text = self
+            .runtime
             .texts
             .iter()
             .map(|(id, entry)| (id.clone(), entry.state.read(cx).rendered_text()))
@@ -61,7 +66,7 @@ impl Workspace {
                     if message.state == MessageState::Queued {
                         continue;
                     }
-                    if let Some(entry) = self.texts.get(&message.id) {
+                    if let Some(entry) = self.runtime.texts.get(&message.id) {
                         let rendered = entry.state.read(cx).rendered_text();
                         matcher.update(&ropey::Rope::from_str(rendered.as_str()));
                         hits.extend(
@@ -110,7 +115,7 @@ impl Workspace {
                     },
                 ));
         }
-        for (id, entry) in &self.texts {
+        for (id, entry) in &self.runtime.texts {
             let highlights = highlights.remove(id.as_str()).unwrap_or_default();
             entry.state.update(cx, |s, cx| {
                 let _ = s.set_range_highlights(highlights, cx);
@@ -145,20 +150,21 @@ impl Workspace {
             return;
         };
         let row = self.row_for_message(ix);
-        if let Some(TranscriptRow::Assistant(group)) = self.transcript.get(row)
+        if let Some(TranscriptRow::Assistant(group)) = self.runtime.transcript.get(row)
             && let Some(s) = self.session()
         {
-            self.expanded_process
+            self.runtime
+                .expanded_process
                 .insert(format!("turn-{}", s.messages[group.start].id));
         }
         self.invalidate_list();
         // Invalidated virtual rows have no measured height yet. Reveal-by-height
         // can resolve to the old viewport, so first anchor the target row itself.
-        self.list.scroll_to(ListOffset {
+        self.runtime.list.scroll_to(ListOffset {
             item_ix: row,
             offset_in_item: px(0.),
         });
-        if let Some(entry) = self.texts.get(&id) {
+        if let Some(entry) = self.runtime.texts.get(&id) {
             entry.state.update(cx, |s, cx| {
                 let _ = s.reveal_range(range, cx);
             });

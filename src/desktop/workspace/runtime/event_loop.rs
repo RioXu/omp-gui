@@ -1,69 +1,105 @@
 use super::*;
 
 impl Workspace {
-    pub fn poll(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.poll_sessions(window, cx);
+    pub(in crate::desktop::workspace) fn poll_engine(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         self.poll_collaboration(cx);
-        if self.starting
-            && self.requests.is_empty()
-            && self.last_state.elapsed() > Duration::from_secs(60)
+        if self.runtime.starting
+            && self.runtime.requests.is_empty()
+            && self.runtime.last_state.elapsed() > Duration::from_secs(60)
         {
-            self.engine = None;
-            self.starting = false;
-            self.error = Some("OMP 连接超时，请检查路径或在终端启动 OMP 查看初始化问题".into());
+            self.runtime.engine = None;
+            self.runtime.starting = false;
+            self.runtime.error =
+                Some("OMP 连接超时，请检查路径或在终端启动 OMP 查看初始化问题".into());
             cx.notify();
         }
         let events = self
+            .runtime
             .engine
             .as_ref()
             .map(|e| e.events.try_iter().take(200).collect::<Vec<_>>())
             .unwrap_or_default();
-        let mut changed = !events.is_empty();
+        let changed = !events.is_empty();
         for event in events {
             match event {
                 Event::Frame(f) => self.on_frame(f, window, cx),
                 Event::Error(e) => {
-                    self.error = Some(e);
+                    self.runtime.error = Some(e);
                 }
                 Event::Closed => {
-                    self.active_tools.clear();
-                    if let Some(pending) = self.pending_send.take() {
-                        let draft = self.composer_state.input.read(cx).value().to_string();
+                    self.runtime.engine = None;
+                    self.runtime.active_tools.clear();
+                    if let Some(pending) = self.runtime.pending_send.take() {
+                        let draft = self
+                            .runtime
+                            .composer_state
+                            .input
+                            .read(cx)
+                            .value()
+                            .to_string();
                         let recovered = if draft.is_empty() {
                             pending.text
                         } else {
                             format!("{}\n\n{draft}", pending.text)
                         };
-                        self.composer_state
-                            .input
-                            .update(cx, |input, cx| input.set_value(recovered, window, cx));
-                        self.follow_up = pending.follow_up;
+                        self.runtime.composer_state.input.update(cx, |input, cx| {
+                            input.set_value(recovered.clone(), window, cx)
+                        });
+                        if let Some(s) = self.session_mut() {
+                            s.draft = recovered;
+                            crate::domain::attachments::merge_attachments(
+                                &mut s.draft_attachments,
+                                pending.attachments,
+                            );
+                        }
+                        self.runtime.follow_up = pending.follow_up;
                     }
-                    self.connected = false;
-                    self.starting = false;
-                    self.running = false;
-                    self.stopping = false;
+                    self.runtime.connected = false;
+                    self.runtime.starting = false;
+                    self.runtime.running = false;
+                    self.runtime.stopping = false;
                     if let Some(session) = self.session_mut() {
                         session.recover_unconfirmed_queue();
                         let draft = session.draft.clone();
-                        self.composer_state
+                        self.runtime
+                            .composer_state
                             .input
                             .update(cx, |input, cx| input.set_value(draft, window, cx));
-                        self.text_update_pending = true;
+                        self.runtime.text_update_pending = true;
                     }
-                    self.status = "OMP 已断开，可重新连接".into();
+                    self.runtime.status = "OMP 已断开，可重新连接".into();
+                    self.dirty = true;
                 }
             }
         }
-        if self.text_update_pending {
+        if self.runtime.text_update_pending {
             self.sync_texts(cx);
-            self.text_update_pending = false;
+            self.runtime.text_update_pending = false;
         }
+        if self.runtime.connected
+            && self.runtime.running
+            && self.runtime.last_state.elapsed() > Duration::from_secs(3)
+        {
+            self.request_state();
+            self.command(json!({"type":"get_subagents","id":"agents"}));
+        }
+        changed
+    }
+
+    pub fn poll(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.poll_sessions(window, cx);
+        self.poll_attachments(cx);
+        self.poll_background_sessions(window, cx);
+        let mut changed = self.poll_engine(window, cx);
         // Markdown parsing can finish after the stream update that scheduled it.
         if self.search_state.open
             && (self.search_state.scope != self.document_state.active
                 || (self.document_state.active.is_none()
-                    && self.texts.iter().any(|(id, entry)| {
+                    && self.runtime.texts.iter().any(|(id, entry)| {
                         self.search_state.rendered_text.get(id)
                             != Some(&entry.state.read(cx).rendered_text())
                     }))
@@ -99,12 +135,8 @@ impl Workspace {
         }
 
         for e in self.persistence.errors.try_iter() {
-            self.error = Some(e);
+            self.runtime.error = Some(e);
             changed = true;
-        }
-        if self.connected && self.running && self.last_state.elapsed() > Duration::from_secs(3) {
-            self.request_state();
-            self.command(json!({"type":"get_subagents","id":"agents"}));
         }
         if self.selection_dirty && self.settings_view.is_none() && self.comment_editor.is_none() {
             self.sync_selected_editor_snapshot(cx);
@@ -122,7 +154,7 @@ impl Workspace {
                 .unwrap_or_default();
             let entries = active_ids
                 .iter()
-                .filter_map(|id| self.texts.get(id))
+                .filter_map(|id| self.runtime.texts.get(id))
                 .filter(|_| self.document_state.active.is_none())
                 .chain(
                     self.document_state

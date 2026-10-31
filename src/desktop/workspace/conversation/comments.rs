@@ -34,7 +34,11 @@ impl Workspace {
         self.selected = None;
         gpui_kit::base::TextSelection::clear(window, cx);
         self.persist();
-        self.composer_state.input.focus_handle(cx).focus(window, cx);
+        self.runtime
+            .composer_state
+            .input
+            .focus_handle(cx)
+            .focus(window, cx);
         cx.notify();
     }
     pub fn open_anchor(&mut self, anchor: Anchor, cx: &mut Context<Self>) {
@@ -43,17 +47,19 @@ impl Workspace {
                 .session()
                 .and_then(|s| s.messages.iter().position(|m| &m.id == id))
                 .and_then(|ix| {
-                    self.texts
+                    self.runtime
+                        .texts
                         .get(id)
                         .filter(|e| e.body == anchor.document)
                         .map(|e| (ix, e.state.clone()))
                 })
         {
             let row = self.row_for_message(ix);
-            if let Some(TranscriptRow::Assistant(range)) = self.transcript.get(row)
+            if let Some(TranscriptRow::Assistant(range)) = self.runtime.transcript.get(row)
                 && let Some(s) = self.session()
             {
-                self.expanded_process
+                self.runtime
+                    .expanded_process
                     .insert(format!("turn-{}", s.messages[range.start].id));
             }
             self.invalidate_list();
@@ -65,7 +71,7 @@ impl Workspace {
                 }
             });
             self.activate_document(None);
-            self.list.scroll_to_reveal_item(row);
+            self.runtime.list.scroll_to_reveal_item(row);
             self.selected = None;
             cx.notify();
             return;

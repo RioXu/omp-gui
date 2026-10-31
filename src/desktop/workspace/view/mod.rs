@@ -1,4 +1,5 @@
 mod activity;
+mod attachments;
 mod comment_editor;
 mod composer;
 mod conversation;

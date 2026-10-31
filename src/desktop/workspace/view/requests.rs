@@ -5,7 +5,7 @@ impl Workspace {
         &self,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let Some(r) = self.requests.front() else {
+        let Some(r) = self.runtime.requests.front() else {
             return div().into_any_element();
         };
         let method = r["method"].as_str().unwrap_or("");
@@ -51,14 +51,16 @@ impl Workspace {
                     })),
             );
         } else {
-            body = body.child(Input::new(&self.answer_input)).child(
+            body = body.child(Input::new(&self.runtime.answer_input)).child(
                 Button::new("answer")
                     .small()
                     .label("提交回答")
                     .on_click(cx.listener(|this, _, w, cx| {
-                        let v = this.answer_input.read(cx).value().to_string();
+                        let v = this.runtime.answer_input.read(cx).value().to_string();
                         this.answer_request(Some(v), None);
-                        this.answer_input.update(cx, |i, cx| i.set_value("", w, cx));
+                        this.runtime
+                            .answer_input
+                            .update(cx, |i, cx| i.set_value("", w, cx));
                         cx.notify();
                     })),
             );

@@ -53,26 +53,38 @@ fn fallback_levels(model: &Value) -> Vec<String> {
 }
 
 impl Workspace {
+    pub(in crate::desktop::workspace) fn image_input_available(&self) -> bool {
+        std::iter::once(&self.runtime.model_controls.current)
+            .chain(self.runtime.model_controls.available.iter())
+            .any(|model| {
+                model["input"]
+                    .as_array()
+                    .is_some_and(|input| input.iter().any(|v| v == "image"))
+            })
+    }
     pub fn choose_model(&mut self, provider: &str, model: &str, cx: &mut Context<Self>) {
-        if self.running || !self.connected || self.model_controls.pending.is_some() {
+        if self.runtime.running
+            || !self.runtime.connected
+            || self.runtime.model_controls.pending.is_some()
+        {
             return;
         }
         let request = id();
-        self.model_controls.pending = Some((request.clone(), None));
+        self.runtime.model_controls.pending = Some((request.clone(), None));
         self.command(json!({"type":"set_model","id":request,"provider":provider,"modelId":model}));
         cx.notify();
     }
 
     pub fn choose_thinking(&mut self, level: &str, cx: &mut Context<Self>) {
-        if self.running
-            || !self.connected
-            || self.model_controls.pending.is_some()
+        if self.runtime.running
+            || !self.runtime.connected
+            || self.runtime.model_controls.pending.is_some()
             || !self.thinking_options().iter().any(|v| v == level)
         {
             return;
         }
         let request = id();
-        self.model_controls.pending = Some((request.clone(), Some(level.into())));
+        self.runtime.model_controls.pending = Some((request.clone(), Some(level.into())));
         // "auto" is a session selector, not a concrete ThinkingLevel accepted
         // by set_thinking_level. The native slash command enables its classifier.
         self.command(thinking_command(level, &request));
@@ -80,7 +92,7 @@ impl Workspace {
     }
 
     pub fn thinking_options(&self) -> Vec<String> {
-        let mut levels = self.model_controls.levels.clone();
+        let mut levels = self.runtime.model_controls.levels.clone();
         if levels.iter().any(|l| l != "off") && !levels.iter().any(|l| l == "auto") {
             levels.insert(0, "auto".into());
         }
@@ -89,14 +101,14 @@ impl Workspace {
 
     pub(in crate::desktop::workspace) fn request_thinking_levels(&mut self) {
         let request = id();
-        self.model_controls.levels_request = Some(request.clone());
-        self.model_controls.levels.clear();
+        self.runtime.model_controls.levels_request = Some(request.clone());
+        self.runtime.model_controls.levels.clear();
         self.command(json!({"type":"get_available_thinking_levels","id":request}));
     }
 
     pub(in crate::desktop::workspace) fn request_thinking_source(&mut self) {
         let mut request = json!({"type":"get_entries","id":"thinking-source"});
-        if let Some(cursor) = &self.model_controls.entries_cursor {
+        if let Some(cursor) = &self.runtime.model_controls.entries_cursor {
             request["since"] = json!(cursor);
         }
         self.command(request);
@@ -104,9 +116,9 @@ impl Workspace {
 
     pub(in crate::desktop::workspace) fn on_model_control(&mut self, frame: &Value) -> bool {
         let request = frame["id"].as_str().unwrap_or_default();
-        if self.model_controls.levels_request.as_deref() == Some(request) {
-            self.model_controls.levels_request = None;
-            self.model_controls.levels = if frame["success"] == true {
+        if self.runtime.model_controls.levels_request.as_deref() == Some(request) {
+            self.runtime.model_controls.levels_request = None;
+            self.runtime.model_controls.levels = if frame["success"] == true {
                 frame["data"]["levels"]
                     .as_array()
                     .into_iter()
@@ -114,7 +126,7 @@ impl Workspace {
                     .filter_map(|v| v.as_str().map(str::to_owned))
                     .collect()
             } else {
-                fallback_levels(&self.model_controls.current)
+                fallback_levels(&self.runtime.model_controls.current)
             };
             return true;
         }
@@ -125,16 +137,17 @@ impl Workspace {
             {
                 for entry in entries {
                     if let Some(cursor) = entry["id"].as_str() {
-                        self.model_controls.entries_cursor = Some(cursor.into());
+                        self.runtime.model_controls.entries_cursor = Some(cursor.into());
                     }
                     if entry["type"] == "thinking_level_change" {
-                        self.model_controls.auto = entry["configured"] == "auto";
+                        self.runtime.model_controls.auto = entry["configured"] == "auto";
                     }
                 }
             }
             return true;
         }
         if self
+            .runtime
             .model_controls
             .pending
             .as_ref()
@@ -142,9 +155,9 @@ impl Workspace {
         {
             return false;
         }
-        let (_, level) = self.model_controls.pending.take().unwrap();
+        let (_, level) = self.runtime.model_controls.pending.take().unwrap();
         if frame["success"] == false {
-            self.error = Some(
+            self.runtime.error = Some(
                 frame["error"]
                     .as_str()
                     .unwrap_or("无法切换模型或推理强度")
@@ -153,9 +166,9 @@ impl Workspace {
             return true;
         }
         if let Some(level) = level {
-            self.model_controls.auto = level == "auto";
+            self.runtime.model_controls.auto = level == "auto";
         } else {
-            self.model_controls.current = frame["data"].clone();
+            self.runtime.model_controls.current = frame["data"].clone();
             self.request_thinking_levels();
         }
         self.request_state();

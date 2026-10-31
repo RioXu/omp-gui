@@ -62,6 +62,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         if !self
+            .runtime
             .composer_state
             .input
             .focus_handle(cx)
@@ -78,7 +79,11 @@ impl Workspace {
                 .into_any_element();
         }
         // Keep the active item visible without moving focus out of the textarea.
-        let selected = self.composer_state.selected_completion.min(items.len() - 1);
+        let selected = self
+            .runtime
+            .composer_state
+            .selected_completion
+            .min(items.len() - 1);
         let start = selected.saturating_sub(5);
         let mut menu = div()
             .flex()

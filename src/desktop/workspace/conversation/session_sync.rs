@@ -15,7 +15,6 @@ pub(in crate::desktop::workspace) struct SessionSync {
     missing: HashSet<String>,
     pub pending_create: Option<PathBuf>,
     executable: String,
-    pub last_activity: Instant,
 }
 impl Default for SessionSync {
     fn default() -> Self {
@@ -29,7 +28,6 @@ impl Default for SessionSync {
             missing: HashSet::new(),
             pending_create: None,
             executable: String::new(),
-            last_activity: Instant::now(),
         }
     }
 }
@@ -88,8 +86,8 @@ impl Workspace {
             let (store, scan, began) = match result {
                 Ok(r) => r,
                 Err(e) => {
-                    if self.error.as_ref() != Some(&e) {
-                        self.error = Some(e);
+                    if self.runtime.error.as_ref() != Some(&e) {
+                        self.runtime.error = Some(e);
                         cx.notify();
                     }
                     continue;
@@ -123,7 +121,13 @@ impl Workspace {
                 });
                 if let Some(ix) = existing {
                     let active = self.active == Some(ix);
-                    if active && (self.running || self.pending_send.is_some() || self.starting) {
+                    let runtime = if active {
+                        Some(&self.runtime)
+                    } else {
+                        self.background.get(&self.db.sessions[ix].id)
+                    };
+                    if runtime.is_some_and(|r| r.running || r.pending_send.is_some() || r.starting)
+                    {
                         continue;
                     }
                     if self.db.sessions[ix].native_revision.as_ref() == Some(&native.revision)
@@ -139,7 +143,7 @@ impl Workspace {
                     let s = &mut self.db.sessions[ix];
                     // The stream may have just settled after this worker took
                     // its snapshot. Only merge a snapshot that is still current.
-                    if active && began < self.session_sync.last_activity {
+                    if runtime.is_some_and(|r| began < r.last_activity) {
                         continue;
                     }
                     let before: Vec<_> = s
@@ -159,9 +163,11 @@ impl Workspace {
                                 .iter()
                                 .map(|m| (m.role.clone(), m.text.clone()))
                                 .collect::<Vec<_>>();
-                    if active && external_change && self.engine.is_some() {
-                        self.engine = None;
-                        self.connected = false;
+                    if active && external_change && self.runtime.engine.is_some() {
+                        self.runtime.engine = None;
+                        self.runtime.connected = false;
+                    } else if !active && external_change {
+                        self.background.remove(&self.db.sessions[ix].id);
                     }
                     changed = true;
                 } else {
@@ -204,11 +210,14 @@ impl Workspace {
                 }
             }
             let missing: HashSet<_> = scan.missing.into_iter().collect();
+            for id in &missing {
+                self.background.remove(id);
+            }
             if active_id.as_ref().is_some_and(|id| missing.contains(id)) {
-                self.engine = None;
-                self.connected = false;
-                self.starting = false;
-                self.running = false;
+                self.runtime.engine = None;
+                self.runtime.connected = false;
+                self.runtime.starting = false;
+                self.runtime.running = false;
             }
             let confirmed: Vec<_> = missing
                 .intersection(&self.session_sync.missing)
@@ -224,16 +233,16 @@ impl Workspace {
             }
             self.session_sync.missing = missing;
             if let Some(e) = scan.errors.first()
-                && self.error.as_ref() != Some(e)
+                && self.runtime.error.as_ref() != Some(e)
             {
-                self.error = Some(e.clone());
+                self.runtime.error = Some(e.clone());
                 cx.notify();
             }
             self.active = active_id.and_then(|id| self.db.sessions.iter().position(|s| s.id == id));
             if changed {
                 if let Some(ix) = self.active {
-                    self.todos = self.db.sessions[ix].todos.clone();
-                    self.agents = self.db.sessions[ix].agents.clone();
+                    self.runtime.todos = self.db.sessions[ix].todos.clone();
+                    self.runtime.agents = self.db.sessions[ix].agents.clone();
                 }
                 self.sync_texts(cx);
                 self.persist();
@@ -241,8 +250,8 @@ impl Workspace {
             }
             if first
                 && self.active.is_some()
-                && self.engine.is_none()
-                && !self.running
+                && self.runtime.engine.is_none()
+                && !self.runtime.running
                 && self.session_sync.pending_create.is_none()
             {
                 self.connect();
@@ -251,9 +260,9 @@ impl Workspace {
                 self.new_project_session(project, window, cx);
             }
             // A terminal-owned session is readable. Connect after it is released.
-            if !self.running
-                && !self.starting
-                && self.engine.is_none()
+            if !self.runtime.running
+                && !self.runtime.starting
+                && self.runtime.engine.is_none()
                 && self.session().is_some_and(|s| {
                     s.native_root.is_some() && !self.session_sync.missing.contains(&s.id)
                 })

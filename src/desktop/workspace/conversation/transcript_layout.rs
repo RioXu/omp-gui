@@ -3,27 +3,30 @@ use super::*;
 impl Workspace {
     /// Layout changes must not clear the reader's scroll anchor.
     pub fn invalidate_list(&self) {
-        invalidate_preserving_scroll(&self.list);
+        invalidate_preserving_scroll(&self.runtime.list);
     }
     pub(in crate::desktop::workspace) fn refresh_transcript(&self) {
-        let follow = self.list.is_following_tail() || self.list.item_count() == 0;
-        let offset = self.list.logical_scroll_top();
-        self.list
-            .splice(0..self.list.item_count(), self.transcript.len());
+        let follow = self.runtime.list.is_following_tail() || self.runtime.list.item_count() == 0;
+        let offset = self.runtime.list.logical_scroll_top();
+        self.runtime.list.splice(
+            0..self.runtime.list.item_count(),
+            self.runtime.transcript.len(),
+        );
         if follow {
-            self.list.scroll_to_end();
+            self.runtime.list.scroll_to_end();
         } else {
-            self.list.scroll_to(offset);
+            self.runtime.list.scroll_to(offset);
         }
     }
     pub fn row_for_message(&self, ix: usize) -> usize {
-        self.transcript
+        self.runtime
+            .transcript
             .iter()
             .position(|row| row.contains(ix))
             .unwrap_or(0)
     }
     pub fn prepare_tool_diff(&mut self, key: &str, cx: &mut Context<Self>) {
-        if self.tool_diffs.contains_key(key) {
+        if self.runtime.tool_diffs.contains_key(key) {
             return;
         }
         let patch = self.session().and_then(|s| {
@@ -39,7 +42,8 @@ impl Workspace {
             && let Ok(files) = DiffFile::parse(&patch)
             && !files.is_empty()
         {
-            self.tool_diffs
+            self.runtime
+                .tool_diffs
                 .insert(key.into(), cx.new(|cx| DiffState::new(files, cx)));
         }
     }
@@ -58,7 +62,7 @@ impl Workspace {
         };
         let messages = &self.db.sessions[ix].messages;
         for m in messages {
-            if let Some(entry) = self.texts.get_mut(&m.id) {
+            if let Some(entry) = self.runtime.texts.get_mut(&m.id) {
                 if entry.body != m.text {
                     entry.body = m.text.clone();
                     entry.state.update(cx, |s, cx| s.set_text(&m.text, cx));
@@ -66,7 +70,7 @@ impl Workspace {
             } else {
                 let state =
                     cx.new(|cx| TextViewState::markdown(&m.text, cx).selectable(m.role != "user"));
-                self.texts.insert(
+                self.runtime.texts.insert(
                     m.id.clone(),
                     TextEntry {
                         state,
@@ -76,9 +80,9 @@ impl Workspace {
                 );
             }
         }
-        self.transcript = transcript_rows(messages);
+        self.runtime.transcript = transcript_rows(messages);
         self.refresh_transcript();
-        if self.search_state.open {
+        if self.search_state.open && !self.polling_background {
             self.update_search(false, cx);
         }
     }

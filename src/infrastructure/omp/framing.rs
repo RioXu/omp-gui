@@ -4,7 +4,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde_json::Value;
 
 pub(super) const MAX_FRAME: usize = 1024 * 1024;
-const MAX_MESSAGE: usize = 64 * 1024 * 1024;
+pub(super) const MAX_MESSAGE: usize = 64 * 1024 * 1024;
 #[derive(Default)]
 pub(crate) struct Decoder {
     chunk: Option<Chunk>,

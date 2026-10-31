@@ -95,6 +95,9 @@ impl Workspace {
     }
 
     pub fn refresh_files(&mut self, cx: &mut Context<Self>) {
+        if self.polling_background {
+            return;
+        }
         if self.document_state.loading {
             return;
         }
@@ -195,7 +198,7 @@ impl Workspace {
                             self.document_state.changes = changed;
                         }
                     }
-                    Err(e) => self.error = Some(e),
+                    Err(e) => self.runtime.error = Some(e),
                 }
             }
             FileEvent::Snapshot {

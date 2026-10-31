@@ -10,7 +10,7 @@ impl Workspace {
         content: impl IntoElement,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let expanded = open || self.expanded_process.contains(&key);
+        let expanded = open || self.runtime.expanded_process.contains(&key);
         Collapsible::new()
             .open(expanded)
             .child(
@@ -30,8 +30,8 @@ impl Workspace {
                                 return;
                             }
                             this.prepare_tool_diff(&key, cx);
-                            if !this.expanded_process.remove(&key) {
-                                this.expanded_process.insert(key.clone());
+                            if !this.runtime.expanded_process.remove(&key) {
+                                this.runtime.expanded_process.insert(key.clone());
                             }
                             this.invalidate_list();
                             cx.notify();
@@ -49,7 +49,7 @@ impl Workspace {
     ) -> AnyElement {
         let theme = cx.theme();
         if block.is_read() {
-            let executing = self.active_tools.contains_key(&block.id);
+            let executing = self.runtime.active_tools.contains_key(&block.id);
             return div()
                 .flex()
                 .items_center()
@@ -85,7 +85,7 @@ impl Workspace {
         } else {
             block.label.clone()
         };
-        let expanded = block.streaming || self.expanded_process.contains(&key);
+        let expanded = block.streaming || self.runtime.expanded_process.contains(&key);
         let mut detail = div().flex().flex_col().gap_2().min_w_0();
         if expanded {
             if block.kind == ProcessKind::Thinking {
@@ -94,7 +94,7 @@ impl Workspace {
                     block.text.clone(),
                 ));
             } else if block.is_edit() {
-                if let Some(diff) = self.tool_diffs.get(&key) {
+                if let Some(diff) = self.runtime.tool_diffs.get(&key) {
                     detail = detail.child(
                         div()
                             .h_64()

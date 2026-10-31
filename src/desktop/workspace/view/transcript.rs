@@ -5,7 +5,7 @@ impl Workspace {
         let Some(session) = self.session() else {
             return div().into_any_element();
         };
-        let Some(entry) = self.transcript.get(row) else {
+        let Some(entry) = self.runtime.transcript.get(row) else {
             return div().into_any_element();
         };
         if let TranscriptRow::Notice(ix) = entry {
@@ -29,7 +29,7 @@ impl Workspace {
                         .text_color(cx.theme().muted_foreground)
                         .child(message.label.clone().unwrap_or_else(|| "会话消息".into())),
                 );
-            if let Some(view) = self.texts.get(&message.id) {
+            if let Some(view) = self.runtime.texts.get(&message.id) {
                 card = card.child(self.message_file_link_view(
                     TextView::new(&view.state),
                     &message.id,
@@ -55,11 +55,11 @@ impl Workspace {
             .collect::<Vec<_>>();
         let last = messages.last().unwrap();
         let active = !user
-            && self.running
+            && self.runtime.running
             && (messages.iter().any(|m| {
                 m.process
                     .iter()
-                    .any(|b| self.active_tools.contains_key(&b.id))
+                    .any(|b| self.runtime.active_tools.contains_key(&b.id))
             }) || session
                 .messages
                 .iter()
@@ -95,6 +95,7 @@ impl Workspace {
         if !user {
             let show_process = active
                 || self
+                    .runtime
                     .expanded_process
                     .contains(&format!("turn-{}", messages[0].id));
             let mut process = div().flex().flex_col().gap_1();
@@ -110,7 +111,7 @@ impl Workspace {
                     || message.process.iter().any(|b| b.kind == ProcessKind::Tool);
                 if intermediate
                     && !message.text.is_empty()
-                    && let Some(view) = self.texts.get(&message.id)
+                    && let Some(view) = self.runtime.texts.get(&message.id)
                 {
                     if show_process {
                         process =
@@ -140,7 +141,7 @@ impl Workspace {
         let has_answer = user || !last.process.iter().any(|b| b.kind == ProcessKind::Tool);
         if has_answer
             && !last.text.is_empty()
-            && let Some(view) = self.texts.get(&last.id)
+            && let Some(view) = self.runtime.texts.get(&last.id)
         {
             body = body.child(
                 div()
@@ -150,6 +151,14 @@ impl Workspace {
             );
         }
         for message in &messages {
+            if !message.attachments.is_empty() {
+                body = body.child(self.render_attachments(
+                    &message.attachments,
+                    false,
+                    &message.id,
+                    cx,
+                ));
+            }
             for id in &message.comments {
                 if let Some(comment) = session.comments.iter().find(|c| &c.id == id) {
                     body = body.child(self.render_comment(comment, cx));

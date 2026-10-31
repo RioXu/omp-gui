@@ -10,7 +10,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let disabled = self.running || self.save_disabled;
+        let disabled = self.save_disabled;
         let groups = self
             .db
             .projects
@@ -31,7 +31,7 @@ impl Workspace {
                     .map(|(ix, s)| {
                         let item = SidebarMenuItem::new(s.title.clone())
                             .active(self.active == Some(ix) && self.settings_view.is_none())
-                            .when(self.running && self.active == Some(ix), |item| {
+                            .when(self.session_is_running(&s.id), |item| {
                                 item.suffix(|_, cx| {
                                     gpui_kit::component::spinner::Spinner::new()
                                         .xsmall()

@@ -6,6 +6,8 @@ pub(crate) struct Message {
     pub id: String,
     pub role: String,
     pub text: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<super::Attachment>,
     pub time: u64,
     #[serde(default)]
     pub comments: Vec<String>,
@@ -38,6 +40,7 @@ impl Message {
             id: id(),
             role: role.into(),
             text,
+            attachments: vec![],
             time: now(),
             comments: vec![],
             process: vec![],

@@ -56,6 +56,10 @@ scripts/                          开发与数据更新工具
 
 功能目录中的控制逻辑负责处理动作与更新状态，`view` 负责构建组件和绑定动作。OMP / 文件 / 配置后台任务发出结果，GPUI 实体在 UI 线程接收并更新状态。避免在渲染函数中执行磁盘、网络或子进程操作。
 
+`runtime/session_state.rs` 定义每个会话独立的 `SessionRuntime`，包含 OMP 连接、模型控件、输入实体、交互答复输入、队列、错误、tokens、协作状态及消息视图。`runtime/sessions.rs` 按稳定会话 ID 保留后台状态，在同一 UI 更新中临时切换所属状态并消费事件，完成后立即恢复可见会话；持久化的活动 ID 不随后台轮询变化。后台事件不修改可见文件面板或查找状态，输入订阅还校验实体身份，延迟发送校验原输入的归属。后台空闲连接释放原生占用，正在运行或等待交互的连接保留；扫描只合并不早于各会话最近事件的原生日志。
+
+`domain/attachments.rs` 定义可序列化附件元数据，草稿及消息保存元数据，二进制不进入工作区 JSON。`filesystem/attachments.rs` 保存本地副本、校验大小和图片解码限额、转换 BMP 等图片，并生成原生 `images` 与文件引用。`composer/attachments.rs` 在后台导入，完成事件校验原会话身份；`view/attachments.rs` 组合原生 Attachment 卡片。提交、停止及断线恢复同时保留文字和附件。发送采用 OMP 原生 JSONL 输入格式，允许有界的 64 MiB 逻辑消息；接收物理帧仍保持 1 MiB 限制并重组协议 v2 分片。
+
 OMP 适配器进一步分为：`client.rs` 管理进程及收发线程，`framing.rs` 校验帧与重组分片，`messages.rs` 提取文本，`installation.rs` 定位安装，`diagnostics.rs` 提供 `--probe`。协议解析不依赖窗口生命周期。
 
 文件标签复用 gpui-kit `Editor` 与已有语言映射。普通文件的保存基线由 `domain/file_buffer.rs` 管理，与不可变评论快照分开；缓冲区归属各自标签，编辑订阅随标签释放。`documents/editing.rs` 协调编辑、保存和引用快照，`documents/closing.rs` 使用原生 Dialog 处理单文件三选项与批量丢弃确认，并挂接原生窗口关闭回调。`filesystem/document_store.rs` 检查打开的目标和磁盘基线，通过同目录临时文件替换完成写入，保留 BOM、换行格式和权限。构建启用 `syntect` feature 后使用组件内置的语法高亮后端，语义颜色沿用当前主题，正文及行号背景仍由统一主题设置控制。

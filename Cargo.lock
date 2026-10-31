@@ -4450,6 +4450,7 @@ dependencies = [
  "chrono",
  "gpui-kit",
  "gpui-pre",
+ "image",
  "notify",
  "reqwest",
  "ropey",

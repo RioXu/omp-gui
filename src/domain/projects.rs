@@ -6,6 +6,10 @@ impl Session {
             if m.state == super::MessageState::Queued {
                 m.state = super::MessageState::Unconfirmed;
                 drafts.push(m.text.clone());
+                super::attachments::merge_attachments(
+                    &mut self.draft_attachments,
+                    m.attachments.clone(),
+                );
             }
         }
         if !drafts.is_empty() {
@@ -25,6 +29,7 @@ impl Session {
             && self.messages.is_empty()
             && self.comments.is_empty()
             && self.draft.trim().is_empty()
+            && self.draft_attachments.is_empty()
             && self.snapshots.is_empty()
             && self.todos.is_empty()
             && self.agents.is_empty()

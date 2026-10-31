@@ -57,7 +57,7 @@ impl Render for Workspace {
             )
             .on_action(cx.listener(|this, _: &FindInSession, w, cx| this.open_search(w, cx)))
             .on_action(cx.listener(|this, _: &AcceptCompletion, w, cx| {
-                this.accept_completion(this.composer_state.selected_completion, w, cx)
+                this.accept_completion(this.runtime.composer_state.selected_completion, w, cx)
             }))
             .on_action(
                 cx.listener(|this, _: &NextCompletion, _, cx| this.move_completion(false, cx)),
@@ -66,7 +66,7 @@ impl Render for Workspace {
                 cx.listener(|this, _: &PreviousCompletion, _, cx| this.move_completion(true, cx)),
             )
             .on_action(cx.listener(|this, _: &DismissCompletion, _, cx| {
-                this.composer_state.dismissed = true;
+                this.runtime.composer_state.dismissed = true;
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &NextSearchMatch, _, cx| this.move_search(false, cx)))
@@ -194,7 +194,7 @@ impl Render for Workspace {
         if self.document_state.active.is_some() {
             center = center.child(self.render_document(cx));
         } else {
-            if let Some(error) = &self.error {
+            if let Some(error) = &self.runtime.error {
                 center = center.child(
                     div()
                         .flex()
@@ -211,7 +211,7 @@ impl Render for Workspace {
                                 .xsmall()
                                 .label("关闭")
                                 .on_click(cx.listener(|this, _, _, cx| {
-                                    this.error = None;
+                                    this.runtime.error = None;
                                     cx.notify();
                                 })),
                         ),
@@ -227,14 +227,14 @@ impl Render for Workspace {
                         .flex_1()
                         .min_h_0()
                         .child(
-                            list(self.list.clone(), move |ix, _, cx| {
+                            list(self.runtime.list.clone(), move |ix, _, cx| {
                                 weak.update(cx, |this, cx| this.render_message(ix, cx))
                                     .unwrap_or_else(|_| div().into_any_element())
                             })
                             .flex_1()
                             .min_h_0(),
                         )
-                        .vertical_scrollbar(&self.list),
+                        .vertical_scrollbar(&self.runtime.list),
                 );
             } else {
                 center =

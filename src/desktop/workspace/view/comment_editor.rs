@@ -41,7 +41,11 @@ impl Workspace {
                             .on_click(cx.listener(|this, _, w, cx| {
                                 this.comment_editor = None;
                                 this.selected = None;
-                                this.composer_state.input.focus_handle(cx).focus(w, cx);
+                                this.runtime
+                                    .composer_state
+                                    .input
+                                    .focus_handle(cx)
+                                    .focus(w, cx);
                                 cx.notify();
                             })),
                     )

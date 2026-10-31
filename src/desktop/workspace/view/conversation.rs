@@ -80,8 +80,12 @@ impl Workspace {
                             .xsmall()
                             .label("继续跟进")
                             .on_click(cx.listener(move |this, _, w, cx| {
-                                this.follow_up = Some(reply.clone());
-                                this.composer_state.input.focus_handle(cx).focus(w, cx);
+                                this.runtime.follow_up = Some(reply.clone());
+                                this.runtime
+                                    .composer_state
+                                    .input
+                                    .focus_handle(cx)
+                                    .focus(w, cx);
                                 cx.notify();
                             })),
                     )

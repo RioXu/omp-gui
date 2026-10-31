@@ -46,6 +46,12 @@ enum WriteRequest {
     Flush(mpsc::Sender<()>),
 }
 impl Persistence {
+    #[cfg(test)]
+    pub(crate) fn disconnected() -> Self {
+        let (tx, _) = mpsc::channel();
+        let (_, errors) = mpsc::channel();
+        Self { tx, errors }
+    }
     pub fn new() -> Self {
         let (tx, rx) = mpsc::channel::<WriteRequest>();
         let (err_tx, errors) = mpsc::channel();

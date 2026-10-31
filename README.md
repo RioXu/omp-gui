@@ -26,6 +26,8 @@ cargo run -- --probe --data-dir ".\target\probe-data"
 ## 主要操作
 
 - `Ctrl+Enter` 发送；运行中追加输入默认排队，“指示”将等待项提升为 steering。
+- 文件可拖入输入框，图片可用 `Ctrl+V` 粘贴，以原生 Attachment 卡片展示；附件随草稿保留，发送失败或停止未执行的排队项时恢复。
+- 多个会话可同时运行，切换会话不中断输出；侧栏会话名右侧显示 Spinner。进行中的状态文字使用 Shimmer，上下文以圆环显示，悬停查看已用／总 tokens。
 - `@` 引用文件，`/` 补全命令；`↑↓` 选择，`Tab` / `Enter` 确认，`Esc` 关闭候选。
 - `Ctrl+F` 查找激活标签；查找框内 `Enter` / `Shift+Enter` 跳到下一项／上一项。
 - 左侧使用原生 Sidebar，右侧工作面板使用带滑动指示线的 underline tabs；标题和操作区使用 Toolbar，统一高度与间距。
@@ -44,7 +46,7 @@ cargo run -- --probe --data-dir ".\target\probe-data"
 | --- | --- |
 | [使用与配置](docs/usage.md) | 快捷键、队列、评论、文件标签、命令目标、模型与子智能体表单、数据范围及限制 |
 | [组件职责与维护约定](docs/architecture.md) | 模块边界、依赖方向、状态归属和行为约定 |
-| [构建、测试与验证](docs/testing.md) | Windows 构建、73 项离线测试、8 项显式本机测试、界面验证隔离与结果 |
+| [构建、测试与验证](docs/testing.md) | Windows 构建、79 项离线测试、8 项显式本机测试、界面验证隔离与结果 |
 | [变更与历史记录](docs/changelog.md) | 当前未发布改动和早期版本记录 |
 
 ## 数据与兼容

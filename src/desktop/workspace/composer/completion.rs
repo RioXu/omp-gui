@@ -51,18 +51,21 @@ impl Workspace {
     pub fn move_completion(&mut self, backwards: bool, cx: &mut Context<Self>) {
         let count = self.completions(cx).len();
         if count > 0 {
-            self.composer_state.selected_completion =
-                (self.composer_state.selected_completion.min(count - 1)
-                    + if backwards { count - 1 } else { 1 })
-                    % count;
+            self.runtime.composer_state.selected_completion = (self
+                .runtime
+                .composer_state
+                .selected_completion
+                .min(count - 1)
+                + if backwards { count - 1 } else { 1 })
+                % count;
             cx.notify();
         }
     }
     pub fn completion_hint(&self, cx: &App) -> Option<&'static str> {
-        if self.composer_state.dismissed {
+        if self.runtime.composer_state.dismissed {
             return None;
         }
-        let input = self.composer_state.input.read(cx);
+        let input = self.runtime.composer_state.input.read(cx);
         let text = input.value();
         let (file, range, _) = trigger(&text, input.cursor())?;
         if input
@@ -78,9 +81,9 @@ impl Workspace {
             } else {
                 "未找到匹配文件"
             }
-        } else if !self.connected {
+        } else if !self.runtime.connected {
             "连接 OMP 后显示可用命令"
-        } else if self.composer_state.commands.is_empty() {
+        } else if self.runtime.composer_state.commands.is_empty() {
             "正在读取 OMP 命令…"
         } else {
             "未找到匹配命令"
@@ -88,10 +91,10 @@ impl Workspace {
     }
 
     pub fn completions(&self, cx: &App) -> Vec<Completion> {
-        if self.composer_state.dismissed {
+        if self.runtime.composer_state.dismissed {
             return vec![];
         }
-        let input = self.composer_state.input.read(cx);
+        let input = self.runtime.composer_state.input.read(cx);
         let text = input.value();
         let Some((file, range, query)) = trigger(&text, input.cursor()) else {
             return vec![];
@@ -122,7 +125,7 @@ impl Workspace {
                 .take(50)
                 .collect()
         } else {
-            let mut commands = self.composer_state.commands.clone();
+            let mut commands = self.runtime.composer_state.commands.clone();
             for (name, description) in [
                 ("model", "选择和配置模型"),
                 ("models", "选择和配置模型"),
@@ -179,13 +182,19 @@ impl Workspace {
             return;
         };
         if !item.file {
-            let mut completed = self.composer_state.input.read(cx).value().to_string();
+            let mut completed = self
+                .runtime
+                .composer_state
+                .input
+                .read(cx)
+                .value()
+                .to_string();
             completed.replace_range(item.range.clone(), &item.replacement);
             if self.route_settings_command(&completed, w, cx) {
                 return;
             }
         }
-        self.composer_state.input.update(cx, |input, cx| {
+        self.runtime.composer_state.input.update(cx, |input, cx| {
             if item.file {
                 let token = InlineToken::new(item.label.clone(), item.replacement)
                     .with_label(format!("@{}", item.label));
@@ -197,13 +206,23 @@ impl Workspace {
             }
         });
         // Programmatic edits also save drafts, including the text behind tokens.
-        let draft = self.composer_state.input.read(cx).value().to_string();
+        let draft = self
+            .runtime
+            .composer_state
+            .input
+            .read(cx)
+            .value()
+            .to_string();
         if let Some(s) = self.session_mut() {
             s.draft = draft;
             self.dirty = true;
         }
-        self.composer_state.dismissed = true;
-        self.composer_state.input.focus_handle(cx).focus(w, cx);
+        self.runtime.composer_state.dismissed = true;
+        self.runtime
+            .composer_state
+            .input
+            .focus_handle(cx)
+            .focus(w, cx);
         cx.notify();
     }
 }
