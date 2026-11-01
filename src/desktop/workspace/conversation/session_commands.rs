@@ -10,6 +10,7 @@ impl Workspace {
             return;
         }
         if self.creating_session()
+            || self.deleting_active_session()
             || self.runtime.preparing.is_some()
             || self.runtime.stopping
             || self.runtime.pending_send.is_some()

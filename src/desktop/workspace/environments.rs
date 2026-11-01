@@ -244,6 +244,14 @@ impl Workspace {
                     result,
                 } => {
                     self.environments.deleting.remove(&id);
+                    if self.session().is_some_and(|session| session.id == id) {
+                        self.runtime.status = if result.is_err() {
+                            "删除失败，会话已保留"
+                        } else {
+                            "删除检查已结束"
+                        }
+                        .into();
+                    }
                     match result {
                         Ok(true) => self.remove_local_session(&id, window, cx),
                         Ok(false) => {}
@@ -319,6 +327,10 @@ impl Workspace {
             .iter()
             .any(|project| project.environment == self.db.active_environment)
     }
+    pub(super) fn deleting_active_session(&self) -> bool {
+        self.session()
+            .is_some_and(|session| self.environments.deleting.contains(&session.id))
+    }
     pub(super) fn connecting_environment(&self) -> bool {
         self.environments
             .connecting
@@ -366,6 +378,9 @@ impl Workspace {
     ) {
         if !self.environments.deleting.insert(session.id.clone()) {
             return;
+        }
+        if self.session().is_some_and(|owner| owner.id == session.id) {
+            self.runtime.status = "正在删除会话…".into();
         }
         let tx = self.environments.tx.clone();
         let legacy = storage::data_dir().join("omp-sessions");
@@ -584,3 +599,6 @@ impl Workspace {
         });
     }
 }
+
+#[cfg(test)]
+mod tests;

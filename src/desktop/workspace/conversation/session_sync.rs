@@ -54,7 +54,10 @@ impl Workspace {
         let omp = self.environment_omp();
         self.session_sync.scanning = true;
         self.session_sync.last_scan = Instant::now();
-        if self.session_sync.store.is_none() && !self.runtime.running {
+        if self.session_sync.store.is_none()
+            && !self.runtime.running
+            && !self.deleting_active_session()
+        {
             self.runtime.status = SYNC_STATUS.into();
         }
         if self.session_sync.executable != omp {
@@ -90,7 +93,11 @@ impl Workspace {
             .collect();
         let active = self
             .session()
-            .filter(|_| !self.runtime.running && self.runtime.pending_send.is_none())
+            .filter(|_| {
+                !self.runtime.running
+                    && self.runtime.pending_send.is_none()
+                    && !self.deleting_active_session()
+            })
             .map(|session| session.id.clone());
         let began = Instant::now();
         let tx = self.session_sync.tx.clone();

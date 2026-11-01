@@ -16,7 +16,10 @@ use serde_json::json;
 use std::{collections::HashMap, sync::mpsc, time::Instant};
 
 /// No persisted workspace, native process or model requests in this fixture.
-fn fixture(window: &mut Window, cx: &mut Context<Workspace>) -> Workspace {
+pub(in crate::desktop::workspace) fn fixture(
+    window: &mut Window,
+    cx: &mut Context<Workspace>,
+) -> Workspace {
     let mut db = Database::default();
     for name in ["A", "B"] {
         let mut session = Session::new("fixture".into());

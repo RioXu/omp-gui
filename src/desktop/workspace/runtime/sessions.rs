@@ -101,4 +101,4 @@ impl Workspace {
 }
 
 #[cfg(test)]
-mod tests;
+pub(in crate::desktop::workspace) mod tests;

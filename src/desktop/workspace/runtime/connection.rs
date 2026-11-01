@@ -5,6 +5,12 @@ impl Workspace {
         if self.demo || self.save_disabled {
             return;
         }
+        // Deletion must retain exclusive intent until the native lease has
+        // been released and the result is known. Periodic sync also calls here.
+        if self.deleting_active_session() {
+            self.runtime.status = "正在删除会话…".into();
+            return;
+        }
         if self.session_sync.store.is_none() {
             self.scan_sessions();
             return;

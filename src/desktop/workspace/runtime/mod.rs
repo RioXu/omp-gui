@@ -11,4 +11,4 @@ pub(in crate::desktop::workspace) use model_state::ModelControlState;
 
 mod session_state;
 pub(in crate::desktop::workspace) use session_state::SessionRuntime;
-mod sessions;
+pub(in crate::desktop::workspace) mod sessions;
