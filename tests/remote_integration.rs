@@ -423,6 +423,162 @@ struct NativeCleanup {
     session: Session,
     root: HostPath,
 }
+
+#[test]
+#[ignore = "explicit idle release ownership and busy-task protection on an owned SSH session"]
+fn idle_release_is_owner_scoped_and_does_not_stop_running_work() -> Result<()> {
+    let (remote, root) = fixture()?;
+    let store = NativeStore::discover(ExecutionHost::Remote(remote.clone()), "omp", &root)?;
+    let native = store.create(&root, "OMP GUI idle release QA")?;
+    let mut session = Session::new(Default::default());
+    session.location = Some(ProjectLocation {
+        environment: "release-qa".into(),
+        profile: None,
+        path: root.clone(),
+    });
+    session.native_root = Some(store.root.text());
+    session.native_id = Some(native.id);
+    session.omp_session = Some(native.path.to_string_lossy().into_owned());
+    let _cleanup = NativeCleanup {
+        store: store.clone(),
+        session: session.clone(),
+        root: root.clone(),
+    };
+    let resume = session.omp_session.as_deref().unwrap();
+    let owner = remote.start_session("omp", &root, resume)?;
+    frame(&owner, Duration::from_secs(60), |frame| {
+        frame["type"] == "ready"
+    })?;
+    let other = remote.start_session("omp", &root, resume)?;
+    frame(&other, Duration::from_secs(30), |frame| {
+        frame["type"] == "__omp_gui_transport" && frame["state"] == "blocked"
+    })?;
+    ensure!(
+        Box::new(other).release_idle().is_err(),
+        "another GUI released the actual owner"
+    );
+    ensure!(
+        store.delete(&session, Path::new("")).is_err(),
+        "native ownership was bypassed"
+    );
+    owner.send(json!({"type":"get_state","id":"owner-still-alive"}))?;
+    frame(&owner, Duration::from_secs(15), |frame| {
+        frame["id"] == "owner-still-alive"
+    })?;
+    let started = Instant::now();
+    Box::new(owner).release_idle()?;
+    store.available(&root, session.native_id.as_deref().unwrap())?;
+    ensure!(
+        started.elapsed() < Duration::from_secs(8),
+        "idle release waited for idle retirement"
+    );
+    eprintln!(
+        "owned idle release and lease check: {:?}",
+        started.elapsed()
+    );
+
+    // A real OMP RPC process outside the supervisor holds exactly the terminal
+    // lease. GUI release has no authority to stop it or remove its journal.
+    let command = format!(
+        "exec omp --mode rpc-ui --no-title --cwd {} --resume {}",
+        omp_core::remote::ssh::quote(&root.text())?,
+        omp_core::remote::ssh::quote(resume)?
+    );
+    let terminal = omp_core::infrastructure::omp::Client::from_command(
+        omp_core::remote::ssh::ssh_script(&remote.host, &command)?,
+    )?;
+    frame(&terminal, Duration::from_secs(60), |frame| {
+        frame["type"] == "ready"
+    })?;
+    terminal.send(json!({"type":"get_state","id":"terminal-session"}))?;
+    let state = frame(&terminal, Duration::from_secs(15), |frame| {
+        frame["id"] == "terminal-session"
+    })?;
+    ensure!(
+        state["data"]["sessionId"] == session.native_id.as_deref().unwrap(),
+        "terminal did not restore the owned QA journal"
+    );
+    terminal.send(json!({"type":"set_session_name","id":"terminal-rename","name":"OMP GUI independent terminal ownership QA"}))?;
+    frame(&terminal, Duration::from_secs(15), |frame| {
+        frame["id"] == "terminal-rename" && frame["success"] == true
+    })?;
+    ensure!(
+        store
+            .available(&root, session.native_id.as_deref().unwrap())
+            .is_err(),
+        "terminal fixture did not hold the native lease"
+    );
+    let denied_delete = store.delete(&session, Path::new(""));
+    let outsider = remote.start_session("omp", &root, resume)?;
+    frame(&outsider, Duration::from_secs(30), |frame| {
+        frame["type"] == "__omp_gui_transport" && frame["state"] == "blocked"
+    })?;
+    let denied_release = Box::new(outsider).release_idle();
+    terminal.send(json!({"type":"get_state","id":"terminal-still-alive"}))?;
+    frame(&terminal, Duration::from_secs(15), |frame| {
+        frame["id"] == "terminal-still-alive"
+    })?;
+    // Close only this test's exact journal/cwd process, never search by name.
+    let cleanup = format!(
+        "import os,signal\ntarget={}\nroot={}\nfound=[]\nfor p in os.listdir('/proc'):\n if not p.isdigit(): continue\n try:\n  a=open('/proc/'+p+'/cmdline','rb').read().decode().split('\\0')\n  if '--resume' in a and a[a.index('--resume')+1]==target and os.readlink('/proc/'+p+'/cwd')==root: found.append(int(p))\n except (OSError,UnicodeError,IndexError): pass\nassert len(found)==1,found\nos.kill(found[0],signal.SIGTERM)\n",
+        serde_json::to_string(resume)?,
+        serde_json::to_string(&root.text())?
+    );
+    let output = omp_core::remote::ssh::ssh_script(
+        &remote.host,
+        &format!("python3 -c {}", omp_core::remote::ssh::quote(&cleanup)?),
+    )?
+    .output()?;
+    ensure!(
+        output.status.success(),
+        "owned terminal fixture cleanup failed"
+    );
+    drop(terminal);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while store
+        .available(&root, session.native_id.as_deref().unwrap())
+        .is_err()
+        && Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    ensure!(
+        denied_delete.is_err() && denied_release.is_err(),
+        "external terminal ownership was not protected"
+    );
+
+    let owner = remote.start_session("omp", &root, resume)?;
+    frame(&owner, Duration::from_secs(60), |frame| {
+        frame["type"] == "ready"
+    })?;
+    owner.send(json!({"type":"negotiate_protocol","id":"release-protocol","protocolVersion":2}))?;
+    owner.send(json!({"type":"set_thinking_level","id":"release-thinking","level":"off"}))?;
+    let prompt = "Use the bash tool to execute `sleep 8; printf idle-release-proof-738295`. Then reply with exactly idle-release-proof-738295. Do not edit any file.";
+    owner.send(json!({"type":"prompt","id":"release-running","message":prompt}))?;
+    frame(&owner, Duration::from_secs(180), |frame| {
+        frame["type"] == "tool_execution_start"
+    })?;
+    ensure!(
+        Box::new(owner).release_idle().is_err(),
+        "release stopped a running model task"
+    );
+    std::thread::sleep(Duration::from_millis(250));
+    let restored = remote.start_session("omp", &root, resume)?;
+    frame(&restored, Duration::from_secs(60), |frame| {
+        frame["type"] == "ready"
+    })?;
+    frame(&restored, Duration::from_secs(180), |frame| {
+        frame["type"] == "message_end"
+            && frame["message"]["role"] == "assistant"
+            && message_text(&frame["message"]).trim() == "idle-release-proof-738295"
+    })?;
+    restored.send(json!({"type":"get_state","id":"release-finished"}))?;
+    frame(&restored, Duration::from_secs(30), |frame| {
+        frame["id"] == "release-finished" && frame["data"]["isSettled"] == true
+    })?;
+    Box::new(restored).release_idle()?;
+    Ok(())
+}
 impl Drop for NativeCleanup {
     fn drop(&mut self) {
         let deadline = Instant::now() + Duration::from_secs(20);

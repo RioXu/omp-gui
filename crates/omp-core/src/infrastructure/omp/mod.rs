@@ -16,6 +16,11 @@ pub mod installation;
 pub trait SessionConnection: Send {
     fn send(&self, frame: serde_json::Value) -> anyhow::Result<()>;
     fn poll(&self, limit: usize) -> Vec<Event>;
+    /// Explicitly release this owner's idle writer. Ordinary drop still permits
+    /// remote work to survive a lost GUI or SSH transport.
+    fn release_idle(self: Box<Self>) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
 
 impl SessionConnection for Client {

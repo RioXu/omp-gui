@@ -1,6 +1,23 @@
 //! Keep inactive conversations alive and dispatch each event against its owner.
 use super::*;
 
+impl SessionRuntime {
+    pub(in crate::desktop::workspace) fn release_idle_connection(&mut self) {
+        if let Some(connection) = self.engine.take() {
+            let (tx, rx) = mpsc::channel();
+            self.releasing = Some(rx);
+            std::thread::spawn(move || {
+                let _ = tx.send(
+                    connection
+                        .release_idle()
+                        .map_err(|error| format!("{error:#}")),
+                );
+            });
+        }
+        self.connected = false;
+    }
+}
+
 impl Workspace {
     pub(in crate::desktop::workspace) fn session_is_running(&self, id: &str) -> bool {
         if self.session().is_some_and(|s| s.id == id) {
@@ -38,8 +55,7 @@ impl Workspace {
             && previous.pending_send.is_none()
             && previous.requests.is_empty()
         {
-            previous.engine = None;
-            previous.connected = false;
+            previous.release_idle_connection();
         }
         if let Some(session) = self.session() {
             self.background.insert(session.id.clone(), previous);
@@ -65,8 +81,7 @@ impl Workspace {
                     && this.runtime.pending_send.is_none()
                     && this.runtime.requests.is_empty()
                 {
-                    this.runtime.engine = None;
-                    this.runtime.connected = false;
+                    this.runtime.release_idle_connection();
                 }
             });
         }

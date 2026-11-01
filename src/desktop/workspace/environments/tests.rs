@@ -77,7 +77,7 @@ fn deletion_blocks_reconnect_and_send_until_result_without_blocking_other_sessio
 }
 
 #[gpui_kit::test]
-#[ignore = "explicit SSH regression: deletes only two newly created owned QA sessions"]
+#[ignore = "explicit SSH regression: deletes only four newly created owned QA sessions"]
 fn remote_delete_active_session_survives_periodic_sync(cx: &mut TestAppContext) {
     let host = std::env::var("OMP_GUI_TEST_SSH_HOST").unwrap();
     let helper = std::env::var("OMP_GUI_TEST_HELPER").unwrap();
@@ -90,6 +90,8 @@ fn remote_delete_active_session_survives_periodic_sync(cx: &mut TestAppContext) 
     for title in [
         "OMP GUI deletion race existing QA",
         "OMP GUI deletion race blank QA",
+        "OMP GUI deletion race switched QA",
+        "OMP GUI deletion race active QA",
     ] {
         let native = store.create(&root, title).unwrap();
         let mut session = Session::new(Default::default());
@@ -161,10 +163,62 @@ fn remote_delete_active_session_survives_periodic_sync(cx: &mut TestAppContext) 
             );
             std::thread::sleep(Duration::from_millis(50));
         }
-        for session in sessions.iter().rev() {
+        for index in [1, 0, 2, 3] {
+            let session = &sessions[index];
+            if index == 0 {
+                // Delete immediately after switching away: the preceding idle
+                // release may still be running on its worker.
+                handle.update(cx, |_, window, cx| {
+                    view.update(cx, |this, cx| {
+                        let target = this
+                            .db
+                            .sessions
+                            .iter()
+                            .position(|saved| saved.id == sessions[2].id)
+                            .unwrap();
+                        this.activate(target, window, cx);
+                    })
+                })?;
+            }
+            if index == 3 {
+                handle.update(cx, |_, window, cx| {
+                    view.update(cx, |this, cx| {
+                        let target = this
+                            .db
+                            .sessions
+                            .iter()
+                            .position(|saved| saved.id == session.id)
+                            .unwrap();
+                        this.activate(target, window, cx);
+                    })
+                })?;
+            }
+            if index >= 2 {
+                let deadline = Instant::now() + Duration::from_secs(30);
+                loop {
+                    let ready = handle.update(cx, |_, window, cx| {
+                        view.update(cx, |this, cx| {
+                            this.poll_engine(window, cx);
+                            this.poll_sessions(window, cx);
+                            this.runtime.connected && !this.runtime.starting
+                        })
+                    })?;
+                    if ready {
+                        break;
+                    }
+                    anyhow::ensure!(
+                        Instant::now() < deadline,
+                        "switched QA connection not ready"
+                    );
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            }
             let started = Instant::now();
             handle.update(cx, |_, window, cx| {
                 view.update(cx, |this, cx| {
+                    if index == 2 {
+                        this.manage_session(&session.id, false, window, cx);
+                    }
                     this.manage_session(&session.id, true, window, cx);
                 })
             })?;
@@ -196,7 +250,7 @@ fn remote_delete_active_session_survives_periodic_sync(cx: &mut TestAppContext) 
                     break;
                 }
                 anyhow::ensure!(
-                    started.elapsed() < Duration::from_secs(30),
+                    started.elapsed() < Duration::from_secs(8),
                     "deletion did not finish"
                 );
                 std::thread::sleep(Duration::from_millis(50));

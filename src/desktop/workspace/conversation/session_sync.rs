@@ -233,10 +233,12 @@ impl Workspace {
                                     .map(|m| (m.role.clone(), m.text.clone()))
                                     .collect::<Vec<_>>());
                     if active && external_change && self.runtime.engine.is_some() {
-                        self.runtime.engine = None;
-                        self.runtime.connected = false;
-                    } else if !active && external_change {
-                        self.background.remove(&self.db.sessions[ix].id);
+                        self.runtime.release_idle_connection();
+                    } else if !active
+                        && external_change
+                        && let Some(runtime) = self.background.get_mut(&self.db.sessions[ix].id)
+                    {
+                        runtime.release_idle_connection();
                     }
                     changed = true;
                 } else {

@@ -25,6 +25,7 @@ struct State {
     after: u64,
     epoch: String,
     online: bool,
+    ready: bool,
     fatal: bool,
     pending: HashMap<String, (String, String)>,
     reconnect: Option<mpsc::Receiver<Result<Client, String>>>,
@@ -54,6 +55,7 @@ impl RemoteConnection {
                 after: 0,
                 epoch: String::new(),
                 online: true,
+                ready: false,
                 fatal: false,
                 pending: HashMap::new(),
                 reconnect: None,
@@ -64,6 +66,53 @@ impl RemoteConnection {
     }
 }
 impl SessionConnection for RemoteConnection {
+    fn release_idle(self: Box<Self>) -> Result<()> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| anyhow::anyhow!("远端连接状态不可用"))?;
+        ensure!(
+            state.online && !state.fatal && state.reconnect.is_none(),
+            "远端连接尚未恢复，无法确认占用释放"
+        );
+        let client = state
+            .client
+            .take()
+            .context("远端连接已断开，无法确认占用释放")?;
+        let id = crate::domain::id();
+        let mut requested = state.ready;
+        if requested {
+            client.send(json!({"type":"__omp_gui_release_idle","id":id}))?;
+        }
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            for event in client.poll(200) {
+                match event {
+                    Event::Frame(frame) if frame["type"] == "ready" && !requested => {
+                        client.send(json!({"type":"__omp_gui_release_idle","id":id}))?;
+                        requested = true;
+                    }
+                    Event::Frame(frame)
+                        if frame["type"] == "__omp_gui_released" && frame["id"] == id =>
+                    {
+                        ensure!(
+                            frame["success"] == true,
+                            "{}",
+                            frame["error"]
+                                .as_str()
+                                .unwrap_or("远端会话尚未空闲，未释放占用")
+                        );
+                        return Ok(());
+                    }
+                    Event::Closed => anyhow::bail!("连接已关闭，占用释放结果未确认"),
+                    Event::Error(error) => anyhow::bail!("占用释放失败：{error}"),
+                    _ => {}
+                }
+            }
+            ensure!(Instant::now() < deadline, "远端占用释放超时，已保留会话");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
     fn send(&self, mut frame: Value) -> Result<()> {
         let mut state = self
             .state
@@ -124,6 +173,9 @@ impl SessionConnection for RemoteConnection {
         for event in events {
             match event {
                 Event::Frame(mut frame) => {
+                    if frame["type"] == "ready" {
+                        state.ready = true;
+                    }
                     if frame["type"] == "__omp_gui_transport" {
                         match frame["state"].as_str() {
                             Some("connected") => {
@@ -176,6 +228,7 @@ impl SessionConnection for RemoteConnection {
                 Event::Closed => {
                     state.client = None;
                     state.online = false;
+                    state.ready = false;
                     state.attempt += 1;
                     state.next = Instant::now()
                         + Duration::from_millis((500u64 << state.attempt.min(5)).min(15000));

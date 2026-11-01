@@ -384,48 +384,52 @@ impl Workspace {
         }
         let tx = self.environments.tx.clone();
         let legacy = storage::data_dir().join("omp-sessions");
-        let connecting = if self.session().is_some_and(|owner| owner.id == session.id) {
-            self.runtime.connection_result.take()
-        } else {
-            self.background
-                .get_mut(&session.id)
-                .and_then(|runtime| runtime.connection_result.take())
-        };
+        let (connection, connecting, releasing) =
+            if self.session().is_some_and(|owner| owner.id == session.id) {
+                self.runtime.connected = false;
+                self.runtime.starting = false;
+                (
+                    self.runtime.engine.take(),
+                    self.runtime.connection_result.take(),
+                    self.runtime.releasing.take(),
+                )
+            } else {
+                self.background
+                    .remove(&session.id)
+                    .map_or((None, None, None), |mut runtime| {
+                        (
+                            runtime.engine.take(),
+                            runtime.connection_result.take(),
+                            runtime.releasing.take(),
+                        )
+                    })
+            };
         std::thread::spawn(move || {
-            if let Some(connecting) = connecting {
-                match connecting.recv_timeout(Duration::from_secs(65)) {
-                    Ok(connection) => drop(connection),
-                    Err(error) => {
-                        let _ = tx.send(EnvironmentEvent::Deleted {
-                            id: session.id,
-                            empty_only,
-                            result: Err(format!("连接初始化未确认结束：{error}")),
-                        });
-                        return;
+            let result = (|| -> anyhow::Result<bool> {
+                if let Some(releasing) = releasing {
+                    releasing
+                        .recv_timeout(Duration::from_secs(6))
+                        .map_err(|error| anyhow::anyhow!("占用释放未确认：{error}"))?
+                        .map_err(anyhow::Error::msg)?;
+                }
+                if let Some(connection) = connection {
+                    connection.release_idle()?;
+                }
+                if let Some(connecting) = connecting {
+                    match connecting.recv_timeout(Duration::from_secs(65)) {
+                        Ok(Ok(connection)) => connection.release_idle()?,
+                        Ok(Err(_)) => {}
+                        Err(error) => anyhow::bail!("连接初始化未确认结束：{error}"),
                     }
                 }
-            }
-            let deadline = Instant::now()
-                + Duration::from_secs(if session.environment_id() == "local" {
-                    5
+                // Native deletion acquires the original OMP lease atomically. A
+                // remaining owner is external; do not wait for or terminate it.
+                if empty_only {
+                    store.discard_if_untouched(&session, &legacy)
                 } else {
-                    20
-                });
-            while store
-                .available(
-                    &session.host_cwd(),
-                    session.native_id.as_deref().unwrap_or_default(),
-                )
-                .is_err()
-                && Instant::now() < deadline
-            {
-                std::thread::sleep(Duration::from_millis(100));
-            }
-            let result = if empty_only {
-                store.discard_if_untouched(&session, &legacy)
-            } else {
-                store.delete(&session, &legacy).map(|()| true)
-            }
+                    store.delete(&session, &legacy).map(|()| true)
+                }
+            })()
             .map_err(|error| format!("{error:#}"));
             let _ = tx.send(EnvironmentEvent::Deleted {
                 id: session.id,

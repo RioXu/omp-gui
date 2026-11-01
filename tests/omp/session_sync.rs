@@ -1,5 +1,5 @@
 //! Explicitly isolated native session interoperability; no model prompts.
-use omp_gui::infrastructure::omp::{Client, Event, sessions::SessionStore};
+use omp_gui::infrastructure::omp::{Client, Event, SessionConnection, sessions::SessionStore};
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -93,7 +93,7 @@ fn installed_omp_discovers_gui_session_by_id_and_native_creation_is_imported() {
             .iter()
             .any(|s| s.id == other["sessionId"].as_str().unwrap() && s.title == "terminal created")
     );
-    drop(client);
+    Box::new(client).release_idle().unwrap();
     store.remove(&gui).unwrap();
     assert!(
         !store

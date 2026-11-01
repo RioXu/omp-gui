@@ -442,13 +442,7 @@ impl Workspace {
             cx.notify();
             return;
         }
-        self.background.remove(sid);
         if delete && !self.demo {
-            if self.active == Some(ix) {
-                self.runtime.engine = None;
-                self.runtime.connected = false;
-                self.runtime.starting = false;
-            }
             let Some(store) = self.session_sync.store.clone() else {
                 self.runtime.error = Some("OMP 会话尚未同步".into());
                 cx.notify();
@@ -458,6 +452,7 @@ impl Workspace {
             cx.notify();
             return;
         }
+        self.background.remove(sid);
         self.manage_local_session(sid, delete, window, cx);
     }
     pub(in crate::desktop::workspace) fn remove_local_session(
@@ -499,6 +494,11 @@ impl Workspace {
             self.db.sessions[ix].archived = !self.db.sessions[ix].archived;
         }
         if clear {
+            if !delete {
+                // Preserve the release receipt under the archived session ID
+                // so an immediate delete can wait for our writer to exit.
+                self.switch_session_runtime("", window, cx);
+            }
             self.runtime.engine = None;
             self.runtime.connected = false;
             self.runtime.starting = false;

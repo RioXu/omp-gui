@@ -69,12 +69,17 @@ impl Workspace {
         let native_root = s.native_root.clone();
         let path = s.omp_session.clone();
         let native_id = s.native_id.clone();
+        let releasing = self.runtime.releasing.take();
         let (tx, rx) = mpsc::channel();
         self.runtime.connection_result = Some(rx);
         self.runtime.error = None;
         self.runtime.status = "正在连接 OMP…".into();
         std::thread::spawn(move || {
             let result = (|| -> anyhow::Result<_> {
+                if let Some(releasing) = releasing {
+                    // A fast switch back must not race our preceding release.
+                    let _ = releasing.recv_timeout(Duration::from_secs(6));
+                }
                 anyhow::ensure!(
                     native_root.as_deref() == Some(store.root.text().as_str()),
                     "会话尚未完成原生存储迁移"

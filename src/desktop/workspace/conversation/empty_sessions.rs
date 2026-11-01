@@ -14,11 +14,6 @@ impl Workspace {
             .session()
             .filter(|s| s.id != target && s.is_untouched())?
             .clone();
-        // Stop our writer before checking the native ownership lease. A stale
-        // background scan cannot reimport a journal that no longer exists.
-        self.runtime.engine = None;
-        self.runtime.connected = false;
-        self.runtime.starting = false;
         if (session.environment_id() != "local" || self.runtime.connection_result.is_some())
             && session.omp_session.is_some()
             && !self.demo
@@ -28,6 +23,11 @@ impl Workspace {
             }
             return None;
         }
+        // Local deletion is synchronous; remote deletion explicitly releases
+        // its owned writer on a worker before acquiring the native lease.
+        self.runtime.engine = None;
+        self.runtime.connected = false;
+        self.runtime.starting = false;
         let removed = if self.demo || session.omp_session.is_none() {
             Ok(true)
         } else {

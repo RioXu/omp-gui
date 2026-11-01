@@ -257,6 +257,25 @@ pub fn run(start: Attach, rx: mpsc::Receiver<Input>, key: &str) -> Result<()> {
                         continue;
                     }
                     let kind = frame["type"].as_str().unwrap_or_default().to_owned();
+                    if kind == "__omp_gui_release_idle" {
+                        // Only the current subscriber generation can reach here.
+                        // Never infer ownership from a journal path or process ID.
+                        if !actor.ready
+                            || actor.busy
+                            || !actor.requests.is_empty()
+                            || !actor.pending.is_empty()
+                        {
+                            actor.control(json!({"type":"__omp_gui_released","id":frame["id"],"success":false,"error":"会话正在运行、等待交互或仍有未完成操作，未释放占用"}))?;
+                            continue;
+                        }
+                        // Client::drop kills and waits for exactly our child.
+                        // Acknowledge only after its native lease is released.
+                        drop(client);
+                        actor.terminal(
+                            json!({"type":"__omp_gui_released","id":frame["id"],"success":true}),
+                        )?;
+                        return Ok(());
+                    }
                     if kind == "__omp_gui_query" {
                         let token = frame["token"].as_str().unwrap_or_default();
                         match actor.ledger.query(token)? {

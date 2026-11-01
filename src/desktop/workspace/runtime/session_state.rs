@@ -16,6 +16,7 @@ pub(in crate::desktop::workspace) struct SessionRuntime {
     pub text_update_pending: bool,
     pub texts: HashMap<String, TextEntry>,
     pub engine: Option<Box<dyn crate::infrastructure::omp::SessionConnection>>,
+    pub releasing: Option<mpsc::Receiver<Result<(), String>>>,
     pub connection_result: Option<
         mpsc::Receiver<Result<Box<dyn crate::infrastructure::omp::SessionConnection>, String>>,
     >,
@@ -129,6 +130,7 @@ impl Workspace {
             text_update_pending: false,
             texts: HashMap::new(),
             engine: None,
+            releasing: None,
             connection_result: None,
             connected: false,
             reconnecting: false,
