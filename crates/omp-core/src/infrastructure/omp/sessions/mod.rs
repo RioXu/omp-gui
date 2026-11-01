@@ -24,6 +24,8 @@ use std::{
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct NativeSession {
+    #[serde(default)]
+    pub metadata_only: bool,
     pub id: String,
     pub path: PathBuf,
     pub cwd: PathBuf,
@@ -40,9 +42,11 @@ pub struct Registration {
     pub id: String,
     title: String,
     cwd: PathBuf,
-    omp_session: Option<String>,
+    pub(crate) omp_session: Option<String>,
     native_root: Option<String>,
-    native_id: Option<String>,
+    pub(crate) native_id: Option<String>,
+    #[serde(default)]
+    pub(crate) native_revision: Option<String>,
     has_messages: bool,
 }
 impl From<&Session> for Registration {
@@ -54,6 +58,7 @@ impl From<&Session> for Registration {
             omp_session: s.omp_session.clone(),
             native_root: s.native_root.clone(),
             native_id: s.native_id.clone(),
+            native_revision: s.native_revision.clone(),
             has_messages: !s.messages.is_empty(),
         }
     }
@@ -127,12 +132,18 @@ impl SessionStore {
         let path = fs::canonicalize(path)?;
         let root = fs::canonicalize(self.root.join("sessions"))?;
         ensure!(path.starts_with(root), "会话不属于当前 OMP profile");
-        let native = history::read(&path)?;
+        let native = history::summary(&path)?;
         ensure!(
             fs::canonicalize(&native.cwd)? == fs::canonicalize(cwd)?,
             "会话不属于当前项目"
         );
         Ok(native)
+    }
+    pub fn read_history(&self, path: &Path, cwd: &Path) -> Result<NativeSession> {
+        let summary = self.inspect(path, cwd)?;
+        let mut full = self.cached_read(&summary.path)?;
+        full.revision = summary.revision;
+        Ok(full)
     }
     pub fn list(&self, projects: &[PathBuf]) -> Result<Vec<NativeSession>> {
         let scan = self.scan(projects, &[], Path::new(""))?;
@@ -156,13 +167,28 @@ impl SessionStore {
         known: &[Registration],
         legacy: &Path,
     ) -> Result<Scan> {
+        self.scan_mode(projects, known, legacy, false)
+    }
+    pub fn scan_index(&self, projects: &[PathBuf], known: &[Registration]) -> Result<Scan> {
+        self.scan_mode(projects, known, Path::new(""), true)
+    }
+    fn scan_mode(
+        &self,
+        projects: &[PathBuf],
+        known: &[Registration],
+        legacy: &Path,
+        metadata_only: bool,
+    ) -> Result<Scan> {
         let mut result = Scan {
             sessions: vec![],
             bindings: vec![],
             missing: vec![],
             errors: vec![],
         };
-        for s in known.iter().filter(|s| s.native_root.is_none()) {
+        for s in known
+            .iter()
+            .filter(|s| !metadata_only && s.native_root.is_none())
+        {
             match self.register(s, legacy) {
                 Ok(Some(native)) => result.bindings.push((s.id.clone(), native)),
                 Ok(None) => {}
@@ -195,7 +221,11 @@ impl SessionStore {
                     if !matches {
                         continue;
                     }
-                    match self.cached_read(&path) {
+                    match if metadata_only {
+                        history::summary(&path)
+                    } else {
+                        self.cached_read(&path)
+                    } {
                         Ok(native) => result.sessions.push(native),
                         Err(e) => result
                             .errors

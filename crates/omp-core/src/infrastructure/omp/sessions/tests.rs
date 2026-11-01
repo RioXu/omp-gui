@@ -1,6 +1,29 @@
 use super::*;
 use crate::domain::{MessageState, process_blocks};
 
+#[test]
+fn sidebar_index_does_not_read_large_journal_bodies() {
+    let f = Fixture::new();
+    let native = f.store.create(&f.project, "large journal").unwrap();
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .open(&native.path)
+        .unwrap();
+    file.set_len(80 * 1024 * 1024).unwrap();
+    let scan = f
+        .store
+        .scan_index(std::slice::from_ref(&f.project), &[])
+        .unwrap();
+    assert!(scan.errors.is_empty());
+    assert_eq!(scan.sessions.len(), 1);
+    assert!(scan.sessions[0].metadata_only && scan.sessions[0].messages.is_empty());
+    assert_eq!(scan.sessions[0].title, "large journal");
+    assert!(
+        serde_json::to_vec(&scan).unwrap().len() < 2048,
+        "index must remain small regardless of history size"
+    );
+}
+
 struct Fixture {
     base: PathBuf,
     store: SessionStore,

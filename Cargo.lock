@@ -4453,7 +4453,7 @@ dependencies = [
 
 [[package]]
 name = "omp-core"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4475,7 +4475,7 @@ dependencies = [
 
 [[package]]
 name = "omp-gui"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4495,7 +4495,7 @@ dependencies = [
 
 [[package]]
 name = "omp-gui-remote"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "anyhow",
  "libc",

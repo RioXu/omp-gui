@@ -1,6 +1,6 @@
 [package]
 name = "omp-core"
-version = "0.8.0"
+version = "0.8.1"
 edition = "2024"
 license = "MIT"
 description = "Portable OMP workspace rules and operating environment adapters"

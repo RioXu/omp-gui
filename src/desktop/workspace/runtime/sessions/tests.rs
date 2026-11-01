@@ -299,3 +299,41 @@ fn remote_interactive_request_replay_is_deduplicated_and_cancelled_requests_are_
         assert!(this.runtime.requests.is_empty());
     })).unwrap();
 }
+
+#[gpui_kit::test]
+fn remote_history_resync_waits_for_negotiated_state_and_uses_files_when_idle(
+    cx: &mut TestAppContext,
+) {
+    struct Capture(std::sync::Arc<std::sync::Mutex<Vec<serde_json::Value>>>);
+    impl crate::infrastructure::omp::SessionConnection for Capture {
+        fn send(&self, frame: serde_json::Value) -> anyhow::Result<()> {
+            self.0.lock().unwrap().push(frame);
+            Ok(())
+        }
+        fn poll(&self, _: usize) -> Vec<crate::infrastructure::omp::Event> {
+            vec![]
+        }
+    }
+    cx.update(gpui_kit::init);
+    let (handle, view) = cx.update(|cx| {
+        open_window(WindowOptions::default(), cx, |window, cx| {
+            cx.new(|cx| fixture(window, cx))
+        })
+        .unwrap()
+    });
+    handle.update(cx,|_,window,cx|view.update(cx,|this,cx|{
+        let frames=std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        this.runtime.engine=Some(Box::new(Capture(frames.clone())));
+        this.on_frame(json!({"type":"__omp_gui_transport","state":"connected","gap":true}),window,cx);
+        assert!(frames.lock().unwrap().is_empty());
+        this.on_frame(json!({"type":"ready"}),window,cx);
+        assert!(!frames.lock().unwrap().iter().any(|frame|frame["type"]=="get_messages"));
+        this.on_frame(json!({"type":"response","command":"get_state","success":true,"data":{"isSettled":false}}),window,cx);
+        assert!(frames.lock().unwrap().iter().any(|frame|frame["type"]=="get_messages"));
+        frames.lock().unwrap().clear();this.runtime.resync_needed=true;
+        this.db.sessions[0].native_revision=Some("cached".into());
+        this.on_frame(json!({"type":"response","command":"get_state","success":true,"data":{"isSettled":true}}),window,cx);
+        assert!(!frames.lock().unwrap().iter().any(|frame|frame["type"]=="get_messages"));
+        assert!(this.db.sessions[0].native_revision.is_none());
+    })).unwrap();
+}

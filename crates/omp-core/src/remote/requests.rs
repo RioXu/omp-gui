@@ -3,7 +3,7 @@ use super::{protocol::*, ssh::ssh_command};
 use anyhow::{Context, Result, ensure};
 use serde_json::Value;
 use std::{
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufReader, Read, Write},
     process::{Child, ChildStdin, ChildStdout, Stdio},
     sync::{
         Arc, Mutex,
@@ -103,26 +103,16 @@ impl Transport {
             self.input.write_all(&bytes)?;
             self.input.write_all(b"\n")?;
             self.input.flush()?;
-            let mut bytes = Vec::new();
-            let count = self
-                .output
-                .by_ref()
-                .take((MAX_MESSAGE + 1) as u64)
-                .read_until(b'\n', &mut bytes)?;
-            ensure!(
-                count > 0,
-                "SSH 连接已关闭：{}",
-                self.tail
-                    .lock()
-                    .map(|text| text.trim().to_owned())
-                    .unwrap_or_default()
-            );
-            ensure!(
-                count <= MAX_MESSAGE && bytes.ends_with(b"\n"),
-                "远端响应超限或不完整"
-            );
-            let response: Response = serde_json::from_slice(&bytes)
-                .context("远端输出不是有效协议响应；请检查服务版本和 shell 启动输出")?;
+            let response =
+                super::response::read(&mut self.output, &request.id).with_context(|| {
+                    format!(
+                        "SSH 响应读取失败：{}",
+                        self.tail
+                            .lock()
+                            .map(|text| text.trim().to_owned())
+                            .unwrap_or_default()
+                    )
+                })?;
             ensure!(
                 response.protocol == VERSION && response.id == request.id,
                 "远端响应身份或版本不匹配"

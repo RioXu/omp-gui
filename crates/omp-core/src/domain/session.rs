@@ -26,6 +26,8 @@ pub struct Session {
     pub native_id: Option<String>,
     #[serde(default)]
     pub native_revision: Option<String>,
+    #[serde(default)]
+    pub native_index_revision: Option<String>,
     pub messages: Vec<Message>,
     pub comments: Vec<Comment>,
     pub snapshots: BTreeMap<String, Snapshot>,
@@ -53,6 +55,7 @@ impl Session {
             native_root: None,
             native_id: None,
             native_revision: None,
+            native_index_revision: None,
             messages: vec![],
             comments: vec![],
             snapshots: BTreeMap::new(),

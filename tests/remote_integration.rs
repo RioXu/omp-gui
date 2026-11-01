@@ -37,6 +37,124 @@ fn fixture() -> Result<(Arc<RemoteHost>, HostPath)> {
 }
 
 #[test]
+#[ignore = "read-only large-project synchronization; creation is limited to the separate owned QA fixture"]
+fn large_project_index_and_history_do_not_block_session_creation() -> Result<()> {
+    use omp_core::infrastructure::omp::sessions::Registration;
+    let (remote, qa) = fixture()?;
+    let root = HostPath::posix(
+        std::env::var("OMP_GUI_TEST_READONLY_PROJECT")
+            .context("set an explicit read-only source project")?,
+    )?;
+    let store = NativeStore::discover(ExecutionHost::Remote(remote.clone()), "omp", &root)?;
+    let started = Instant::now();
+    let index = store.sync(std::slice::from_ref(&root), &[], None, Path::new(""))?;
+    let bytes = serde_json::to_vec(&index)?.len();
+    ensure!(
+        index.errors.is_empty() && !index.sessions.is_empty(),
+        "index incomplete"
+    );
+    ensure!(
+        index
+            .sessions
+            .iter()
+            .all(|session| session.metadata_only && session.messages.is_empty()),
+        "sidebar fetched full histories"
+    );
+    eprintln!(
+        "index: {} sessions, {} bytes, {:?}",
+        index.sessions.len(),
+        bytes,
+        started.elapsed()
+    );
+    let largest = index
+        .sessions
+        .iter()
+        .max_by_key(|session| {
+            session
+                .revision
+                .split(':')
+                .nth(1)
+                .and_then(|size| size.parse::<u64>().ok())
+                .unwrap_or_default()
+        })
+        .context("missing indexed history")?;
+    let mut binding = Session::new(Default::default());
+    binding.location = Some(ProjectLocation {
+        environment: "readonly-test".into(),
+        profile: None,
+        path: root.clone(),
+    });
+    binding.native_root = Some(store.root.text());
+    binding.native_id = Some(largest.id.clone());
+    binding.omp_session = Some(largest.path.to_string_lossy().into_owned());
+    let worker = store.clone();
+    let project = root.clone();
+    let active = binding.id.clone();
+    let known = Registration::from(&binding);
+    let reading =
+        std::thread::spawn(move || worker.sync(&[project], &[known], Some(&active), Path::new("")));
+    std::thread::sleep(Duration::from_millis(100));
+    let creation = Instant::now();
+    let native = store.create(&qa, "OMP GUI isolated creation throughput test")?;
+    eprintln!(
+        "new session while history is loading: {:?}",
+        creation.elapsed()
+    );
+    let mut created = Session::new(Default::default());
+    created.location = Some(ProjectLocation {
+        environment: "qa".into(),
+        profile: None,
+        path: qa.clone(),
+    });
+    created.native_root = Some(store.root.text());
+    created.native_id = Some(native.id);
+    created.omp_session = Some(native.path.to_string_lossy().into_owned());
+    let _cleanup = NativeCleanup {
+        store: store.clone(),
+        session: created,
+        root: qa,
+    };
+    let loaded = reading
+        .join()
+        .map_err(|_| anyhow::anyhow!("history worker panicked"))??;
+    ensure!(
+        loaded.errors.is_empty(),
+        "history failed: {}",
+        loaded.errors.join("; ")
+    );
+    let full = loaded
+        .sessions
+        .iter()
+        .find(|session| session.id == largest.id)
+        .context("selected history missing")?;
+    ensure!(
+        !full.metadata_only && !full.messages.is_empty(),
+        "selected history was not loaded"
+    );
+    eprintln!(
+        "selected history: {} messages, {} serialized bytes",
+        full.messages.len(),
+        serde_json::to_vec(full)?.len()
+    );
+    binding.native_revision = Some(full.revision.clone());
+    let second = store.sync(
+        &[root],
+        &[Registration::from(&binding)],
+        Some(&binding.id),
+        Path::new(""),
+    )?;
+    ensure!(
+        second
+            .sessions
+            .iter()
+            .find(|session| session.id == largest.id)
+            .is_some_and(|session| session.metadata_only),
+        "unchanged history was transferred again"
+    );
+    Ok(())
+}
+
+#[test]
 #[ignore = "crashes an isolated supervisor that owns only this test's native OMP"]
 fn supervisor_crash_changes_epoch_without_replaying_the_prompt() -> Result<()> {
     let (remote, root) = fixture()?;

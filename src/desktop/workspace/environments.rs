@@ -344,6 +344,7 @@ impl Workspace {
                 .map(|native| {
                     session.native_root = Some(store.root.text());
                     session.native_id = Some(native.id);
+                    session.native_revision = Some(native.revision);
                     session.omp_session = Some(native.path.to_string_lossy().into_owned());
                     Box::new(session)
                 })

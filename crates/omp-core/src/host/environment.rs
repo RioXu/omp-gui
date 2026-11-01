@@ -7,6 +7,7 @@ use crate::{
     },
     remote::{RemoteHost, protocol::Operation},
 };
+use anyhow::Context;
 use std::sync::Arc;
 
 /// A configured execution host; UI components consume its capability traits.
@@ -133,6 +134,7 @@ pub struct NativeStore {
     pub host: ExecutionHost,
     pub omp: String,
     local: Option<SessionStore>,
+    sync_remote: Option<Arc<RemoteHost>>,
 }
 
 impl NativeStore {
@@ -152,11 +154,75 @@ impl NativeStore {
             }
         };
         Ok(Self {
+            sync_remote: match &host {
+                ExecutionHost::Remote(remote) => Some(Arc::new(RemoteHost::connect_profile(
+                    &remote.host,
+                    &remote.helper,
+                    remote.profile.as_deref(),
+                )?)),
+                _ => None,
+            },
             root,
             host,
             omp: omp.into(),
             local,
         })
+    }
+
+    /// Sidebar synchronization never downloads unrelated conversations' bodies.
+    /// Its connection is separate from creation, deletion and configuration.
+    pub fn sync(
+        &self,
+        projects: &[HostPath],
+        known: &[Registration],
+        active: Option<&str>,
+        legacy: &Path,
+    ) -> Result<Scan> {
+        if let Some(store) = &self.local {
+            let projects = projects
+                .iter()
+                .map(|path| path.local().map(Path::to_owned))
+                .collect::<Result<Vec<_>>>()?;
+            return store.scan(&projects, known, legacy);
+        }
+        let remote = self.sync_remote.as_ref().context("远端同步连接未初始化")?;
+        #[derive(Deserialize)]
+        struct Indexed {
+            root: HostPath,
+            scan: Scan,
+        }
+        let mut result: Indexed = remote.call(Operation::ScanSessionIndex {
+            omp: self.omp.clone(),
+            projects: projects.to_vec(),
+            known: known.to_vec(),
+        })?;
+        anyhow::ensure!(
+            result.root == self.root,
+            "远端 OMP profile 已改变，请重新连接"
+        );
+        if let Some(binding) =
+            active.and_then(|active| known.iter().find(|binding| binding.id == active))
+        {
+            for native in &mut result.scan.sessions {
+                let selected = binding.native_id.as_ref() == Some(&native.id)
+                    || binding.omp_session.as_deref()
+                        == Some(native.path.to_string_lossy().as_ref());
+                if selected && binding.native_revision.as_ref() != Some(&native.revision) {
+                    match remote.call::<NativeSession>(Operation::ReadSessionHistory {
+                        omp: self.omp.clone(),
+                        cwd: HostPath::posix(native.cwd.to_string_lossy())?,
+                        path: native.path.to_string_lossy().into_owned(),
+                    }) {
+                        Ok(full) => *native = full,
+                        Err(error) => result
+                            .scan
+                            .errors
+                            .push(format!("读取会话历史失败：{error:#}")),
+                    }
+                }
+            }
+        }
+        Ok(result.scan)
     }
 
     pub fn scan(&self, projects: &[HostPath], known: &[Session], legacy: &Path) -> Result<Scan> {

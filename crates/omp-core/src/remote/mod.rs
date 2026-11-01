@@ -3,6 +3,7 @@ pub mod operations;
 pub mod protocol;
 pub mod receipts;
 mod requests;
+pub mod response;
 pub mod session;
 pub mod ssh;
 pub use ssh::RemoteHost;

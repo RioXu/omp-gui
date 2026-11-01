@@ -3,6 +3,51 @@ use crate::domain::{Message, activity::merge_tool_activity};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 
+/// Only bounded title/header records are read, regardless of journal size.
+pub(super) fn summary(path: &Path) -> Result<NativeSession> {
+    let mut reader = BufReader::new(fs::File::open(path)?);
+    let mut title = None;
+    let mut session = None;
+    for _ in 0..2 {
+        let mut line = String::new();
+        std::io::Read::by_ref(&mut reader)
+            .take(65536)
+            .read_line(&mut line)?;
+        if let Ok(row) = serde_json::from_str::<Value>(&line) {
+            if row["type"] == "title" {
+                title = row["title"].as_str().map(str::to_owned);
+            }
+            if row["type"] == "session" {
+                session = Some(row);
+                break;
+            }
+        }
+    }
+    let session = session.context("OMP 会话缺少有效文件头")?;
+    let meta = fs::metadata(path)?;
+    let modified = meta
+        .modified()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    Ok(NativeSession {
+        metadata_only: true,
+        id: session["id"].as_str().context("OMP 会话缺少编号")?.into(),
+        path: plain_path(path),
+        cwd: session["cwd"]
+            .as_str()
+            .context("OMP 会话缺少工作目录")?
+            .into(),
+        title: title
+            .or_else(|| session["title"].as_str().map(str::to_owned))
+            .unwrap_or_default(),
+        updated: modified.as_secs(),
+        revision: format!("index-v1:{}:{}", meta.len(), modified.as_nanos()),
+        messages: Arc::new(Vec::new()),
+        todos: Vec::new(),
+        agents: Vec::new(),
+    })
+}
+
 /// Recheck every branch under the ownership lease, not just the cached active
 /// transcript. Unknown entries and torn writes must preserve the journal.
 pub(super) fn untouched_gui_session(path: &Path, id: &str) -> Result<bool> {
@@ -196,6 +241,7 @@ pub(super) fn read(path: &Path) -> Result<NativeSession> {
         .unwrap_or_default()
         .as_secs();
     Ok(NativeSession {
+        metadata_only: false,
         id,
         path: plain_path(path),
         cwd,

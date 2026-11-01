@@ -10,6 +10,7 @@ use omp_core::{
 use std::collections::HashSet;
 
 type ScanResult = Result<(SessionStore, Scan, Instant), String>;
+pub(in crate::desktop::workspace) const SYNC_STATUS: &str = "正在同步 OMP 项目会话…";
 pub(in crate::desktop::workspace) struct SessionSync {
     pub store: Option<SessionStore>,
     tx: mpsc::Sender<ScanResult>,
@@ -19,6 +20,7 @@ pub(in crate::desktop::workspace) struct SessionSync {
     missing: HashSet<String>,
     pub pending_create: Option<ProjectLocation>,
     executable: String,
+    last_error: Option<String>,
 }
 impl Default for SessionSync {
     fn default() -> Self {
@@ -32,10 +34,14 @@ impl Default for SessionSync {
             missing: HashSet::new(),
             pending_create: None,
             executable: String::new(),
+            last_error: None,
         }
     }
 }
 impl Workspace {
+    pub(in crate::desktop::workspace) fn syncing_sessions(&self) -> bool {
+        self.session_sync.scanning && self.runtime.status == SYNC_STATUS
+    }
     pub(in crate::desktop::workspace) fn scan_sessions(&mut self) {
         if self.demo || self.save_disabled || self.session_sync.scanning {
             return;
@@ -48,6 +54,9 @@ impl Workspace {
         let omp = self.environment_omp();
         self.session_sync.scanning = true;
         self.session_sync.last_scan = Instant::now();
+        if self.session_sync.store.is_none() && !self.runtime.running {
+            self.runtime.status = SYNC_STATUS.into();
+        }
         if self.session_sync.executable != omp {
             self.session_sync.store = None;
             self.session_sync.executable = omp.clone();
@@ -77,8 +86,12 @@ impl Workspace {
             .sessions
             .iter()
             .filter(|s| s.environment_id() == environment)
-            .cloned()
+            .map(crate::infrastructure::omp::sessions::Registration::from)
             .collect();
+        let active = self
+            .session()
+            .filter(|_| !self.runtime.running && self.runtime.pending_send.is_none())
+            .map(|session| session.id.clone());
         let began = Instant::now();
         let tx = self.session_sync.tx.clone();
         std::thread::spawn(move || {
@@ -87,9 +100,10 @@ impl Workspace {
                     Some(s) => s,
                     None => SessionStore::discover(host, &omp, &cwd)?,
                 };
-                let scan = store.scan(
+                let scan = store.sync(
                     &projects,
                     &sessions,
+                    active.as_deref(),
                     &storage::data_dir().join("omp-sessions"),
                 )?;
                 Ok((store, scan, began))
@@ -105,6 +119,7 @@ impl Workspace {
         let results: Vec<_> = self.session_sync.rx.try_iter().collect();
         for result in results {
             self.session_sync.scanning = false;
+            cx.notify();
             if self.session_sync.executable != self.environment_omp() {
                 self.session_sync.store = None;
                 self.session_sync.last_scan = Instant::now() - Duration::from_secs(5);
@@ -113,6 +128,10 @@ impl Workspace {
             let (store, scan, began) = match result {
                 Ok(r) => r,
                 Err(e) => {
+                    self.session_sync.last_error = Some(e.clone());
+                    if self.runtime.status == SYNC_STATUS {
+                        self.runtime.status = "会话同步失败，正在等待重试".into();
+                    }
                     if self.runtime.error.as_ref() != Some(&e) {
                         self.runtime.error = Some(e);
                         cx.notify();
@@ -120,6 +139,10 @@ impl Workspace {
                     continue;
                 }
             };
+            if self.runtime.error.as_ref() == self.session_sync.last_error.as_ref() {
+                self.runtime.error = None;
+            }
+            self.session_sync.last_error = None;
             let first = self.session_sync.store.is_none();
             let remote = matches!(store.root, HostPath::Posix(_));
             let environment = self.db.active_environment.clone();
@@ -133,7 +156,7 @@ impl Workspace {
                     .iter_mut()
                     .find(|s| s.id == id && s.native_root.is_none())
                 {
-                    bind(s, &native, &store);
+                    bind(s, &native, &store.root);
                     changed = true;
                 }
             }
@@ -161,7 +184,11 @@ impl Workspace {
                     {
                         continue;
                     }
-                    if self.db.sessions[ix].native_revision.as_ref() == Some(&native.revision)
+                    if (if native.metadata_only {
+                        self.db.sessions[ix].native_index_revision.as_ref()
+                    } else {
+                        self.db.sessions[ix].native_revision.as_ref()
+                    }) == Some(&native.revision)
                         && self.db.sessions[ix]
                             .omp_session
                             .as_deref()
@@ -181,6 +208,7 @@ impl Workspace {
                     let before: Vec<_> = s
                         .messages
                         .iter()
+                        .filter(|_| !native.metadata_only)
                         .map(|m| (m.role.clone(), m.text.clone()))
                         .collect();
                     let title = s.title.clone();
@@ -188,14 +216,15 @@ impl Workspace {
                         native_key(std::path::Path::new(p), remote)
                             != native_key(&native.path, remote)
                     });
-                    bind(s, &native, &store);
+                    bind(s, &native, &store.root);
                     let external_change = path_changed
                         || title != s.title
-                        || before
-                            != s.messages
-                                .iter()
-                                .map(|m| (m.role.clone(), m.text.clone()))
-                                .collect::<Vec<_>>();
+                        || (!native.metadata_only
+                            && before
+                                != s.messages
+                                    .iter()
+                                    .map(|m| (m.role.clone(), m.text.clone()))
+                                    .collect::<Vec<_>>());
                     if active && external_change && self.runtime.engine.is_some() {
                         self.runtime.engine = None;
                         self.runtime.connected = false;
@@ -250,7 +279,7 @@ impl Workspace {
                         {
                             s.worktree = Some(native.cwd.clone());
                         }
-                        bind(&mut s, &native, &store);
+                        bind(&mut s, &native, &store.root);
                         self.db.sessions.push(s);
                         changed = true;
                     }
@@ -279,11 +308,12 @@ impl Workspace {
                 }
             }
             self.session_sync.missing = missing;
-            if let Some(e) = scan.errors.first()
-                && self.runtime.error.as_ref() != Some(e)
-            {
-                self.runtime.error = Some(e.clone());
-                cx.notify();
+            if let Some(e) = scan.errors.first() {
+                self.session_sync.last_error = Some(e.clone());
+                if self.runtime.error.as_ref() != Some(e) {
+                    self.runtime.error = Some(e.clone());
+                    cx.notify();
+                }
             }
             self.active = active_id.and_then(|id| self.db.sessions.iter().position(|s| s.id == id));
             if changed {
@@ -297,6 +327,9 @@ impl Workspace {
             }
             if first
                 && self.active.is_some()
+                && self
+                    .session()
+                    .is_some_and(|session| session.native_revision.is_some())
                 && self.runtime.engine.is_none()
                 && !self.runtime.running
                 && self.session_sync.pending_create.is_none()
@@ -311,11 +344,16 @@ impl Workspace {
                 && !self.runtime.starting
                 && self.runtime.engine.is_none()
                 && self.session().is_some_and(|s| {
-                    s.native_root.is_some() && !self.session_sync.missing.contains(&s.id)
+                    s.native_root.is_some()
+                        && s.native_revision.is_some()
+                        && !self.session_sync.missing.contains(&s.id)
                 })
             {
                 self.connect();
                 cx.notify();
+            }
+            if self.runtime.status == SYNC_STATUS && !self.runtime.starting {
+                self.runtime.status = "OMP 项目会话已同步".into();
             }
         }
         if self.session_sync.last_scan.elapsed() >= Duration::from_secs(2) {
@@ -323,15 +361,19 @@ impl Workspace {
         }
     }
 }
-fn bind(session: &mut Session, native: &NativeSession, store: &SessionStore) {
-    session.native_root = Some(store.root.text());
+fn bind(session: &mut Session, native: &NativeSession, root: &HostPath) {
+    session.native_root = Some(root.text());
     session.native_id = Some(native.id.clone());
-    session.native_revision = Some(native.revision.clone());
+    session.native_index_revision = Some(native.revision.clone());
     session.omp_session = Some(native.path.to_string_lossy().into_owned());
     if !native.title.trim().is_empty() {
         session.title = native.title.clone();
     }
     session.updated = session.updated.max(native.updated);
+    if native.metadata_only {
+        return;
+    }
+    session.native_revision = Some(native.revision.clone());
     session.merge_native_history(native.messages.as_ref().clone());
     session.todos = native.todos.clone();
     for agent in &native.agents {
@@ -344,5 +386,43 @@ fn native_key(path: &std::path::Path, remote: bool) -> String {
         path.to_string_lossy().into_owned()
     } else {
         project_key(path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bind;
+    use crate::domain::{Message, Session};
+    use crate::infrastructure::omp::sessions::NativeSession;
+    use omp_core::environment::HostPath;
+    #[test]
+    fn metadata_refresh_does_not_erase_cached_history_or_mark_it_loaded() {
+        let mut session = Session::new(Default::default());
+        session
+            .messages
+            .push(Message::new("assistant", "cached reply".into()));
+        session.native_revision = Some("loaded-old".into());
+        let mut native: NativeSession = serde_json::from_value(serde_json::json!({
+            "metadata_only": true,
+            "id": "native",
+            "path": "/profile/sessions/a.jsonl",
+            "cwd": "/project",
+            "title": "updated title",
+            "updated": 123,
+            "revision": "index-new",
+            "messages": [],
+            "todos": [],
+            "agents": []
+        }))
+        .unwrap();
+        bind(&mut session, &native, &HostPath::Posix("/profile".into()));
+        assert_eq!(session.messages[0].text, "cached reply");
+        assert_eq!(session.native_revision.as_deref(), Some("loaded-old"));
+        assert_eq!(session.native_index_revision.as_deref(), Some("index-new"));
+        assert_eq!(session.title, "updated title");
+        native.metadata_only = false;
+        bind(&mut session, &native, &HostPath::Posix("/profile".into()));
+        assert!(session.messages.is_empty());
+        assert_eq!(session.native_revision.as_deref(), Some("index-new"));
     }
 }

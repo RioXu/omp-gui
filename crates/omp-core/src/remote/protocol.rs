@@ -2,7 +2,7 @@ use crate::{domain::Session, environment::HostPath};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 pub const MAX_MESSAGE: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -69,6 +69,16 @@ pub enum Operation {
         omp: String,
         projects: Vec<HostPath>,
         known: Vec<crate::infrastructure::omp::sessions::Registration>,
+    },
+    ScanSessionIndex {
+        omp: String,
+        projects: Vec<HostPath>,
+        known: Vec<crate::infrastructure::omp::sessions::Registration>,
+    },
+    ReadSessionHistory {
+        omp: String,
+        cwd: HostPath,
+        path: String,
     },
     CreateSession {
         omp: String,

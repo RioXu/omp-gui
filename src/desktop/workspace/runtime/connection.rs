@@ -9,9 +9,17 @@ impl Workspace {
             self.scan_sessions();
             return;
         }
+        if self.session().is_some_and(|session| {
+            session.environment_id() != "local" && session.native_revision.is_none()
+        }) {
+            self.runtime.status = conversation::session_sync::SYNC_STATUS.into();
+            self.scan_sessions();
+            return;
+        }
         self.runtime.engine = None;
         self.runtime.connected = false;
         self.runtime.reconnecting = false;
+        self.runtime.resync_needed = false;
         self.runtime.running = false;
         self.runtime.active_tools.clear();
         self.runtime.context_limit = 0;

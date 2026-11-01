@@ -21,6 +21,7 @@ pub(in crate::desktop::workspace) struct SessionRuntime {
     >,
     pub connected: bool,
     pub reconnecting: bool,
+    pub resync_needed: bool,
     pub running: bool,
     pub starting: bool,
     pub status: String,
@@ -131,6 +132,7 @@ impl Workspace {
             connection_result: None,
             connected: false,
             reconnecting: false,
+            resync_needed: false,
             running: false,
             starting: false,
             status: if demo {

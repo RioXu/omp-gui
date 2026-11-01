@@ -83,16 +83,20 @@ impl Workspace {
             }
             return;
         }
+        let host = if self.demo {
+            None
+        } else {
+            match self.execution_host() {
+                Ok(host) => Some(host),
+                Err(_) => return,
+            }
+        };
         self.document_state.watcher = None;
         self.document_state.watched_session = signature.clone();
         self.document_state.loading = false;
         self.document_state.refresh_pending = Some(Instant::now());
-        if self.demo {
+        let Some(host) = host else {
             return;
-        }
-        let host = match self.execution_host() {
-            Ok(host) => host,
-            Err(_) => return,
         };
         let tx = self.document_state.tx.clone();
         std::thread::spawn(move || {
@@ -107,7 +111,7 @@ impl Workspace {
         });
     }
     pub fn refresh_files(&mut self, cx: &mut Context<Self>) {
-        if self.polling_background {
+        if self.polling_background || self.connecting_environment() {
             return;
         }
         if self.document_state.loading {

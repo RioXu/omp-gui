@@ -1,6 +1,6 @@
 [package]
 name = "omp-gui-remote"
-version = "0.8.0"
+version = "0.8.1"
 edition = "2024"
 license = "MIT"
 description = "Linux host service for OMP GUI over SSH"

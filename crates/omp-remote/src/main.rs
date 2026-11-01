@@ -72,11 +72,7 @@ fn run() -> Result<()> {
             id,
             result,
         };
-        let bytes = serde_json::to_vec(&response)?;
-        ensure!(bytes.len() < MAX_MESSAGE, "远端响应超过限制");
-        output.write_all(&bytes)?;
-        output.write_all(b"\n")?;
-        output.flush()?;
+        omp_core::remote::response::write(&mut output, &response)?;
     }
     Ok(())
 }

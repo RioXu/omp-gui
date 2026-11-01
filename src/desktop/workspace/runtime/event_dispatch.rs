@@ -32,7 +32,7 @@ impl Workspace {
                     }
                     self.runtime.status = "远端连接已建立，正在核对会话状态…".into();
                     if f["gap"] == true {
-                        self.command(json!({"type":"get_messages","id":"remote-resync"}));
+                        self.runtime.resync_needed = true;
                     }
                     if f["epoch_changed"] == true {
                         self.runtime.requests.clear();
@@ -238,6 +238,17 @@ impl Workspace {
                         {
                             s.native_id = Some(native_id.into());
                             self.dirty = true;
+                        }
+                        if self.runtime.resync_needed {
+                            self.runtime.resync_needed = false;
+                            if self.runtime.running {
+                                self.command(json!({"type":"get_messages","id":"remote-resync"}));
+                            } else {
+                                if let Some(session) = self.session_mut() {
+                                    session.native_revision = None;
+                                }
+                                self.scan_sessions();
+                            }
                         }
                     }
                     "get_available_models" => {

@@ -34,6 +34,29 @@ fn remote(path: PathBuf) -> HostPath {
 
 pub fn execute(operation: Operation) -> Result<Value> {
     match operation {
+        Operation::ScanSessionIndex {
+            omp,
+            projects,
+            known,
+        } => {
+            let projects = projects
+                .iter()
+                .map(|path| native(path).map(Path::to_owned))
+                .collect::<Result<Vec<_>>>()?;
+            let cwd = projects
+                .first()
+                .cloned()
+                .unwrap_or(std::env::current_dir()?);
+            let store = SessionStore::discover(&omp, &cwd)?;
+            let scan = store.scan_index(&projects, &known)?;
+            Ok(json!({"root":remote(store.root),"scan":scan}))
+        }
+        Operation::ReadSessionHistory { omp, cwd, path } => {
+            let cwd = native(&cwd)?;
+            Ok(serde_json::to_value(
+                SessionStore::discover(&omp, cwd)?.read_history(Path::new(&path), cwd)?,
+            )?)
+        }
         Operation::QueryOperation { id } => {
             let ledger =
                 super::receipts::Ledger::new(&workspace_store::data_dir(), &receipt_scope())?;

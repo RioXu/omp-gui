@@ -10,8 +10,47 @@ use gpui_kit::{
 };
 use omp_core::{
     environment::HostPath,
-    host::{Directory, DirectoryBrowser},
+    host::{Directory, DirectoryBrowser, DirectoryEntry},
 };
+
+fn path_label(path: &HostPath) -> String {
+    match path {
+        HostPath::Local(path) => omp_core::infrastructure::omp::sessions::plain_path(path)
+            .to_string_lossy()
+            .into_owned(),
+        _ => path.text(),
+    }
+}
+fn directory_item(entry: &DirectoryEntry, index: usize, busy: bool) -> ListItem {
+    ListItem::new(("project-directory", index))
+        .w_full()
+        .h_8()
+        .py_0()
+        .disabled(busy)
+        .accessibility_label(entry.name.clone())
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .w_full()
+                .min_w_0()
+                .child(
+                    div()
+                        .debug_selector(|| "project-directory-icon".into())
+                        .flex_shrink_0()
+                        .child(Icon::new(IconName::Folder).small()),
+                )
+                .child(
+                    div()
+                        .debug_selector(|| "project-directory-name".into())
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .child(entry.name.clone()),
+                ),
+        )
+}
 use std::{
     sync::{Arc, mpsc},
     time::Duration,
@@ -161,7 +200,7 @@ impl Render for ProjectPicker {
                 recent = recent.child(
                     Button::new(("recent-project", ix))
                         .small()
-                        .label(path.text())
+                        .label(path_label(&path))
                         .on_click(
                             cx.listener(move |this, _, _, cx| this.browse(Some(path.clone()), cx)),
                         ),
@@ -203,23 +242,9 @@ impl Render for ProjectPicker {
                             let entry = &this.directory.as_ref().unwrap().entries[ix];
                             let path = entry.path.clone();
                             div().h_8().w_full().child(
-                                ListItem::new(("project-directory", ix))
-                                    .w_full()
-                                    .h_8()
-                                    .gap_2()
-                                    .accessibility_label(entry.name.clone())
-                                    .child(Icon::new(IconName::Folder).small())
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .min_w_0()
-                                            .truncate()
-                                            .child(entry.name.clone()),
-                                    )
-                                    .disabled(this.busy)
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.browse(Some(path.clone()), cx)
-                                    })),
+                                directory_item(entry, ix, this.busy).on_click(cx.listener(
+                                    move |this, _, _, cx| this.browse(Some(path.clone()), cx),
+                                )),
                             )
                         })
                         .collect()
@@ -230,3 +255,6 @@ impl Render for ProjectPicker {
         )
     }
 }
+
+#[cfg(test)]
+mod tests;

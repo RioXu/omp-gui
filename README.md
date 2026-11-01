@@ -4,6 +4,8 @@
 
 本文对应当前源码，最后核对于 2026-11-01。构建版本以 Cargo.toml 为准；源码改动与历史版本记录见[变更记录](docs/changelog.md)。
 
+当前源码 0.8.1 修复远端大项目会话同步超限：先读取轻量索引，再按需加载当前会话历史，新建会话使用独立通道；同时修正启动同步状态和目录选择器布局。
+
 ## 快速开始
 
 桌面端需要 Windows。本地模式需要本机 OMP 和 Git；远程模式使用 OpenSSH 连接 Linux，在远端运行 OMP 和 Git。源码构建另需 Rust MSVC 工具链、Visual Studio C++ Build Tools 和 Windows SDK。

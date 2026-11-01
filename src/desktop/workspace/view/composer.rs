@@ -407,6 +407,7 @@ impl Workspace {
                         || self.runtime.preparing.is_some()
                         || self.creating_session()
                         || self.connecting_environment()
+                        || self.syncing_sessions()
                     {
                         ShimmerText::new(self.runtime.status.clone()).into_any_element()
                     } else {
