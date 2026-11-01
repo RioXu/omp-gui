@@ -321,6 +321,7 @@ impl Workspace {
                     .child(self.render_draft_attachments(cx))
                     .child(
                         Textarea::new(&self.runtime.composer_state.input)
+                            .disabled(self.creating_session() || self.runtime.preparing.is_some())
                             .appearance(false)
                             .aria_label("给 OMP 的指令")
                             .on_paste(move |item, _, cx| {
@@ -363,6 +364,8 @@ impl Workspace {
                                     })
                                     .disabled(
                                         self.runtime.pending_send.is_some()
+                                            || self.runtime.preparing.is_some()
+                                            || self.creating_session()
                                             || self.runtime.steering_request.is_some()
                                             || self.runtime.stopping
                                             || self.importing_attachments()
@@ -397,7 +400,13 @@ impl Workspace {
                     .text_color(theme.muted_foreground)
                     .child(if self.demo {
                         div().child("演示模式，不调用模型").into_any_element()
-                    } else if self.runtime.running || self.runtime.starting || self.runtime.stopping
+                    } else if self.runtime.running
+                        || self.runtime.starting
+                        || self.runtime.reconnecting
+                        || self.runtime.stopping
+                        || self.runtime.preparing.is_some()
+                        || self.creating_session()
+                        || self.connecting_environment()
                     {
                         ShimmerText::new(self.runtime.status.clone()).into_any_element()
                     } else {

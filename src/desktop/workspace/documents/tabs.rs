@@ -1,9 +1,6 @@
 use super::*;
 use crate::domain::file_buffer::FileBuffer;
-use omp_core::{
-    environment::HostPath,
-    host::{LocalHost, ProjectFiles},
-};
+use omp_core::{environment::HostPath, host::ProjectFiles};
 
 #[derive(Clone)]
 pub(crate) struct DocumentTab {
@@ -19,8 +16,10 @@ pub(crate) struct DocumentTab {
     pub quote: Option<String>,
     pub error: Option<String>,
     pub buffer: Option<FileBuffer>,
-    pub save_path: Option<PathBuf>,
+    pub save_path: Option<HostPath>,
     pub dirty: bool,
+    pub saving: Option<String>,
+    pub close_after_save: Option<String>,
 }
 
 impl Workspace {
@@ -65,14 +64,23 @@ impl Workspace {
     pub fn open_document(&mut self, path: PathBuf, changes: bool) {
         let path = self
             .session()
+            .filter(|s| s.environment_id() == "local")
             .map(|s| {
                 crate::infrastructure::filesystem::file_references::document_path(s.cwd(), &path)
             })
             .unwrap_or(path);
+        let path_identity = if self
+            .session()
+            .is_some_and(|s| s.environment_id() != "local")
+        {
+            path.to_string_lossy().into_owned()
+        } else {
+            path.to_string_lossy().replace('\\', "/")
+        };
         let key = format!(
             "{}:{}",
             if changes { "diff" } else { "file" },
-            path.to_string_lossy().replace('\\', "/")
+            path_identity
         );
         if !self.document_state.tabs.iter().any(|t| t.key == key) {
             self.document_state.tabs.push(DocumentTab {
@@ -90,6 +98,8 @@ impl Workspace {
                 buffer: None,
                 save_path: None,
                 dirty: false,
+                saving: None,
+                close_after_save: None,
             });
             self.read_document(&key);
         }
@@ -101,7 +111,14 @@ impl Workspace {
             return;
         };
         let sid = s.id.clone();
-        let root = s.cwd().to_owned();
+        let root = s.host_cwd();
+        let host = match self.execution_host() {
+            Ok(host) => host,
+            Err(error) => {
+                self.runtime.error = Some(format!("{error:#}"));
+                return;
+            }
+        };
         let demo_snapshot = self
             .document_state
             .tabs
@@ -137,11 +154,7 @@ impl Workspace {
         }
         std::thread::spawn(move || {
             let result = (|| -> anyhow::Result<_> {
-                let (snapshot, target) =
-                    LocalHost.document(&HostPath::Local(root), &path, changes)?;
-                let target = target
-                    .map(|p| p.local().map(std::path::Path::to_owned))
-                    .transpose()?;
+                let (snapshot, target) = host.document(&root, &path, changes)?;
                 Ok(LoadedDocument { snapshot, target })
             })()
             .map_err(|e| format!("{e:#}"));
@@ -312,6 +325,8 @@ impl Workspace {
             buffer: None,
             save_path: None,
             dirty: false,
+            saving: None,
+            close_after_save: None,
         });
         self.document_state.active = Some(key);
     }

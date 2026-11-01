@@ -1,6 +1,15 @@
 use super::*;
 
+pub(crate) struct PreparingSubmission {
+    pub comment_ids: Vec<String>,
+    pub text: String,
+    pub attachments: Vec<Attachment>,
+    pub follow_up: Option<String>,
+    pub result: mpsc::Receiver<Result<(String, Vec<Value>), String>>,
+}
+
 pub(crate) struct PendingSubmission {
+    pub comment_ids: Vec<String>,
     pub id: String,
     pub text: String,
     pub follow_up: Option<String>,
@@ -19,6 +28,11 @@ pub(crate) struct SubmittedInput {
 impl Workspace {
     pub fn stop(&mut self, cx: &mut Context<Self>) {
         if !self.runtime.running || self.runtime.stopping {
+            return;
+        }
+        if !self.runtime.connected {
+            self.runtime.error = Some("远端尚未重连；停止指令未发送，任务状态待核对".into());
+            cx.notify();
             return;
         }
         self.runtime.stopping = true;
@@ -80,7 +94,11 @@ impl Workspace {
                     }
                     new_title = Some(s.title.clone());
                 }
-                let (message_id, ids) = s.submit(pending.text.clone(), pending.follow_up);
+                let (message_id, ids) = s.submit_selected(
+                    pending.text.clone(),
+                    pending.follow_up,
+                    &pending.comment_ids,
+                );
                 if let Some(m) = s.messages.last_mut() {
                     m.native_text = Some(pending.wire_text.clone());
                     m.attachments = pending.attachments.clone();

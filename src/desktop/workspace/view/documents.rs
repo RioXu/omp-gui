@@ -38,12 +38,11 @@ impl Workspace {
         for tab in &self.document_state.tabs {
             let key = tab.key.clone();
             let close_key = key.clone();
-            let name = tab
-                .path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string();
+            let name = omp_core::environment::file_label(
+                &tab.path,
+                self.session()
+                    .is_some_and(|session| session.environment_id() != "local"),
+            );
             let label = if tab.historical {
                 format!("{name} · 历史")
             } else {
@@ -196,7 +195,14 @@ impl Workspace {
                     .border_color(theme.border.opacity(0.5))
                     .text_sm()
                     .text_color(theme.muted_foreground)
-                    .child(tab.path.to_string_lossy().replace('\\', " / "))
+                    .child(
+                        omp_core::environment::display_path(
+                            &tab.path,
+                            self.session()
+                                .is_some_and(|s| s.environment_id() != "local"),
+                        )
+                        .replace('/', " / "),
+                    )
                     .child(div().flex_1())
                     .when(tab.historical, |d| {
                         d.child("评论时版本").child(

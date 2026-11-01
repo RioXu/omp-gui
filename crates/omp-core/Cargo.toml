@@ -1,6 +1,6 @@
 [package]
 name = "omp-core"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2024"
 license = "MIT"
 description = "Portable OMP workspace rules and operating environment adapters"
@@ -9,10 +9,11 @@ description = "Portable OMP workspace rules and operating environment adapters"
 test-support = []
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
 anyhow = "1"
+notify = "=8.2.1"
 similar = "2"
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff", "ico", "pnm"] }
@@ -25,3 +26,5 @@ xxhash-rust = { version = "0.8.15", features = ["xxh64"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_Security"] }
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

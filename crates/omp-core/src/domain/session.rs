@@ -64,7 +64,30 @@ impl Session {
         }
     }
     pub fn cwd(&self) -> &std::path::Path {
+        if let Some(location) = &self.location
+            && let crate::environment::HostPath::Posix(path) = &location.path
+        {
+            return std::path::Path::new(path);
+        }
         self.worktree.as_deref().unwrap_or(&self.project)
+    }
+    pub fn project_location(&self) -> crate::environment::ProjectLocation {
+        self.location
+            .clone()
+            .unwrap_or_else(|| crate::environment::ProjectLocation::local(self.project.clone()))
+    }
+    pub fn environment_id(&self) -> &str {
+        self.location
+            .as_ref()
+            .map_or("local", |location| location.environment.as_str())
+    }
+    pub fn host_cwd(&self) -> crate::environment::HostPath {
+        match &self.location {
+            Some(location) if matches!(location.path, crate::environment::HostPath::Posix(_)) => {
+                location.path.clone()
+            }
+            _ => crate::environment::HostPath::Local(self.cwd().to_owned()),
+        }
     }
     pub fn prompt(&self, text: &str, follow_up: Option<&str>) -> String {
         let comments:Vec<_>=self.comments.iter().filter(|c|!c.sent||Some(c.id.as_str())==follow_up).map(|c|{
@@ -79,9 +102,23 @@ impl Session {
         )
     }
     pub fn submit(&mut self, text: String, follow_up: Option<String>) -> (String, Vec<String>) {
+        let selected = self
+            .comments
+            .iter()
+            .filter(|comment| !comment.sent || Some(&comment.id) == follow_up.as_ref())
+            .map(|comment| comment.id.clone())
+            .collect::<Vec<_>>();
+        self.submit_selected(text, follow_up, &selected)
+    }
+    pub fn submit_selected(
+        &mut self,
+        text: String,
+        follow_up: Option<String>,
+        selected: &[String],
+    ) -> (String, Vec<String>) {
         let mut linked = Vec::new();
         for c in &mut self.comments {
-            if !c.sent || Some(&c.id) == follow_up.as_ref() {
+            if selected.contains(&c.id) {
                 c.sent = true;
                 c.resolved = false;
                 linked.push(c.id.clone());

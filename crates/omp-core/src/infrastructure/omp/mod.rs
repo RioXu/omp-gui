@@ -4,6 +4,7 @@ mod diagnostics;
 mod display;
 pub use display::display_message;
 mod framing;
+pub use framing::encode as encode_transport_frame;
 mod messages;
 pub mod sessions;
 pub use client::{Client, Event};

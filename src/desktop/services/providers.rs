@@ -188,11 +188,16 @@ impl RegistryView {
         let store = self.providers.clone();
         let root = self.root.clone();
         let tx = self.tx.clone();
+        let configuration = self.configuration.clone();
         self.busy = true;
         std::thread::spawn(move || {
-            let result = store
-                .save(&id, if delete { None } else { Some(&value) })
-                .and_then(|_| Providers::load(&root))
+            let result = configuration
+                .call::<()>(ConfigAction::SaveProvider {
+                    store: Box::new(store),
+                    id,
+                    value: (!delete).then_some(value),
+                })
+                .and_then(|_| configuration.providers(&root))
                 .map_err(|e| format!("{e:#}"));
             let _ = tx.send(ResultEvent::Saved(result));
         });
@@ -214,10 +219,13 @@ impl RegistryView {
             .cloned()
             .unwrap_or_default();
         let tx = self.tx.clone();
+        let configuration = self.configuration.clone();
         self.busy = true;
         std::thread::spawn(move || {
             let _ = tx.send(ResultEvent::Discovered(
-                registry::discover_models(&base, &key, &api).map_err(|e| format!("{e:#}")),
+                configuration
+                    .call(ConfigAction::DiscoverModels { base, key, api })
+                    .map_err(|e| format!("{e:#}")),
             ));
         });
         cx.notify();

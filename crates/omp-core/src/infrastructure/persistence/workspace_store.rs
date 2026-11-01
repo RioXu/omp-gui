@@ -6,10 +6,24 @@ pub fn data_dir() -> PathBuf {
     std::env::var_os("OMP_GUI_DATA_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
-            std::env::var_os("LOCALAPPDATA")
-                .map(PathBuf::from)
-                .unwrap_or_else(std::env::temp_dir)
-                .join("OMP GUI")
+            #[cfg(not(windows))]
+            {
+                std::env::var_os("XDG_DATA_HOME")
+                    .map(PathBuf::from)
+                    .or_else(|| {
+                        std::env::var_os("HOME")
+                            .map(|home| PathBuf::from(home).join(".local/share"))
+                    })
+                    .unwrap_or_else(std::env::temp_dir)
+                    .join("omp-gui")
+            }
+            #[cfg(windows)]
+            {
+                std::env::var_os("LOCALAPPDATA")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(std::env::temp_dir)
+                    .join("OMP GUI")
+            }
         })
 }
 pub fn load() -> anyhow::Result<Database> {
@@ -22,12 +36,16 @@ pub fn load() -> anyhow::Result<Database> {
     }
     let mut db: Database =
         serde_json::from_slice(&fs::read(&p)?).context("无法读取会话数据，原文件未改动")?;
-    anyhow::ensure!(db.version == 1, "会话文件版本不兼容，原文件未改动");
+    anyhow::ensure!(
+        matches!(db.version, 1 | Database::VERSION),
+        "会话文件版本不兼容，原文件未改动"
+    );
     migrate_environments(&mut db);
     Ok(db)
 }
 
 fn migrate_environments(db: &mut Database) {
+    db.version = Database::VERSION;
     use crate::environment::{Connection, Environment, HostPath, ProjectLocation};
     if !db
         .environments
@@ -97,10 +115,11 @@ impl Persistence {
         let (tx, rx) = mpsc::channel::<WriteRequest>();
         let (err_tx, errors) = mpsc::channel();
         thread::spawn(move || {
+            let mut upgrade_checked = false;
             for request in rx {
                 match request {
                     WriteRequest::Save(bytes) => {
-                        if let Err(e) = save_bytes(&bytes) {
+                        if let Err(e) = save_bytes(&bytes, &mut upgrade_checked) {
                             let _ = err_tx.send(format!("保存失败：{e:#}"));
                         }
                     }
@@ -160,22 +179,81 @@ impl Drop for Persistence {
         }
     }
 }
-fn save_bytes(bytes: &[u8]) -> anyhow::Result<()> {
+fn save_bytes(bytes: &[u8], upgrade_checked: &mut bool) -> anyhow::Result<()> {
     let dir = data_dir();
-    fs::create_dir_all(&dir)?;
+    save_bytes_at(&dir, bytes, upgrade_checked)
+}
+fn save_bytes_at(
+    dir: &std::path::Path,
+    bytes: &[u8],
+    upgrade_checked: &mut bool,
+) -> anyhow::Result<()> {
+    fs::create_dir_all(dir)?;
     let tmp = dir.join("workspace.json.tmp");
     let final_path = dir.join("workspace.json");
+    if !*upgrade_checked && final_path.is_file() {
+        #[derive(serde::Deserialize)]
+        struct Header {
+            version: u32,
+        }
+        let old = fs::read(&final_path)?;
+        if serde_json::from_slice::<Header>(&old).is_ok_and(|header| header.version == 1) {
+            let backup = dir.join("workspace.v1.backup.json");
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&backup)
+            {
+                Ok(mut backup) => {
+                    backup.write_all(&old)?;
+                    backup.sync_all()?;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error).context("无法备份旧版工作区，原文件未改动"),
+            }
+        }
+    }
     let mut f = fs::File::create(&tmp)?;
     f.write_all(bytes)?;
     f.sync_all()?;
     drop(f);
     fs::rename(tmp, final_path)?;
+    *upgrade_checked = true;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn upgrading_workspace_preserves_an_exact_original_backup() {
+        let root =
+            std::env::temp_dir().join(format!("omp-workspace-upgrade-{}", crate::domain::id()));
+        fs::create_dir_all(&root).unwrap();
+        let original = br#"{"version":1,"futureField":"preserve exactly"}"#;
+        fs::write(root.join("workspace.json"), original).unwrap();
+        let mut checked = false;
+        save_bytes_at(&root, br#"{"version":2}"#, &mut checked).unwrap();
+        save_bytes_at(&root, br#"{"version":2,"next":true}"#, &mut checked).unwrap();
+        assert_eq!(
+            fs::read(root.join("workspace.v1.backup.json")).unwrap(),
+            original
+        );
+        assert_eq!(
+            fs::read(root.join("workspace.json")).unwrap(),
+            br#"{"version":2,"next":true}"#
+        );
+        assert!(
+            root.is_absolute()
+                && root.starts_with(std::env::temp_dir())
+                && root
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("omp-workspace-upgrade-")
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn legacy_workspace_migrates_to_local_without_losing_native_bindings_or_drafts() {
         let mut db = Database {
@@ -189,6 +267,7 @@ mod tests {
         db.active = Some(session.id.clone());
         db.sessions.push(session);
         let mut old = serde_json::to_value(&db).unwrap();
+        old["version"] = serde_json::json!(1);
         for key in ["environments", "active_environment", "remote_projects"] {
             old.as_object_mut().unwrap().remove(key);
         }
@@ -215,6 +294,7 @@ mod tests {
             Some("native.jsonl")
         );
         assert_eq!(saved.environments, migrated.environments);
+        assert_eq!(saved.version, Database::VERSION);
     }
     #[test]
     fn json_roundtrip_retains_comment_snapshots() {

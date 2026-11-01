@@ -73,21 +73,18 @@ impl SettingsView {
         }
         let tx = self.tx.clone();
         let project = self.project;
-        let omp = self.omp.clone();
-        let cwd = self.cwd.clone();
-        let path = settings::config_path(&self.base());
+        let configuration = self.configuration.clone();
+        let base = self.base();
         std::thread::spawn(move || {
             let result = if project {
-                settings::set_project(&path, &key, value.clone())
+                configuration.set_project(&base, &key, value.clone())
             } else {
                 match &value {
-                    Some(v) => settings::command(
-                        &omp,
-                        &cwd,
-                        &["config", "set", &key, &v.to_string(), "--json"],
-                    )
-                    .map(|_| ()),
-                    None => settings::command(&omp, &cwd, &["config", "reset", &key, "--json"])
+                    Some(v) => configuration
+                        .command(&["config", "set", &key, &v.to_string(), "--json"])
+                        .map(|_| ()),
+                    None => configuration
+                        .command(&["config", "reset", &key, "--json"])
                         .map(|_| ()),
                 }
             };

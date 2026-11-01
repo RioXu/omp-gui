@@ -16,17 +16,13 @@ pub(super) fn change_color(kind: ChangeKind, cx: &App) -> Hsla {
     }
 }
 
-fn changed_file_item(change: &ChangedFile, selected: bool, cx: &App) -> ListItem {
+fn changed_file_item(change: &ChangedFile, selected: bool, posix: bool, cx: &App) -> ListItem {
     let path = &change.path;
-    let name = path
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .into_owned();
-    let parent = path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .map(|p| p.to_string_lossy().replace('\\', "/"))
+    let name = omp_core::environment::file_label(path, posix);
+    let display = omp_core::environment::display_path(path, posix);
+    let parent = display
+        .rsplit_once('/')
+        .map(|(parent, _)| parent.to_owned())
         .unwrap_or_default();
 
     ListItem::new(SharedString::from(format!("change-{}", path.display())))
@@ -96,6 +92,8 @@ impl Workspace {
                         changed_file_item(
                             change,
                             this.document_state.path.as_ref() == Some(&path),
+                            this.session()
+                                .is_some_and(|session| session.environment_id() != "local"),
                             cx,
                         )
                         .on_click(cx.listener(move |this, _, _, cx| {

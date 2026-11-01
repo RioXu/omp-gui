@@ -16,6 +16,36 @@ impl Workspace {
             self.runtime.last_activity = Instant::now();
         }
         match kind {
+            "__omp_gui_transport" => match f["state"].as_str() {
+                Some("disconnected") => {
+                    self.runtime.connected = false;
+                    self.runtime.reconnecting = true;
+                    self.runtime.starting = false;
+                    self.runtime.status = "远端连接中断，正在重连 · 任务仍由远端管理".into();
+                }
+                Some("connected") => {
+                    self.runtime.error = None;
+                    if let Some(requests) = f["requests"].as_array() {
+                        self.runtime
+                            .requests
+                            .retain(|request| requests.iter().any(|id| id == &request["id"]));
+                    }
+                    self.runtime.status = "远端连接已建立，正在核对会话状态…".into();
+                    if f["gap"] == true {
+                        self.command(json!({"type":"get_messages","id":"remote-resync"}));
+                    }
+                    if f["epoch_changed"] == true {
+                        self.runtime.requests.clear();
+                        self.runtime.error =
+                            Some("远端会话进程已重建；先前工具可能已中断，正在恢复原生历史".into());
+                    }
+                }
+                Some("blocked" | "failed") => {
+                    self.runtime.error =
+                        Some(f["error"].as_str().unwrap_or("远端会话暂不可用").into())
+                }
+                _ => {}
+            },
             "ready" => {
                 self.command(
                     json!({"type":"negotiate_protocol","id":"protocol","protocolVersion":2}),
@@ -57,6 +87,50 @@ impl Workspace {
                     return;
                 }
                 match f["command"].as_str().unwrap_or("") {
+                    "get_messages" if f["id"] == "remote-resync" => {
+                        let messages = f["data"]["messages"]
+                            .as_array()
+                            .or_else(|| f["data"].as_array())
+                            .cloned()
+                            .unwrap_or_default();
+                        let mut projected: Vec<Message> = Vec::new();
+                        for value in messages {
+                            if value["role"] == "toolResult" {
+                                self.update_tool_activity(&value["details"]);
+                                let call = value["toolCallId"].as_str().unwrap_or_default();
+                                if let Some(block) = projected
+                                    .iter_mut()
+                                    .rev()
+                                    .flat_map(|message| message.process.iter_mut())
+                                    .find(|block| block.id == call)
+                                {
+                                    block.set_result(
+                                        crate::infrastructure::omp::message_text(&value),
+                                        &value["details"],
+                                    );
+                                }
+                                continue;
+                            }
+                            if let Some(mut message) =
+                                crate::infrastructure::omp::display_message(&value)
+                            {
+                                if let Some(rid) = value["__omp_gui_message_id"].as_str() {
+                                    message.id = self
+                                        .runtime
+                                        .rpc_messages
+                                        .entry(rid.into())
+                                        .or_insert_with(id)
+                                        .clone();
+                                }
+                                projected.push(message);
+                            }
+                        }
+                        if let Some(session) = self.session_mut() {
+                            session.merge_native_history(projected);
+                        }
+                        self.runtime.text_update_pending = true;
+                        self.dirty = true;
+                    }
                     "get_available_commands" => {
                         self.runtime.composer_state.commands = f["data"]["commands"]
                             .as_array()
@@ -76,6 +150,7 @@ impl Workspace {
                     "get_state" => {
                         let d = &f["data"];
                         self.runtime.connected = true;
+                        self.runtime.reconnecting = false;
                         self.runtime.starting = false;
                         if d["isSettled"].is_boolean() && self.runtime.pending_send.is_none() {
                             self.runtime.running = d["isSettled"] == false;
@@ -103,7 +178,14 @@ impl Workspace {
                         } else if self.runtime.interrupted_run {
                             "已停止".into()
                         } else {
-                            "本地 OMP 已连接".into()
+                            if self
+                                .session()
+                                .is_some_and(|session| session.environment_id() == "local")
+                            {
+                                "本地 OMP 已连接".into()
+                            } else {
+                                "远程 OMP 已连接".into()
+                            }
                         };
                         self.runtime.model_controls.label =
                             d["model"]["id"].as_str().unwrap_or("未配置模型").into();
@@ -423,7 +505,14 @@ impl Workspace {
                         );
                         self.runtime.error = Some("请在 OMP 终端完成敏感凭据输入后重新连接".into());
                     } else {
-                        self.runtime.requests.push_back(f);
+                        if !self
+                            .runtime
+                            .requests
+                            .iter()
+                            .any(|request| request["id"] == f["id"])
+                        {
+                            self.runtime.requests.push_back(f);
+                        }
                     }
                 }
                 "cancel" => {

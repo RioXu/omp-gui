@@ -1,10 +1,7 @@
 use super::*;
 use crate::infrastructure::filesystem::changes::{ChangeKind, ChangedFile};
-use notify::{EventKind, RecursiveMode, Watcher};
-use omp_core::{
-    environment::HostPath,
-    host::{LocalHost, ProjectFiles},
-};
+
+use omp_core::host::ProjectFiles;
 
 impl Workspace {
     pub fn clear_file_preview(&mut self) {
@@ -27,77 +24,88 @@ impl Workspace {
     }
 
     pub(in crate::desktop::workspace) fn watch_files(&mut self) {
-        let sid = self.session().map(|s| s.id.clone()).unwrap_or_default();
-        let external: std::collections::BTreeSet<_> = self
+        let Some(session) = self.session() else {
+            self.document_state.watcher = None;
+            self.document_state.watched_session.clear();
+            return;
+        };
+        let sid = session.id.clone();
+        let root = session.host_cwd();
+        if self
+            .document_state
+            .watch_retry
+            .is_some_and(|retry| Instant::now() < retry)
+        {
+            return;
+        }
+        self.document_state.watch_retry = None;
+        let mut external = self
             .document_state
             .tabs
             .iter()
-            .filter(|t| !t.historical && t.path.is_absolute())
-            .filter_map(|t| t.path.parent().map(std::path::Path::to_owned))
-            .collect();
+            .filter(|tab| !tab.historical)
+            .filter_map(|tab| tab.save_path.as_ref())
+            .filter(|path| !path.is_within(&root))
+            .filter_map(omp_core::environment::HostPath::parent)
+            .collect::<Vec<_>>();
+        external.sort_by_key(omp_core::environment::HostPath::text);
+        external.dedup();
         let signature = format!(
             "{sid}|{}",
             external
                 .iter()
-                .map(|p| p.to_string_lossy())
+                .map(omp_core::environment::HostPath::text)
                 .collect::<Vec<_>>()
                 .join("|")
         );
         if signature == self.document_state.watched_session {
+            let events = self
+                .document_state
+                .watcher
+                .as_ref()
+                .map(|watcher| watcher.poll())
+                .unwrap_or_default();
+            for event in events {
+                match event {
+                    Ok(change) => {
+                        let _ = self.document_state.tx.send(FileEvent::Changed {
+                            session: sid.clone(),
+                            links_changed: change.links_changed,
+                        });
+                    }
+                    Err(_) => {
+                        self.document_state.watcher = None;
+                        self.document_state.watched_session.clear();
+                        self.document_state.watch_retry =
+                            Some(Instant::now() + Duration::from_secs(5));
+                    }
+                }
+            }
             return;
         }
         self.document_state.watcher = None;
-        self.document_state.watched_session = signature;
+        self.document_state.watched_session = signature.clone();
         self.document_state.loading = false;
         self.document_state.refresh_pending = Some(Instant::now());
-        let Some(s) = self.session() else {
-            return;
-        };
-        let root = s.cwd().to_owned();
-        let watched_root = root.clone();
-        let tx = self.document_state.tx.clone();
         if self.demo {
             return;
         }
-        let mut watcher =
-            match notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-                let links_changed = match &event {
-                    Ok(e) => matches!(
-                        e.kind,
-                        EventKind::Create(_)
-                            | EventKind::Remove(_)
-                            | EventKind::Modify(notify::event::ModifyKind::Name(_))
-                    ),
-                    Err(_) => true,
-                };
-                let relevant = match event {
-                    Ok(e) => {
-                        !matches!(e.kind, EventKind::Access(_))
-                            && e.paths.iter().any(|p| {
-                                p.strip_prefix(&watched_root)
-                                    .map_or(true, |p| !ignored_watch_path(p))
-                            })
-                    }
-                    Err(_) => true,
-                };
-                if relevant {
-                    let _ = tx.send(FileEvent::Changed {
-                        session: sid.clone(),
-                        links_changed,
-                    });
-                }
-            }) {
-                Ok(w) => w,
-                Err(_) => return,
-            };
-        if watcher.watch(&root, RecursiveMode::Recursive).is_ok() {
-            for parent in external {
-                let _ = watcher.watch(&parent, RecursiveMode::NonRecursive);
-            }
-            self.document_state.watcher = Some(watcher);
-        }
+        let host = match self.execution_host() {
+            Ok(host) => host,
+            Err(_) => return,
+        };
+        let tx = self.document_state.tx.clone();
+        std::thread::spawn(move || {
+            let result = host
+                .watch(&root, &external)
+                .map_err(|error| format!("{error:#}"));
+            let _ = tx.send(FileEvent::WatchReady {
+                session: sid,
+                signature,
+                result,
+            });
+        });
     }
-
     pub fn refresh_files(&mut self, cx: &mut Context<Self>) {
         if self.polling_background {
             return;
@@ -140,13 +148,20 @@ impl Workspace {
         let Some(s) = self.session() else {
             return;
         };
-        let project = s.cwd().to_owned();
+        let project = s.host_cwd();
+        let host = match self.execution_host() {
+            Ok(host) => host,
+            Err(error) => {
+                self.runtime.error = Some(format!("{error:#}"));
+                return;
+            }
+        };
         let sid = s.id.clone();
         let tx = self.document_state.tx.clone();
         self.document_state.loading = true;
         std::thread::spawn(move || {
-            let result = LocalHost
-                .lists(&HostPath::Local(project))
+            let result = host
+                .lists(&project)
                 .map_err(|e: anyhow::Error| format!("{e:#}"));
             let _ = tx.send(FileEvent::Lists {
                 session: sid,
@@ -173,6 +188,33 @@ impl Workspace {
     ) {
         let sid = self.session().map(|s| s.id.clone()).unwrap_or_default();
         match event {
+            FileEvent::WatchReady {
+                session,
+                signature,
+                result,
+            } if session == sid && signature == self.document_state.watched_session => match result
+            {
+                Ok(watcher) => self.document_state.watcher = Some(watcher),
+                Err(_) => {
+                    self.document_state.watched_session.clear();
+                    self.document_state.watch_retry = Some(Instant::now() + Duration::from_secs(5));
+                }
+            },
+            FileEvent::References {
+                session,
+                request,
+                result,
+            } if session == sid => self.finish_file_references(request, result, cx),
+            FileEvent::Saved {
+                session,
+                key,
+                request,
+                disk,
+                text,
+                result,
+            } if session == sid => {
+                self.finish_save(&key, &request, (disk, text), result, window, cx)
+            }
             FileEvent::Changed {
                 session,
                 links_changed,
@@ -190,11 +232,14 @@ impl Workspace {
                 match result {
                     Ok((files, changed)) => {
                         if self.document_state.files != files {
+                            let posix = self
+                                .session()
+                                .is_some_and(|session| session.environment_id() != "local");
                             self.document_state.file_link_revision =
                                 self.document_state.file_link_revision.wrapping_add(1);
                             self.document_state.tree.update(cx, |t, cx| {
-                                crate::desktop::workspace::documents::file_tree::update(
-                                    t, &files, cx,
+                                crate::desktop::workspace::documents::file_tree::update_for_host(
+                                    t, &files, posix, cx,
                                 )
                             });
                             self.document_state.files = files;
@@ -214,13 +259,4 @@ impl Workspace {
             _ => {}
         }
     }
-}
-
-fn ignored_watch_path(path: &std::path::Path) -> bool {
-    path.components().any(|c| {
-        matches!(
-            c.as_os_str().to_str(),
-            Some("target" | "node_modules" | ".venv")
-        )
-    })
 }

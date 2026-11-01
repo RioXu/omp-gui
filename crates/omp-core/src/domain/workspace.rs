@@ -25,7 +25,7 @@ pub struct Database {
 impl Default for Database {
     fn default() -> Self {
         Self {
-            version: 1,
+            version: Self::VERSION,
             sessions: vec![],
             projects: vec![],
             active: None,
@@ -46,6 +46,7 @@ fn local_environments() -> Vec<crate::environment::Environment> {
     vec![Default::default()]
 }
 impl Database {
+    pub const VERSION: u32 = 2;
     pub fn remove_session(&mut self, id: &str) {
         self.sessions.retain(|s| s.id != id);
         if self.active.as_deref() == Some(id) {

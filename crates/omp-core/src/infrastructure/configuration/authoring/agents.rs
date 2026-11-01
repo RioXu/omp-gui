@@ -7,7 +7,7 @@ use std::{
 };
 use yaml_edit::{Document, path::YamlPath};
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug, serde::Serialize, serde::Deserialize)]
 pub struct AgentDraft {
     pub name: String,
     pub description: String,

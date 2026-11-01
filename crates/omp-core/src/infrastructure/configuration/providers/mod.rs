@@ -14,7 +14,7 @@ pub use catalog::ServiceCatalog;
 pub use catalog::selector;
 pub use draft::ProviderDraft;
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Providers {
     pub path: PathBuf,
     pub original: String,

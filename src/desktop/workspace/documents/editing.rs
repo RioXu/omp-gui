@@ -1,9 +1,6 @@
 use super::*;
 use crate::domain::file_buffer::FileBuffer;
-use omp_core::{
-    environment::HostPath,
-    host::{LocalHost, ProjectFiles},
-};
+use omp_core::host::ProjectFiles;
 
 impl DocumentTab {
     pub(in crate::desktop::workspace) fn is_dirty(&self, cx: &App) -> bool {
@@ -82,12 +79,24 @@ impl Workspace {
         if self.save_disabled {
             return false;
         }
-        let Some(root) = self.session().map(|s| s.cwd().to_owned()) else {
+        let Some(root) = self.session().map(Session::host_cwd) else {
             return false;
         };
+        let host = match self.execution_host() {
+            Ok(host) => host,
+            Err(error) => {
+                self.runtime.error = Some(format!("{error:#}"));
+                cx.notify();
+                return false;
+            }
+        };
+        let session = self.session().unwrap().id.clone();
         let Some(tab) = self.document_state.tabs.iter_mut().find(|t| t.key == key) else {
             return false;
         };
+        if tab.saving.is_some() {
+            return false;
+        }
         let Some((buffer, editor, target)) = tab
             .buffer
             .as_mut()
@@ -102,26 +111,75 @@ impl Workspace {
             return true;
         }
         let disk = buffer.encode(&text);
-        if let Err(error) = LocalHost.save(
-            &HostPath::Local(root),
-            &tab.path,
-            &HostPath::Local(target.clone()),
-            buffer.disk_text(),
-            &disk,
-        ) {
-            tab.error = Some(format!("保存失败：{error:#}"));
-            cx.notify();
-            return false;
-        }
-        buffer.saved(disk, text);
-        tab.dirty = false;
+        let expected = buffer.disk_text().to_owned();
+        let path = tab.path.clone();
+        let target = target.clone();
+        let key = key.to_owned();
+        let request = id();
+        tab.saving = Some(request.clone());
         tab.error = None;
-        // Ignore a read queued before this save; the new refresh reads its revision.
         tab.request = None;
+        let tx = self.document_state.tx.clone();
+        std::thread::spawn(move || {
+            let result = host
+                .save(&root, &path, &target, &expected, &disk)
+                .map_err(|error| format!("保存失败：{error:#}"));
+            let _ = tx.send(FileEvent::Saved {
+                session,
+                key,
+                request,
+                disk,
+                text,
+                result,
+            });
+        });
+        cx.notify();
+        false
+    }
+
+    pub(in crate::desktop::workspace) fn finish_save(
+        &mut self,
+        key: &str,
+        request: &str,
+        content: (String, String),
+        result: Result<(), String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (disk, text) = content;
+        let Some(tab) = self
+            .document_state
+            .tabs
+            .iter_mut()
+            .find(|tab| tab.key == key && tab.saving.as_deref() == Some(request))
+        else {
+            return;
+        };
+        tab.saving = None;
+        if let Err(error) = result {
+            tab.error = Some(error);
+            tab.close_after_save = None;
+            cx.notify();
+            return;
+        }
+        if let Some(buffer) = &mut tab.buffer {
+            buffer.saved(disk, text);
+        }
+        tab.dirty = tab.is_dirty(cx);
+        tab.error = None;
+        tab.request = None;
+        let close = tab.close_after_save.take().filter(|token| {
+            !tab.dirty && self.document_state.prompt.as_deref() == Some(token.as_str())
+        });
         self.sync_editor_snapshot(key, cx);
+        if close.is_some() {
+            self.document_state.prompt = None;
+            window.close_dialog(cx);
+            self.close_document(key);
+            self.focus_document_editor(window, cx);
+        }
         self.refresh_files(cx);
         cx.notify();
-        true
     }
 
     pub(in crate::desktop::workspace) fn sync_selected_editor_snapshot(

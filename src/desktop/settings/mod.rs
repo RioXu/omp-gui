@@ -18,6 +18,7 @@ use gpui_kit::component::{
     switch::Switch,
 };
 use gpui_kit::{prelude::FluentBuilder, *};
+use omp_core::host::{ConfigAction, Configuration};
 use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
@@ -30,14 +31,27 @@ pub(crate) enum SettingsEvent {
     OmpPath(String),
     Saved,
     Reconnect,
+    ManageConnections,
 }
 impl EventEmitter<SettingsEvent> for SettingsView {}
 enum ResultEvent {
+    OverrideValidated(String, Result<String, String>),
+    Editor(u64, &'static str, Result<LoadedEditor, String>),
     Executable(String, Result<String, String>),
-    Catalog(Result<Catalog, String>),
+    Catalog(String, Result<Catalog, String>),
     Saved(Result<(), String>),
     Plugins(Result<String, String>),
     Inline(String, Option<Value>, bool, Result<(), String>),
+}
+
+enum LoadedEditor {
+    File {
+        path: PathBuf,
+        original: String,
+        template: String,
+    },
+    Agent(crate::infrastructure::configuration::authoring::AgentDraft),
+    Roles(crate::infrastructure::configuration::authoring::RoleDraft),
 }
 enum Edit {
     Key { name: String, kind: String },
@@ -51,6 +65,8 @@ pub(crate) struct SettingsView {
     agent_editor: Option<Entity<editors::AgentEditor>>,
     role_editor: Option<Entity<editors::RoleEditor>>,
     omp: String,
+    configuration: Configuration,
+    editor_generation: u64,
     cwd: PathBuf,
     catalog: Catalog,
     project: bool,
@@ -119,8 +135,7 @@ impl SettingsView {
     fn open_registry(&mut self, web: bool, w: &mut Window, cx: &mut Context<Self>) {
         let registry = cx.new(|cx| {
             crate::desktop::services::RegistryView::new(
-                self.omp.clone(),
-                self.cwd.clone(),
+                self.configuration.clone(),
                 &self.catalog,
                 self.project,
                 web,
@@ -146,12 +161,13 @@ impl SettingsView {
         cx.notify();
     }
     pub fn new(
-        omp: String,
-        cwd: PathBuf,
+        configuration: Configuration,
         project_path: Option<PathBuf>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let omp = configuration.omp.clone();
+        let cwd = PathBuf::from(configuration.cwd.text());
         let (tx, rx) = mpsc::channel();
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("搜索设置名称或说明…"));
         let executable = cx.new(|cx| {
@@ -171,7 +187,11 @@ impl SettingsView {
                 cx.notify()
             }
         });
-        let cached = settings::cached(&omp, &cwd).unwrap_or_default();
+        let cached = if matches!(configuration.host, omp_core::host::ExecutionHost::Local) {
+            settings::cached(&omp, &cwd).unwrap_or_default()
+        } else {
+            Catalog::default()
+        };
         let mut this = Self {
             rows_scroll: UniformListScrollHandle::new(),
             pending_destination: None,
@@ -180,6 +200,8 @@ impl SettingsView {
             agent_editor: None,
             role_editor: None,
             omp,
+            configuration,
+            editor_generation: 0,
             cwd,
             catalog: cached,
             project: false,
@@ -217,17 +239,69 @@ impl SettingsView {
                                 this.busy = false;
                             }
                             match result {
+                                ResultEvent::OverrideValidated(command, result) => {
+                                    this.busy = false;
+                                    match result {
+                                        Ok(path) => {
+                                            this.omp = command.clone();
+                                            this.configuration.omp = command.clone();
+                                            this.resolved_executable = path;
+                                            cx.emit(SettingsEvent::OmpPath(command));
+                                            this.reload();
+                                        }
+                                        Err(error) => this.notice = error,
+                                    }
+                                }
+                                ResultEvent::Editor(generation, category, result) => {
+                                    if generation != this.editor_generation {
+                                        continue;
+                                    }
+                                    this.busy = false;
+                                    if category != this.category {
+                                        continue;
+                                    }
+                                    match result {
+                                        Ok(LoadedEditor::Agent(draft)) => {
+                                            this.show_agent(draft, window, cx)
+                                        }
+                                        Ok(LoadedEditor::Roles(draft)) => {
+                                            this.show_roles(draft, window, cx)
+                                        }
+                                        Ok(LoadedEditor::File {
+                                            path,
+                                            original,
+                                            template,
+                                        }) => {
+                                            this.editor.update(cx, |editor, cx| {
+                                                editor.set_value(
+                                                    if original.is_empty() {
+                                                        template
+                                                    } else {
+                                                        original.clone()
+                                                    },
+                                                    window,
+                                                    cx,
+                                                )
+                                            });
+                                            this.edit = Some(Edit::File { path, original });
+                                        }
+                                        Err(error) => this.notice = error,
+                                    }
+                                }
                                 ResultEvent::Executable(command, result) => {
                                     if command == this.omp {
                                         this.resolved_executable =
                                             result.unwrap_or_else(|error| error);
                                     }
                                 }
-                                ResultEvent::Catalog(Ok(c)) => {
+                                ResultEvent::Catalog(command, Ok(c)) => {
+                                    if command != this.omp {
+                                        continue;
+                                    }
                                     this.loading = false;
                                     this.catalog = c;
                                     this.prepare_controls(window, cx);
-                                    this.notice = "已读取本机 OMP 设置".into();
+                                    this.notice = "已读取当前环境 OMP 设置".into();
                                     if let Some(destination) = this.pending_destination.take() {
                                         this.navigate(destination, window, cx);
                                     }
@@ -270,7 +344,10 @@ impl SettingsView {
                                     this.prepare_controls(window, cx);
                                     this.reload();
                                 }
-                                ResultEvent::Catalog(Err(e)) => {
+                                ResultEvent::Catalog(command, Err(e)) => {
+                                    if command != this.omp {
+                                        continue;
+                                    }
                                     this.loading = false;
                                     this.notice = e;
                                 }

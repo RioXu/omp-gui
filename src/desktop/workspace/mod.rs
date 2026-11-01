@@ -2,6 +2,7 @@
 mod composer;
 mod conversation;
 pub(in crate::desktop::workspace) mod documents;
+mod environments;
 mod initialization;
 mod preferences;
 pub(in crate::desktop::workspace) mod runtime;
@@ -17,7 +18,7 @@ use crate::domain::Anchor;
 use crate::{
     domain::*,
     infrastructure::{
-        omp::{Client as OmpClient, Event},
+        omp::Event,
         persistence::workspace_store::{self as storage, Persistence},
     },
 };
@@ -70,13 +71,14 @@ pub(crate) struct Workspace {
     background: HashMap<String, runtime::SessionRuntime>,
     polling_background: bool,
     attachment_imports: composer::AttachmentImports,
+    environments: environments::EnvironmentState,
     document_state: DocumentState,
     search_state: SearchState,
     session_sync: conversation::session_sync::SessionSync,
     selection_dirty: bool,
     settings_view: Option<Entity<crate::desktop::settings::SettingsView>>,
     show_archived: bool,
-    collapsed_projects: std::collections::HashSet<PathBuf>,
+    collapsed_projects: std::collections::HashSet<omp_core::environment::ProjectLocation>,
     db: Database,
     active: Option<usize>,
     persistence: Persistence,

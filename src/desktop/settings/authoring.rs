@@ -7,17 +7,30 @@ impl SettingsView {
     pub(super) fn open_agent(
         &mut self,
         path: Option<PathBuf>,
-        w: &mut Window,
+        _w: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let draft = match path.map(|p| AgentDraft::load(&p)).transpose() {
-            Ok(draft) => draft.unwrap_or_default(),
-            Err(e) => {
-                self.notice = format!("{e:#}");
-                cx.notify();
-                return;
-            }
-        };
+        self.editor_generation = self.editor_generation.wrapping_add(1);
+        let generation = self.editor_generation;
+        let category = self.category;
+        let configuration = self.configuration.clone();
+        let tx = self.tx.clone();
+        self.busy = true;
+        std::thread::spawn(move || {
+            let result = path
+                .map(|path| {
+                    configuration.call(ConfigAction::LoadAgent {
+                        path: path.to_string_lossy().into_owned(),
+                    })
+                })
+                .transpose()
+                .map(|draft| LoadedEditor::Agent(draft.unwrap_or_default()))
+                .map_err(|error| format!("{error:#}"));
+            let _ = tx.send(ResultEvent::Editor(generation, category, result));
+        });
+        cx.notify();
+    }
+    pub(super) fn show_agent(&mut self, draft: AgentDraft, w: &mut Window, cx: &mut Context<Self>) {
         let aliases = self
             .catalog
             .entries
@@ -28,8 +41,7 @@ impl SettingsView {
             AgentEditor::new(
                 self.base(),
                 draft,
-                self.omp.clone(),
-                self.cwd.clone(),
+                self.configuration.clone(),
                 aliases,
                 w,
                 cx,
@@ -47,22 +59,31 @@ impl SettingsView {
         self.agent_editor = Some(view);
         cx.notify();
     }
-    pub(super) fn open_roles(&mut self, w: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn open_roles(&mut self, _w: &mut Window, cx: &mut Context<Self>) {
         let effective = self
             .catalog
             .entries
             .get("modelRoles")
             .map(|v| v["value"].clone())
             .unwrap_or_default();
-        let draft = match RoleDraft::load(settings::config_path(&self.base()), effective) {
-            Ok(draft) => draft,
-            Err(e) => {
-                self.notice = format!("{e:#}");
-                cx.notify();
-                return;
-            }
-        };
-        let view = cx.new(|cx| RoleEditor::new(draft, self.omp.clone(), self.cwd.clone(), w, cx));
+        self.editor_generation = self.editor_generation.wrapping_add(1);
+        let generation = self.editor_generation;
+        let category = self.category;
+        let configuration = self.configuration.clone();
+        let base = self.base().to_string_lossy().into_owned();
+        let tx = self.tx.clone();
+        self.busy = true;
+        std::thread::spawn(move || {
+            let result = configuration
+                .call(ConfigAction::LoadRoles { base, effective })
+                .map(LoadedEditor::Roles)
+                .map_err(|error| format!("{error:#}"));
+            let _ = tx.send(ResultEvent::Editor(generation, category, result));
+        });
+        cx.notify();
+    }
+    pub(super) fn show_roles(&mut self, draft: RoleDraft, w: &mut Window, cx: &mut Context<Self>) {
+        let view = cx.new(|cx| RoleEditor::new(draft, self.configuration.clone(), w, cx));
         self._subscriptions
             .push(cx.subscribe(&view, |this, _, event, cx| {
                 this.role_editor = None;

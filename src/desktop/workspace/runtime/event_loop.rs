@@ -7,11 +7,45 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> bool {
         self.poll_collaboration(cx);
+        if let Some(result) = self
+            .runtime
+            .preparing
+            .as_ref()
+            .and_then(|preparing| preparing.result.try_recv().ok())
+        {
+            let preparing = self.runtime.preparing.take().unwrap();
+            match result {
+                Ok((prompt, images)) => self.submit_prepared(preparing, prompt, images, window, cx),
+                Err(error) => {
+                    self.runtime.error = Some(error);
+                    self.runtime.status = "输入准备失败，草稿已保留".into();
+                }
+            }
+            cx.notify();
+        }
+        if let Some(result) = self
+            .runtime
+            .connection_result
+            .as_ref()
+            .and_then(|rx| rx.try_recv().ok())
+        {
+            self.runtime.connection_result = None;
+            match result {
+                Ok(connection) => self.runtime.engine = Some(connection),
+                Err(error) => {
+                    self.runtime.starting = false;
+                    self.runtime.error = Some(error);
+                    self.runtime.status = "原生会话暂不可用 · 可查看历史".into();
+                }
+            }
+            cx.notify();
+        }
         if self.runtime.starting
             && self.runtime.requests.is_empty()
             && self.runtime.last_state.elapsed() > Duration::from_secs(60)
         {
             self.runtime.engine = None;
+            self.runtime.connection_result = None;
             self.runtime.starting = false;
             self.runtime.error =
                 Some("OMP 连接超时，请检查路径或在终端启动 OMP 查看初始化问题".into());
@@ -59,6 +93,7 @@ impl Workspace {
                         self.runtime.follow_up = pending.follow_up;
                     }
                     self.runtime.connected = false;
+                    self.runtime.reconnecting = false;
                     self.runtime.starting = false;
                     self.runtime.running = false;
                     self.runtime.stopping = false;
@@ -91,6 +126,7 @@ impl Workspace {
     }
 
     pub fn poll(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.poll_environments(window, cx);
         self.poll_sessions(window, cx);
         self.poll_attachments(cx);
         self.poll_background_sessions(window, cx);
@@ -120,6 +156,7 @@ impl Workspace {
         }
 
         self.watch_files();
+        self.refresh_file_references();
         if self
             .document_state
             .refresh_pending

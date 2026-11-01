@@ -11,8 +11,10 @@ impl Session {
             .into_iter()
             .map(|mut incoming| {
                 let exact = previous.iter().position(|m| {
-                    m.as_ref()
-                        .is_some_and(|m| m.native_id.is_some() && m.native_id == incoming.native_id)
+                    m.as_ref().is_some_and(|m| {
+                        m.id == incoming.id
+                            || (m.native_id.is_some() && m.native_id == incoming.native_id)
+                    })
                 });
                 let matched = exact.or_else(|| {
                     previous

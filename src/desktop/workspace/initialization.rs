@@ -35,6 +35,9 @@ impl Workspace {
             .as_ref()
             .and_then(|id| db.sessions.iter().position(|s| &s.id == id));
         for session in &db.sessions {
+            if session.environment_id() != "local" {
+                continue;
+            }
             if !db.projects.contains(&session.project) {
                 db.projects.push(session.project.clone());
             }
@@ -62,6 +65,7 @@ impl Workspace {
             background: HashMap::new(),
             polling_background: false,
             attachment_imports: Default::default(),
+            environments: Default::default(),
             session_sync: conversation::session_sync::SessionSync::default(),
             selection_dirty: false,
             settings_view: None,
@@ -107,6 +111,7 @@ impl Workspace {
                 active: None,
                 watcher: None,
                 watched_session: String::new(),
+                watch_retry: None,
                 refresh_pending: None,
                 last_scan: Instant::now(),
                 tree: cx.new(|cx| TreeState::new(cx)),
@@ -115,6 +120,7 @@ impl Workspace {
                 text: None,
                 files: vec![],
                 file_link_revision: 0,
+                references: Default::default(),
                 changes: vec![],
                 tx: file_tx,
                 rx: file_rx,
@@ -134,15 +140,20 @@ impl Workspace {
             .map(|s| s.cwd().to_owned())
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
         let config_omp = this.db.omp_path.clone();
-        std::thread::spawn(move || {
-            let _ =
-                crate::infrastructure::configuration::settings::catalog(&config_omp, &config_cwd);
-        });
+        if this.db.active_environment == "local" {
+            std::thread::spawn(move || {
+                let _ = crate::infrastructure::configuration::settings::catalog(
+                    &config_omp,
+                    &config_cwd,
+                );
+            });
+        }
         if let Some(project) = startup_project {
             if demo {
                 this.new_project_session(project, window, cx);
             } else {
-                this.session_sync.pending_create = Some(project);
+                this.session_sync.pending_create =
+                    Some(omp_core::environment::ProjectLocation::local(project));
             }
         }
         let close_view = cx.entity().downgrade();
@@ -151,6 +162,7 @@ impl Workspace {
                 .update(cx, |this, cx| this.should_close_window(window, cx))
                 .unwrap_or(true)
         });
+        this.connect_environment(cx);
         this.scan_sessions();
         cx.spawn_in(window, async move |view, cx| {
             loop {

@@ -4,14 +4,20 @@
 
 ## 当前验证基线
 
-功能基线包含原生会话同步、文件链接、协作消息展示、组件式目录选择器及可移植共享核心，最后完成代码验证于 2026-11-01。本轮未发送真实模型提示词，也不代表发布了新安装包。
+功能基线包含原生会话同步、组件式目录选择器、可移植共享核心和 SSH Linux 远程工作环境，最后完成代码验证于 2026-11-01。本轮执行了用户授权的本机／远端真实模型任务；以下是源码验证记录，不代表已发布安装包。
 
 | 项目 | 已有验证结果与范围 |
 | --- | --- |
-| 离线测试 | Windows 共 86 项通过（共享核心 63、桌面 23）；增加环境兼容迁移、POSIX 路径隔离与 PATH 发现顺序，保留 Markdown、附件、并发、编辑与原生同步等覆盖 |
-| Linux 共享核心 | 隔离 SSH 测试目录内 62 项通过，不构建 GPUI；测试主机安装 OMP 18.14.2。完整远程 GUI 尚未接入 |
+| 离线测试 | Windows 共 94 项通过（共享核心 68、桌面 26）；覆盖环境迁移与原始备份、POSIX 路径、PATH、操作确认、大消息分片、迟到保存确认及交互请求重放去重，保留 Markdown、附件、并发、编辑与原生同步等覆盖 |
+| Linux 共享核心与服务 | 隔离 SSH 测试目录内核心 67 项通过，服务构建及 core／remote Clippy 通过，不构建 GPUI；实际目标 Linux x86_64，OMP 18.14.2。ARM64 仅配置 CI，未实机验收 |
 | 组件式项目选择器 | 隔离演示窗口验证目录浏览、中文/空格路径输入、Enter 进入和加入项目列表；不调用 Windows 文件浏览器 |
-| 本机 OMP 集成测试 | 8 项，默认 `ignored`；最近一次通过会话同步场景，其余 7 项未重跑 |
+| 本机 OMP 集成测试 | 8 项全部通过，仍默认 `ignored`；包含实际模型思考／工具／回复、中文文件引用、队列提升／steering／停止，以及隔离 profile 的原生互操作 |
+| SSH 主流程 | 实际远端文件读写、Git、配置及子智能体表单、冲突保护、保存确认跨连接查询、迟到重复请求不覆盖新版本；模型读取远端项目和 Windows 中文附件；两个远端模型会话并行通过 |
+| SSH 中断与重开 | 工具运行中实际中断 SSH，任务继续并恢复结果；重新创建 GUI 连接读取原生历史，确认提示词只执行一次；另一 GUI 连接同一会话被拒绝 |
+| OMP／监督服务异常退出 | 终止仅绑定本次新建日志和专用 cwd 的 OMP，明确报告退出；另强制终止独立数据范围、仅拥有本次会话的监督服务，验证进程代次变化、恢复原生历史和不重复提示词；6 项显式 SSH 测试全部通过 |
+| 远端路径与 profile | 实机验证中文／空格目录、目录符号链接、含反斜线的 Linux 文件名、只读保护、错误 OMP 覆盖、应用错误后通道存活，以及独立 profile 的原生记录不混入默认 profile |
+| 自动部署 | 从内置源码上传、校验、远端 release 构建及握手通过；使用测试主机已有 Cargo 缓存，不代表无依赖网络／无 Rust 的源码回退可用 |
+| 远端界面 | 隔离 GUI 验证环境菜单、远端项目／会话、Python 文件高亮及编辑、Ctrl+S 回读、外部修改通知自动刷新、保存后关闭及远端 `/model` 设置目标；最终版本复查未保存切换环境时确认／取消、dirty 清除和设置页 Host／profile 标识 |
 | 格式、Clippy、Windows 构建 | 功能基线已通过 |
 | 原生会话互操作 | 本机 OMP 按 ID 前缀恢复 GUI 创建的会话、原生新建与改名、共享占用锁及删除均通过；不调用模型 |
 | 会话同步界面 | 隔离窗口验证 GUI 新建落盘、终端新建自动出现、中文原生历史展示、外部删除自动移除及本地归档保留原生文件 |
@@ -39,15 +45,23 @@
 需要 Windows、Rust MSVC 工具链、Visual Studio C++ Build Tools 及 Windows SDK。运行和文件状态测试还需要 Git；本机集成测试另需安装并配置 OMP。
 
 ```powershell
-cargo fmt --check
-cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked
+cargo fmt --all --check
+cargo clippy --workspace --locked --all-targets -- -D warnings
+cargo test --workspace --locked
 cargo build --locked
 ```
 
 发布优化构建使用 `cargo build --locked --release`，产物在 `target/release/omp-gui.exe`；普通构建在 `target/debug/omp-gui.exe`。
 
-[Windows CI](../.github/workflows/check.yml) 执行格式检查、所有目标的 Clippy 和默认测试；构建产物及发布包不是该工作流的交付步骤。修改文档时检查引用、链接及命令示例，不必重复执行真实模型任务。
+[CI](../.github/workflows/check.yml) 在 Windows 检查 workspace，并在 Linux x86_64／ARM64 检查共享核心和服务、构建远端 release 产物。Linux 产物是独立 artifact，当前工作流不组装 Windows 安装包。修改文档时检查引用、链接及命令示例，不必重复执行真实模型任务。
+
+在 Linux 单独验证远端组件：
+
+```sh
+cargo clippy --locked -p omp-core -p omp-gui-remote --all-targets -- -D warnings
+cargo test --locked -p omp-core -p omp-gui-remote
+cargo build --locked --release -p omp-gui-remote
+```
 
 ### Windows 常见构建问题
 
@@ -104,6 +118,28 @@ cargo test --locked --test omp_integration installed_omp_discovers_gui_session -
 ```
 
 测试会拒绝专用目录之外的配置路径。仅在当前 PowerShell 会话设置环境变量，完成后移除变量或关闭该会话。
+
+## 显式 SSH 测试
+
+[remote_integration.rs](../tests/remote_integration.rs) 默认忽略，必须提供 SSH Host、当前版本服务和独立测试项目。文件测试会修改专用 `remote-check.txt` 并恢复；模型测试创建并清理自己的原生日志。断线场景会终止自己的 SSH 桥；异常退出场景只终止绑定新建测试日志且 cwd 匹配的 OMP，不操作其他会话。
+
+```powershell
+$env:OMP_GUI_TEST_SSH_HOST = 'your-test-host'
+$env:OMP_GUI_TEST_HELPER = '/absolute/path/to/omp-gui-remote'
+$env:OMP_GUI_TEST_PROJECT = '/home/test/.cache/omp-gui-tests/run-unique/project'
+cargo test --locked --test remote_integration -- --ignored --nocapture --test-threads=2
+```
+
+测试会拒绝约定范围之外的项目。需要先建立专用 Git 项目和含 `remote-code-1729` 的 `remote-check.txt`；禁止指定日常项目。监督服务崩溃测试使用专用状态目录和启动包装，并在终止前核对服务的全部直接子进程；不影响其他服务范围。`OMP_GUI_TEST_TRACE=1` 只打印事件类型和请求身份，帮助诊断阶段，不打印模型正文。
+
+自动部署另有显式检查：
+
+```powershell
+$env:OMP_GUI_TEST_INSTALL_SSH_HOST = 'your-test-host'
+cargo test --locked --lib remote_install::tests::installs_embedded_remote_service -- --ignored --nocapture
+```
+
+它会在该用户的标准服务目录安装当前版本。实际测试未重启 Linux、改写 SSH／防火墙配置或模拟整机断电；服务换代与宿主重启不承诺工具持续执行。先前通过 UIA 获取状态后立即关闭测试窗口，曾触发外部 `accesskit_windows` 对失效窗口句柄的退出竞态；未将其计作远端功能验证通过，也未修改第三方源码。
 
 ## 界面验证隔离
 

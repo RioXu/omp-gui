@@ -11,6 +11,7 @@ impl Workspace {
         }
         self.runtime.engine = None;
         self.runtime.connected = false;
+        self.runtime.reconnecting = false;
         self.runtime.running = false;
         self.runtime.active_tools.clear();
         self.runtime.context_limit = 0;
@@ -37,7 +38,7 @@ impl Workspace {
         let Some(s) = self.session() else {
             return;
         };
-        if !s.cwd().is_dir() {
+        if matches!(s.host_cwd(), omp_core::environment::HostPath::Local(path) if !path.is_dir()) {
             self.runtime.starting = false;
             self.runtime.error = Some(
                 "会话工作树已不在磁盘上；请恢复目录或新建会话。不会退回原项目目录执行。".into(),
@@ -49,34 +50,29 @@ impl Workspace {
             self.scan_sessions();
             return;
         };
-        let result = (|| -> anyhow::Result<_> {
-            anyhow::ensure!(
-                s.native_root.as_deref() == Some(store.root.to_string_lossy().as_ref()),
-                "会话尚未完成原生存储迁移"
-            );
-            let path = s
-                .omp_session
-                .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("会话尚未绑定原生记录"))?;
-            anyhow::ensure!(
-                std::path::Path::new(path).is_file(),
-                "原生会话已移除，正在同步列表"
-            );
-            store.available(s.native_id.as_deref().unwrap_or_default())?;
-            OmpClient::start_project(&self.db.omp_path, s.cwd(), path)
-        })();
-        match result {
-            Ok(e) => {
-                self.runtime.engine = Some(Box::new(e));
-                self.runtime.error = None;
-                self.runtime.status = "正在连接本机 OMP…".into();
-            }
-            Err(e) => {
-                self.runtime.starting = false;
-                self.runtime.error = Some(format!("{e:#}"));
-                self.runtime.status = "原生会话暂不可用 · 可查看历史".into();
-            }
-        }
+        let store = store.clone();
+        let root = s.host_cwd();
+        let native_root = s.native_root.clone();
+        let path = s.omp_session.clone();
+        let native_id = s.native_id.clone();
+        let (tx, rx) = mpsc::channel();
+        self.runtime.connection_result = Some(rx);
+        self.runtime.error = None;
+        self.runtime.status = "正在连接 OMP…".into();
+        std::thread::spawn(move || {
+            let result = (|| -> anyhow::Result<_> {
+                anyhow::ensure!(
+                    native_root.as_deref() == Some(store.root.text().as_str()),
+                    "会话尚未完成原生存储迁移"
+                );
+                let path = path
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("会话尚未绑定原生记录"))?;
+                store.connect(&root, path, native_id.as_deref().unwrap_or_default())
+            })()
+            .map_err(|error| format!("{error:#}"));
+            let _ = tx.send(result);
+        });
     }
     pub fn command(&mut self, frame: Value) {
         if let Some(e) = &self.runtime.engine

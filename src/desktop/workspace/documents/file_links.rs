@@ -12,6 +12,9 @@ use gpui_kit::component::{
 
 struct FileLinks {
     root: PathBuf,
+    remote: bool,
+    references: HashMap<String, PathBuf>,
+    session: String,
     workspace: WeakEntity<Workspace>,
     query: String,
     active: Option<(RenderedText, std::ops::Range<usize>)>,
@@ -46,7 +49,11 @@ impl MarkdownPlugin for FileLinks {
         let markdown_ast::Node::InlineCode(code) = node else {
             return None;
         };
-        let path = file_references::resolve(&self.root, &code.value)?;
+        let path = if self.remote {
+            self.references.get(code.value.trim()).cloned()
+        } else {
+            file_references::resolve(&self.root, &code.value)
+        }?;
         Some(
             MarkdownNode::new(self.name(), path)
                 .text(code.value.clone())
@@ -56,6 +63,7 @@ impl MarkdownPlugin for FileLinks {
     fn render(&self, node: &MarkdownNode, _: &mut Window, cx: &mut App) -> impl IntoElement {
         let path = node.data::<PathBuf>().cloned();
         let workspace = self.workspace.clone();
+        let session = self.session.clone();
         let active = self.active.as_ref().and_then(|(rendered, hit)| {
             let range = rendered.range_for_source(node.source_range()?)?;
             local_match(range, hit)
@@ -89,6 +97,9 @@ impl MarkdownPlugin for FileLinks {
         .on_click(move |_, w, cx| {
             if let Some(path) = &path {
                 let _ = workspace.update(cx, |this, cx| {
+                    if this.session().is_none_or(|owner| owner.id != session) {
+                        return;
+                    }
                     this.open_document(path.clone(), false);
                     this.focus_document_editor(w, cx);
                     cx.notify();
@@ -123,6 +134,9 @@ impl Workspace {
                 .parser_revision(self.document_state.file_link_revision)
                 .plugin(FileLinks {
                     root: session.cwd().to_owned(),
+                    remote: session.environment_id() != "local",
+                    references: self.document_state.references.resolved.clone(),
+                    session: session.id.clone(),
                     workspace: cx.entity().downgrade(),
                     query: if message.is_some()
                         && self.search_state.open
@@ -145,6 +159,115 @@ impl Workspace {
                         }),
                 }),
         )
+    }
+}
+
+pub(in crate::desktop::workspace) struct ReferenceState {
+    pub(super) resolved: HashMap<String, PathBuf>,
+    pub(super) request: String,
+    loading: bool,
+    checked: Instant,
+}
+impl Default for ReferenceState {
+    fn default() -> Self {
+        Self {
+            resolved: Default::default(),
+            request: String::new(),
+            loading: false,
+            checked: Instant::now() - Duration::from_secs(3),
+        }
+    }
+}
+
+impl Workspace {
+    pub(in crate::desktop::workspace) fn refresh_file_references(&mut self) {
+        let Some(session) = self
+            .session()
+            .filter(|session| session.environment_id() != "local")
+        else {
+            return;
+        };
+        if self.document_state.references.loading
+            || self.document_state.references.checked.elapsed() < Duration::from_secs(2)
+        {
+            return;
+        }
+        let bodies = self
+            .runtime
+            .texts
+            .values()
+            .map(|entry| entry.body.clone())
+            .collect::<Vec<_>>();
+        let request = format!(
+            "{}:{}:{}",
+            session.id,
+            self.document_state.file_link_revision,
+            crate::domain::hash(&bodies.join("\n"))
+        );
+        let session_id = session.id.clone();
+        let root = session.host_cwd();
+        self.document_state.references.checked = Instant::now();
+        if self.document_state.references.request == request {
+            return;
+        }
+        let Ok(omp_core::host::ExecutionHost::Remote(remote)) = self.execution_host() else {
+            return;
+        };
+        self.document_state.references.loading = true;
+        self.document_state.references.request = request.clone();
+        let tx = self.document_state.tx.clone();
+        std::thread::spawn(move || {
+            fn collect(node: &markdown::mdast::Node, out: &mut std::collections::BTreeSet<String>) {
+                if let markdown::mdast::Node::InlineCode(code) = node {
+                    out.insert(code.value.trim().to_owned());
+                }
+                if let Some(children) = node.children() {
+                    for child in children {
+                        collect(child, out);
+                    }
+                }
+            }
+            let mut candidates = std::collections::BTreeSet::new();
+            for body in bodies {
+                if let Ok(node) = markdown::to_mdast(&body, &markdown::ParseOptions::gfm()) {
+                    collect(&node, &mut candidates);
+                }
+            }
+            let result = remote
+                .call(omp_core::remote::protocol::Operation::ResolveReferences {
+                    root,
+                    candidates: candidates.into_iter().take(512).collect(),
+                })
+                .map_err(|error| format!("{error:#}"));
+            let _ = tx.send(documents::FileEvent::References {
+                session: session_id,
+                request,
+                result,
+            });
+        });
+    }
+
+    pub(in crate::desktop::workspace) fn finish_file_references(
+        &mut self,
+        request: String,
+        result: Result<HashMap<String, PathBuf>, String>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.document_state.references.request != request {
+            return;
+        }
+        self.document_state.references.loading = false;
+        match result {
+            Ok(resolved) => {
+                if self.document_state.references.resolved != resolved {
+                    self.document_state.references.resolved = resolved;
+                    self.document_state.file_link_revision =
+                        self.document_state.file_link_revision.wrapping_add(1);
+                    cx.notify();
+                }
+            }
+            Err(_) => self.document_state.references.request.clear(),
+        }
     }
 }
 

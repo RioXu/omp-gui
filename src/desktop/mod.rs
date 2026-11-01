@@ -2,6 +2,7 @@
 mod bootstrap;
 pub(crate) mod markdown;
 pub(crate) mod project_picker;
+pub(crate) mod remote_install;
 pub(crate) mod services;
 pub(crate) mod settings;
 mod theme;

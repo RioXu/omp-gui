@@ -1,6 +1,5 @@
 use super::*;
 use crate::domain::activity::{merge_agent, merge_tool_activity};
-use crate::infrastructure::omp::sessions::SessionStore;
 
 struct TranscriptResult {
     session: String,
@@ -67,15 +66,18 @@ impl Workspace {
         let Some(primary) = s.omp_session.as_deref() else {
             return;
         };
-        let artifacts = PathBuf::from(primary).with_extension("");
+        let primary = primary.to_owned();
+        let host = match self.execution_host() {
+            Ok(host) => host,
+            Err(_) => return,
+        };
         let path = self
             .runtime
             .agents
             .iter()
             .find(|a| a["id"] == agent_id)
             .and_then(|a| a["sessionFile"].as_str())
-            .map(PathBuf::from)
-            .unwrap_or_else(|| artifacts.join(format!("{agent_id}.jsonl")));
+            .map(str::to_owned);
         let session = s.id.clone();
         let tx = self.runtime.collaboration.tx.clone();
         let request = id();
@@ -83,18 +85,9 @@ impl Workspace {
         self.runtime.collaboration.loading = true;
         self.runtime.collaboration.last_read = Instant::now();
         std::thread::spawn(move || {
-            let result = (|| -> anyhow::Result<_> {
-                anyhow::ensure!(
-                    crate::infrastructure::omp::sessions::plain_path(&path)
-                        .starts_with(crate::infrastructure::omp::sessions::plain_path(&artifacts)),
-                    "子会话不属于当前主会话"
-                );
-                let base = std::fs::canonicalize(artifacts)?;
-                let path = std::fs::canonicalize(path)?;
-                anyhow::ensure!(path.starts_with(base), "子会话不属于当前主会话");
-                SessionStore::transcript(&path)
-            })()
-            .map_err(|e| format!("暂无法读取子会话：{e:#}"));
+            let result = host
+                .child_transcript(&primary, &agent_id, path.as_deref())
+                .map_err(|e| format!("暂无法读取子会话：{e:#}"));
             let _ = tx.send(TranscriptResult {
                 session,
                 agent: agent_id,

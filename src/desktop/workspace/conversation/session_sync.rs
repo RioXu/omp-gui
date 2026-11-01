@@ -1,7 +1,11 @@
 use super::*;
 use crate::infrastructure::{
     filesystem::project_paths::project_key,
-    omp::sessions::{NativeSession, Registration, Scan, SessionStore},
+    omp::sessions::{NativeSession, Scan},
+};
+use omp_core::{
+    environment::{HostPath, ProjectLocation},
+    host::NativeStore as SessionStore,
 };
 use std::collections::HashSet;
 
@@ -13,7 +17,7 @@ pub(in crate::desktop::workspace) struct SessionSync {
     scanning: bool,
     last_scan: Instant,
     missing: HashSet<String>,
-    pub pending_create: Option<PathBuf>,
+    pub pending_create: Option<ProjectLocation>,
     executable: String,
 }
 impl Default for SessionSync {
@@ -36,29 +40,52 @@ impl Workspace {
         if self.demo || self.save_disabled || self.session_sync.scanning {
             return;
         }
+        let host = match self.execution_host() {
+            Ok(host) => host,
+            Err(_) => return,
+        };
+        let environment = self.db.active_environment.clone();
+        let omp = self.environment_omp();
         self.session_sync.scanning = true;
         self.session_sync.last_scan = Instant::now();
-        if self.session_sync.executable != self.db.omp_path {
+        if self.session_sync.executable != omp {
             self.session_sync.store = None;
-            self.session_sync.executable = self.db.omp_path.clone();
+            self.session_sync.executable = omp.clone();
         }
         let store = self.session_sync.store.clone();
-        let omp = self.db.omp_path.clone();
-        let mut projects = self.db.projects.clone();
-        projects.extend(self.db.sessions.iter().map(|s| s.cwd().to_owned()));
-        let cwd = projects
+        let mut projects = self
+            .environment_projects()
+            .into_iter()
+            .map(|project| project.path)
+            .collect::<Vec<_>>();
+        projects.extend(
+            self.db
+                .sessions
+                .iter()
+                .filter(|s| s.environment_id() == environment)
+                .map(Session::host_cwd),
+        );
+        let cwd = projects.first().cloned().unwrap_or_else(|| {
+            if environment == "local" {
+                HostPath::Local(std::env::current_dir().unwrap_or_default())
+            } else {
+                HostPath::Posix("/".into())
+            }
+        });
+        let sessions: Vec<_> = self
+            .db
+            .sessions
             .iter()
-            .find(|p| p.is_dir())
+            .filter(|s| s.environment_id() == environment)
             .cloned()
-            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-        let sessions: Vec<_> = self.db.sessions.iter().map(Registration::from).collect();
+            .collect();
         let began = Instant::now();
         let tx = self.session_sync.tx.clone();
         std::thread::spawn(move || {
             let result = (|| -> anyhow::Result<_> {
                 let store = match store {
                     Some(s) => s,
-                    None => SessionStore::discover(&omp, &cwd)?,
+                    None => SessionStore::discover(host, &omp, &cwd)?,
                 };
                 let scan = store.scan(
                     &projects,
@@ -78,7 +105,7 @@ impl Workspace {
         let results: Vec<_> = self.session_sync.rx.try_iter().collect();
         for result in results {
             self.session_sync.scanning = false;
-            if self.session_sync.executable != self.db.omp_path {
+            if self.session_sync.executable != self.environment_omp() {
                 self.session_sync.store = None;
                 self.session_sync.last_scan = Instant::now() - Duration::from_secs(5);
                 continue;
@@ -94,6 +121,8 @@ impl Workspace {
                 }
             };
             let first = self.session_sync.store.is_none();
+            let remote = matches!(store.root, HostPath::Posix(_));
+            let environment = self.db.active_environment.clone();
             self.session_sync.store = Some(store.clone());
             let active_id = self.session().map(|s| s.id.clone());
             let mut changed = false;
@@ -109,14 +138,16 @@ impl Workspace {
                 }
             }
             for native in scan.sessions {
-                if !native.path.is_file() {
+                if !remote && !native.path.is_file() {
                     continue;
                 }
                 let existing = self.db.sessions.iter().position(|s| {
-                    s.native_root.as_deref() == Some(store.root.to_string_lossy().as_ref())
+                    s.environment_id() == environment
+                        && s.native_root.as_deref() == Some(store.root.text().as_str())
                         && (s.native_id.as_ref() == Some(&native.id)
                             || s.omp_session.as_deref().is_some_and(|p| {
-                                project_key(PathBuf::from(p).as_path()) == project_key(&native.path)
+                                native_key(PathBuf::from(p).as_path(), remote)
+                                    == native_key(&native.path, remote)
                             }))
                 });
                 if let Some(ix) = existing {
@@ -135,7 +166,8 @@ impl Workspace {
                             .omp_session
                             .as_deref()
                             .is_some_and(|p| {
-                                project_key(std::path::Path::new(p)) == project_key(&native.path)
+                                native_key(std::path::Path::new(p), remote)
+                                    == native_key(&native.path, remote)
                             })
                     {
                         continue;
@@ -153,7 +185,8 @@ impl Workspace {
                         .collect();
                     let title = s.title.clone();
                     let path_changed = s.omp_session.as_deref().is_none_or(|p| {
-                        project_key(std::path::Path::new(p)) != project_key(&native.path)
+                        native_key(std::path::Path::new(p), remote)
+                            != native_key(&native.path, remote)
                     });
                     bind(s, &native, &store);
                     let external_change = path_changed
@@ -175,7 +208,8 @@ impl Workspace {
                     // terminal owner to release its lease. Preserve that GUI
                     // row and its comments rather than importing a duplicate.
                     if self.db.sessions.iter().any(|s| {
-                        s.native_root.is_none()
+                        s.environment_id() == environment
+                            && s.native_root.is_none()
                             && s.omp_session.as_deref().is_some_and(|p| {
                                 std::path::Path::new(p).file_stem().is_some_and(|name| {
                                     name.to_string_lossy().ends_with(&native.id)
@@ -188,19 +222,32 @@ impl Workspace {
                         .db
                         .sessions
                         .iter()
-                        .find(|s| project_key(s.cwd()) == project_key(&native.cwd))
-                        .map(|s| s.project.clone())
+                        .find(|s| {
+                            s.environment_id() == environment
+                                && native_key(s.cwd(), remote) == native_key(&native.cwd, remote)
+                        })
+                        .map(Session::project_location)
                         .or_else(|| {
-                            self.db
-                                .projects
-                                .iter()
-                                .find(|p| project_key(p) == project_key(&native.cwd))
-                                .cloned()
+                            self.environment_projects()
+                                .into_iter()
+                                .find(|p| match &p.path {
+                                    HostPath::Local(path) => {
+                                        project_key(path) == project_key(&native.cwd)
+                                    }
+                                    HostPath::Posix(path) => {
+                                        path == native.cwd.to_string_lossy().as_ref()
+                                    }
+                                })
                         });
                     if let Some(project) = project {
-                        let mut s = Session::new(project.clone());
+                        let mut s = Session::new(match &project.path {
+                            HostPath::Local(path) => path.clone(),
+                            _ => PathBuf::new(),
+                        });
+                        s.location = Some(project.clone());
                         s.updated = native.updated;
-                        if project_key(&project) != project_key(&native.cwd) {
+                        if matches!(&project.path, HostPath::Local(path) if project_key(path) != project_key(&native.cwd))
+                        {
                             s.worktree = Some(native.cwd.clone());
                         }
                         bind(&mut s, &native, &store);
@@ -257,7 +304,7 @@ impl Workspace {
                 self.connect();
             }
             if let Some(project) = self.session_sync.pending_create.take() {
-                self.new_project_session(project, window, cx);
+                self.new_session_at(project, window, cx);
             }
             // A terminal-owned session is readable. Connect after it is released.
             if !self.runtime.running
@@ -277,7 +324,7 @@ impl Workspace {
     }
 }
 fn bind(session: &mut Session, native: &NativeSession, store: &SessionStore) {
-    session.native_root = Some(store.root.to_string_lossy().into_owned());
+    session.native_root = Some(store.root.text());
     session.native_id = Some(native.id.clone());
     session.native_revision = Some(native.revision.clone());
     session.omp_session = Some(native.path.to_string_lossy().into_owned());
@@ -289,5 +336,13 @@ fn bind(session: &mut Session, native: &NativeSession, store: &SessionStore) {
     session.todos = native.todos.clone();
     for agent in &native.agents {
         crate::domain::activity::merge_agent(&mut session.agents, agent);
+    }
+}
+
+fn native_key(path: &std::path::Path, remote: bool) -> String {
+    if remote {
+        path.to_string_lossy().into_owned()
+    } else {
+        project_key(path)
     }
 }

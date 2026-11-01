@@ -33,7 +33,10 @@ pub fn snapshot(root: &Path, path: &Path) -> anyhow::Result<Snapshot> {
     let output = hidden_command("git")
         .args([
             "show",
-            &format!("HEAD:{}", path.to_string_lossy().replace('\\', "/")),
+            &format!(
+                "HEAD:{}",
+                crate::environment::display_path(path, !cfg!(windows))
+            ),
         ])
         .current_dir(root)
         .output();

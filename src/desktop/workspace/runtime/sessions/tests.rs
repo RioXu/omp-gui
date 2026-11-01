@@ -31,6 +31,7 @@ fn fixture(window: &mut Window, cx: &mut Context<Workspace>) -> Workspace {
         background: HashMap::new(),
         polling_background: false,
         attachment_imports: Default::default(),
+        environments: Default::default(),
         session_sync: Default::default(),
         selection_dirty: false,
         settings_view: None,
@@ -72,6 +73,7 @@ fn fixture(window: &mut Window, cx: &mut Context<Workspace>) -> Workspace {
             active: None,
             watcher: None,
             watched_session: String::new(),
+            watch_retry: None,
             refresh_pending: None,
             last_scan: Instant::now(),
             tree: cx.new(|cx| TreeState::new(cx)),
@@ -80,6 +82,7 @@ fn fixture(window: &mut Window, cx: &mut Context<Workspace>) -> Workspace {
             text: None,
             files: vec![],
             file_link_revision: 0,
+            references: Default::default(),
             changes: vec![],
             tx,
             rx,
@@ -186,7 +189,7 @@ fn window_view_update(
         assert_eq!(this.db.sessions[1].messages.last().unwrap().text, "answer B");
         let attachment = Attachment { id: "image".into(), name: "image.png".into(), path: "cache.png".into(), original_path: None, mime: Some("image/png".into()), bytes: 5 };
         this.dispatch_background(&a, window, cx, |this, window, cx| {
-            this.runtime.pending_send = Some(PendingSubmission { id: "pending-a".into(), text: "restore A".into(), follow_up: None, was_running: true, wire_text: "wire A".into(), delivered: false, attachments: vec![attachment] });
+            this.runtime.pending_send = Some(PendingSubmission { comment_ids:vec![],id: "pending-a".into(), text: "restore A".into(), follow_up: None, was_running: true, wire_text: "wire A".into(), delivered: false, attachments: vec![attachment] });
             this.on_frame(json!({"type":"response","command":"prompt","id":"pending-a","success":false,"error":"fixture failure"}), window, cx);
             this.on_frame(json!({"type":"session_settled"}), window, cx);
         });
@@ -203,4 +206,96 @@ fn window_view_update(
         assert!(this.runtime.composer_state.input.read(cx).value().contains("restore A"));
         assert!(this.session_is_running(&b));
     });
+}
+
+#[gpui_kit::test]
+fn asynchronous_save_acknowledgements_preserve_newer_edits_and_ignore_stale_requests(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_kit::init);
+    let (handle, view) = cx.update(|cx| {
+        open_window(WindowOptions::default(), cx, |window, cx| {
+            cx.new(|cx| fixture(window, cx))
+        })
+        .unwrap()
+    });
+    handle
+        .update(cx, |_, window, cx| {
+            view.update(cx, |this, cx| {
+                this.open_document("a.rs".into(), false);
+                let key = this.document_state.tabs[0].key.clone();
+                let editor = cx.new(|cx| gpui_kit::component::input::EditorState::new(window, cx));
+                editor.update(cx, |editor, cx| {
+                    editor.set_value("newer unsaved edit", window, cx)
+                });
+                let tab = &mut this.document_state.tabs[0];
+                tab.editor = Some(editor);
+                tab.buffer = Some(crate::domain::file_buffer::FileBuffer::new("original"));
+                tab.dirty = true;
+                tab.saving = Some("current".into());
+                this.finish_save(
+                    &key,
+                    "stale",
+                    ("stale".into(), "stale".into()),
+                    Ok(()),
+                    window,
+                    cx,
+                );
+                assert_eq!(
+                    this.document_state.tabs[0]
+                        .buffer
+                        .as_ref()
+                        .unwrap()
+                        .disk_text(),
+                    "original"
+                );
+                this.finish_save(
+                    &key,
+                    "current",
+                    ("saved revision".into(), "saved revision".into()),
+                    Ok(()),
+                    window,
+                    cx,
+                );
+                let tab = &this.document_state.tabs[0];
+                assert!(tab.is_dirty(cx));
+                assert_eq!(tab.buffer.as_ref().unwrap().disk_text(), "saved revision");
+                this.document_state.tabs[0].saving = Some("failed".into());
+                this.finish_save(
+                    &key,
+                    "failed",
+                    ("never saved".into(), "never saved".into()),
+                    Err("connection lost".into()),
+                    window,
+                    cx,
+                );
+                let tab = &this.document_state.tabs[0];
+                assert!(tab.is_dirty(cx));
+                assert_eq!(tab.buffer.as_ref().unwrap().disk_text(), "saved revision");
+                assert_eq!(tab.error.as_deref(), Some("connection lost"));
+            })
+        })
+        .unwrap();
+}
+
+#[gpui_kit::test]
+fn remote_interactive_request_replay_is_deduplicated_and_cancelled_requests_are_removed(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_kit::init);
+    let (handle, view) = cx.update(|cx| {
+        open_window(WindowOptions::default(), cx, |window, cx| {
+            cx.new(|cx| fixture(window, cx))
+        })
+        .unwrap()
+    });
+    handle.update(cx,|_,window,cx|view.update(cx,|this,cx|{
+        let request=json!({"type":"extension_ui_request","id":"ui-1","method":"input","title":"fixture question"});
+        this.on_frame(request.clone(),window,cx);this.on_frame(request,window,cx);
+        assert_eq!(this.runtime.requests.len(),1);
+        this.on_frame(json!({"type":"__omp_gui_transport","state":"connected","requests":["ui-1"]}),window,cx);
+        assert_eq!(this.runtime.requests.len(),1);
+        this.on_frame(json!({"type":"__omp_gui_transport","state":"connected","requests":[]}),window,cx);
+        assert!(this.runtime.requests.is_empty());
+    })).unwrap();
 }

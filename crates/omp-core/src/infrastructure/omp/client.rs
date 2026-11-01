@@ -17,10 +17,15 @@ pub enum Event {
 }
 pub struct Client {
     child: Child,
-    tx: mpsc::Sender<Value>,
+    tx: mpsc::SyncSender<Value>,
     pub events: mpsc::Receiver<Event>,
 }
 impl Client {
+    #[cfg(feature = "test-support")]
+    pub fn interrupt_transport(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
     pub fn start(
         executable: &str,
         project: &Path,
@@ -28,17 +33,27 @@ impl Client {
         resume: Option<&str>,
     ) -> Result<Self> {
         std::fs::create_dir_all(session_dir)?;
-        Self::launch(executable, project, Some(session_dir), resume)
+        Self::launch(executable, project, Some(session_dir), resume, |_| {})
     }
     /// Use the same default project store as terminal OMP.
     pub fn start_project(executable: &str, project: &Path, resume: &str) -> Result<Self> {
-        Self::launch(executable, project, None, Some(resume))
+        Self::start_project_with(executable, project, resume, |_| {})
+    }
+    /// The execution adapter may configure platform-specific process ownership.
+    pub fn start_project_with(
+        executable: &str,
+        project: &Path,
+        resume: &str,
+        configure: impl FnOnce(&mut std::process::Command),
+    ) -> Result<Self> {
+        Self::launch(executable, project, None, Some(resume), configure)
     }
     fn launch(
         executable: &str,
         project: &Path,
         session_dir: Option<&Path>,
         resume: Option<&str>,
+        configure: impl FnOnce(&mut std::process::Command),
     ) -> Result<Self> {
         let project = super::sessions::plain_path(project);
         let resolved = super::installation::resolve(executable)?;
@@ -55,14 +70,21 @@ impl Client {
         if let Some(path) = resume {
             cmd.arg("--resume").arg(path);
         }
-        let mut child = cmd
-            .spawn()
-            .with_context(|| format!("无法启动 {executable}，请检查设置中的 OMP 路径"))?;
+        configure(&mut cmd);
+        Self::from_command(cmd)
+            .with_context(|| format!("无法启动 {executable}，请检查设置中的 OMP 路径"))
+    }
+
+    pub fn from_command(mut cmd: std::process::Command) -> Result<Self> {
+        cmd.stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = cmd.spawn().context("无法启动 OMP 传输进程")?;
         let mut stdin = child.stdin.take().context("OMP stdin missing")?;
         let stdout = child.stdout.take().context("OMP stdout missing")?;
         let stderr = child.stderr.take().context("OMP stderr missing")?;
-        let (tx, rx) = mpsc::channel::<Value>();
-        let (event_tx, events) = mpsc::channel();
+        let (tx, rx) = mpsc::sync_channel::<Value>(32);
+        let (event_tx, events) = mpsc::sync_channel(128);
         let write_tx = event_tx.clone();
         thread::spawn(move || {
             for frame in rx {
@@ -134,7 +156,9 @@ impl Client {
         if serde_json::to_vec(&frame)?.len() + 1 > MAX_MESSAGE {
             bail!("消息及附件超过 64 MiB，请减少附件后重试");
         }
-        self.tx.send(frame).context("OMP 连接已关闭")
+        self.tx
+            .try_send(frame)
+            .context("OMP 发送队列忙或连接已关闭，输入未重放")
     }
 }
 impl Drop for Client {

@@ -3,7 +3,7 @@
 use super::*;
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ServiceCatalog {
     pub provider_ids: BTreeSet<String>,
     pub models: BTreeMap<String, Vec<Value>>,

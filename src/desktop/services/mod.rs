@@ -18,6 +18,7 @@ use gpui_kit::component::{
     switch::Switch,
 };
 use gpui_kit::{prelude::FluentBuilder, *};
+use omp_core::host::{ConfigAction, Configuration};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, path::PathBuf, sync::mpsc, time::Duration};
 
@@ -36,8 +37,7 @@ enum ResultEvent {
 pub(crate) struct RegistryView {
     models_scroll: UniformListScrollHandle,
     search_scroll: UniformListScrollHandle,
-    omp: String,
-    cwd: PathBuf,
+    configuration: Configuration,
     root: PathBuf,
     project: bool,
     web: bool,
@@ -78,8 +78,7 @@ const APIS: [&str; 4] = [
 ];
 impl RegistryView {
     pub fn new(
-        omp: String,
-        cwd: PathBuf,
+        configuration: Configuration,
         catalog: &Catalog,
         project: bool,
         web: bool,
@@ -176,8 +175,7 @@ impl RegistryView {
         let mut this = Self {
             models_scroll: UniformListScrollHandle::new(),
             search_scroll: UniformListScrollHandle::new(),
-            omp,
-            cwd,
+            configuration,
             root,
             project,
             web,
@@ -292,20 +290,25 @@ impl RegistryView {
         self.busy = true;
         let root = self.root.clone();
         let tx = self.tx.clone();
+        let configuration = self.configuration.clone();
         std::thread::spawn(move || {
             let _ = tx.send(ResultEvent::Loaded(
-                Providers::load(&root).map_err(|e| format!("{e:#}")),
+                configuration.providers(&root).map_err(|e| format!("{e:#}")),
             ));
         });
     }
     fn load_catalog(&mut self) {
         self.catalog_loading = true;
-        let omp = self.omp.clone();
-        let cwd = self.cwd.clone();
+        let configuration = self.configuration.clone();
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             let _ = tx.send(ResultEvent::Catalog(Box::new(
-                registry::ServiceCatalog::load(&omp, &cwd),
+                configuration
+                    .services()
+                    .unwrap_or_else(|error| registry::ServiceCatalog {
+                        warning: Some(format!("{error:#}")),
+                        ..Default::default()
+                    }),
             )));
         });
     }

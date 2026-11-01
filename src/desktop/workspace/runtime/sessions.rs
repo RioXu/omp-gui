@@ -4,11 +4,13 @@ use super::*;
 impl Workspace {
     pub(in crate::desktop::workspace) fn session_is_running(&self, id: &str) -> bool {
         if self.session().is_some_and(|s| s.id == id) {
-            self.runtime.running || self.runtime.pending_send.is_some()
+            self.runtime.running
+                || self.runtime.pending_send.is_some()
+                || self.runtime.preparing.is_some()
         } else {
             self.background
                 .get(id)
-                .is_some_and(|r| r.running || r.pending_send.is_some())
+                .is_some_and(|r| r.running || r.pending_send.is_some() || r.preparing.is_some())
         }
     }
 
@@ -30,6 +32,8 @@ impl Workspace {
         });
         let mut previous = std::mem::replace(&mut self.runtime, next);
         if !previous.running
+            && !previous.reconnecting
+            && previous.preparing.is_none()
             && !previous.starting
             && previous.pending_send.is_none()
             && previous.requests.is_empty()
@@ -55,6 +59,8 @@ impl Workspace {
                     cx.notify();
                 }
                 if !this.runtime.running
+                    && !this.runtime.reconnecting
+                    && this.runtime.preparing.is_none()
                     && !this.runtime.starting
                     && this.runtime.pending_send.is_none()
                     && this.runtime.requests.is_empty()

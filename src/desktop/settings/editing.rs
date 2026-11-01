@@ -1,9 +1,53 @@
 use super::*;
 
 impl SettingsView {
+    pub(super) fn server_file(&mut self, mcp: bool, cx: &mut Context<Self>) {
+        self.editor_generation = self.editor_generation.wrapping_add(1);
+        let generation = self.editor_generation;
+        let category = self.category;
+        let configuration = self.configuration.clone();
+        let base = self.base().to_string_lossy().into_owned();
+        let tx = self.tx.clone();
+        self.busy = true;
+        std::thread::spawn(move || {
+            let result = (|| -> anyhow::Result<_> {
+                let names = if mcp {
+                    vec!["mcp.json"]
+                } else {
+                    vec![
+                        "lsp.json",
+                        ".lsp.json",
+                        "lsp.yaml",
+                        ".lsp.yaml",
+                        "lsp.yml",
+                        ".lsp.yml",
+                    ]
+                }
+                .into_iter()
+                .map(str::to_owned)
+                .collect();
+                let path: PathBuf = configuration.call(ConfigAction::FindConfig { base, names })?;
+                let original = configuration.read(&path)?;
+                let template = if mcp {
+                    "{\n  \"mcpServers\": {}\n}\n"
+                } else {
+                    "{\n  \"servers\": {}\n}\n"
+                }
+                .into();
+                Ok(LoadedEditor::File {
+                    path,
+                    original,
+                    template,
+                })
+            })()
+            .map_err(|error| format!("{error:#}"));
+            let _ = tx.send(ResultEvent::Editor(generation, category, result));
+        });
+        cx.notify();
+    }
     pub(super) fn base(&self) -> PathBuf {
         if self.project {
-            self.cwd.join(".omp")
+            self.configuration.join(&self.cwd, ".omp")
         } else {
             self.catalog.root.clone()
         }
@@ -12,14 +56,15 @@ impl SettingsView {
         self.loading = true;
         let tx = self.tx.clone();
         let omp = self.omp.clone();
-        let cwd = self.cwd.clone();
+        let configuration = self.configuration.clone();
         std::thread::spawn(move || {
-            let resolved = crate::infrastructure::omp::installation::resolve(&omp)
-                .map(|path| path.to_string_lossy().into_owned())
+            let resolved = configuration
+                .call(ConfigAction::ResolveOmp { omp: omp.clone() })
                 .map_err(|error| format!("{error:#}"));
             let _ = tx.send(ResultEvent::Executable(omp.clone(), resolved));
             let _ = tx.send(ResultEvent::Catalog(
-                settings::catalog(&omp, &cwd).map_err(|e| format!("{e:#}")),
+                omp,
+                configuration.catalog().map_err(|e| format!("{e:#}")),
             ));
         });
     }
@@ -65,26 +110,27 @@ impl SettingsView {
         &mut self,
         path: PathBuf,
         template: &str,
-        w: &mut Window,
+        _w: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match settings::read_document(&path) {
-            Ok(original) => {
-                self.editor.update(cx, |i, cx| {
-                    i.set_value(
-                        if original.is_empty() {
-                            template.to_owned()
-                        } else {
-                            original.clone()
-                        },
-                        w,
-                        cx,
-                    )
-                });
-                self.edit = Some(Edit::File { path, original });
-            }
-            Err(e) => self.notice = format!("{e:#}"),
-        }
+        self.editor_generation = self.editor_generation.wrapping_add(1);
+        let generation = self.editor_generation;
+        let category = self.category;
+        let configuration = self.configuration.clone();
+        let tx = self.tx.clone();
+        let template = template.to_owned();
+        self.busy = true;
+        std::thread::spawn(move || {
+            let result = configuration
+                .read(&path)
+                .map(|original| LoadedEditor::File {
+                    path,
+                    original,
+                    template,
+                })
+                .map_err(|error| format!("{error:#}"));
+            let _ = tx.send(ResultEvent::Editor(generation, category, result));
+        });
         cx.notify();
     }
     pub(super) fn save(&mut self, reset: bool, cx: &mut Context<Self>) {
@@ -116,25 +162,20 @@ impl SettingsView {
                     }
                 };
                 let project = self.project;
-                let path = settings::config_path(&self.base());
+                let base = self.base();
                 let name = name.clone();
-                let omp = self.omp.clone();
-                let cwd = self.cwd.clone();
+                let configuration = self.configuration.clone();
                 std::thread::spawn(move || {
                     let result = if project {
-                        settings::set_project(&path, &name, value)
+                        configuration.set_project(&base, &name, value)
                     } else {
                         match value {
-                            Some(v) => settings::command(
-                                &omp,
-                                &cwd,
-                                &["config", "set", &name, &v.to_string(), "--json"],
-                            )
-                            .map(|_| ()),
-                            None => {
-                                settings::command(&omp, &cwd, &["config", "reset", &name, "--json"])
-                                    .map(|_| ())
-                            }
+                            Some(v) => configuration
+                                .command(&["config", "set", &name, &v.to_string(), "--json"])
+                                .map(|_| ()),
+                            None => configuration
+                                .command(&["config", "reset", &name, "--json"])
+                                .map(|_| ()),
                         }
                     };
                     let _ = tx.send(ResultEvent::Saved(result.map_err(|e| format!("{e:#}"))));
@@ -143,9 +184,11 @@ impl SettingsView {
             Edit::File { path, original } => {
                 let path = path.clone();
                 let original = original.clone();
+                let configuration = self.configuration.clone();
                 std::thread::spawn(move || {
                     let _ = tx.send(ResultEvent::Saved(
-                        settings::save_document(&path, &original, &text)
+                        configuration
+                            .save(&path, &original, &text)
                             .map_err(|e| format!("{e:#}")),
                     ));
                 });
@@ -164,8 +207,7 @@ impl SettingsView {
             cx.notify();
             return;
         }
-        let omp = self.omp.clone();
-        let cwd = self.cwd.clone();
+        let configuration = self.configuration.clone();
         let project = self.project;
         let tx = self.tx.clone();
         self.busy = true;
@@ -178,7 +220,7 @@ impl SettingsView {
                 args.push("--local");
             }
             args.push("--json");
-            let result = settings::command(&omp, &cwd, &args).and_then(|s| {
+            let result = configuration.command(&args).and_then(|s| {
                 if action == "list" {
                     Ok(s)
                 } else {
@@ -186,7 +228,7 @@ impl SettingsView {
                     if project {
                         args.push("--local");
                     }
-                    settings::command(&omp, &cwd, &args)
+                    configuration.command(&args)
                 }
             });
             let _ = tx.send(ResultEvent::Plugins(result.map_err(|e| format!("{e:#}"))));
@@ -200,7 +242,9 @@ impl SettingsView {
             cx.notify();
             return;
         }
-        let path = self.base().join("skills").join(&name).join("SKILL.md");
+        let path = self
+            .configuration
+            .join(&self.base(), &format!("skills/{name}/SKILL.md"));
         let template = format!(
             "---\nname: {name}\ndescription: 描述这个技能适用的任务\n---\n\n在这里编写技能指令。\n"
         );

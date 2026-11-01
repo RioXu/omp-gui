@@ -2,11 +2,11 @@
 
 基于 Rust / gpui-kit 0.8.1 的 Windows 原生 OMP 客户端。支持会话、代码选区评论、文件与变更标签、当前标签查找，以及 OMP 模型、服务和子智能体配置。界面不使用 WebView。
 
-本文对应当前源码，最后核对于 2026-10-31。构建版本以 Cargo.toml 为准；源码改动与历史版本记录见[变更记录](docs/changelog.md)。
+本文对应当前源码，最后核对于 2026-11-01。构建版本以 Cargo.toml 为准；源码改动与历史版本记录见[变更记录](docs/changelog.md)。
 
 ## 快速开始
 
-运行需要 Windows、本机 OMP 和 Git。源码构建另需 Rust MSVC 工具链、Visual Studio C++ Build Tools 和 Windows SDK。
+桌面端需要 Windows。本地模式需要本机 OMP 和 Git；远程模式使用 OpenSSH 连接 Linux，在远端运行 OMP 和 Git。源码构建另需 Rust MSVC 工具链、Visual Studio C++ Build Tools 和 Windows SDK。
 
 ```powershell
 cargo build --locked
@@ -22,6 +22,8 @@ cargo run -- --probe --data-dir ".\target\probe-data"
 ```
 
 演示模式不发送模型任务；设置功能仍依赖本机 OMP。`--probe` 使用 PATH 中的 `omp` 检查协议握手，不发送提示词。发布优化构建及 Windows 环境问题见[构建与验证](docs/testing.md)。
+
+左侧 OMP 标题下的环境菜单可新增 SSH 连接，例如 `unraid-Ubtuntu`，并切换本地／远程环境。OMP 默认从各自用户环境查找，也支持路径覆盖；两种模式共用组件式目录选择器。远端文件按需读取和保存，不复制整份项目。连接中断或关闭 GUI 后，远端运行中的任务继续由监督服务管理，重连后恢复状态；远端服务或主机重启不保证工具继续运行。部署、profile 和限制见[远程 Linux 使用说明](docs/remote.md)。
 
 ## 主要操作
 
@@ -46,15 +48,16 @@ cargo run -- --probe --data-dir ".\target\probe-data"
 | --- | --- |
 | [使用与配置](docs/usage.md) | 快捷键、队列、评论、文件标签、命令目标、模型与子智能体表单、数据范围及限制 |
 | [组件职责与维护约定](docs/architecture.md) | 模块边界、依赖方向、状态归属和行为约定 |
-| [构建、测试与验证](docs/testing.md) | Windows 构建、86 项离线测试、Linux 共享核心检查、8 项显式本机测试及界面验证隔离 |
+| [远程 Linux](docs/remote.md) | SSH、自动部署、环境与 profile、远端项目及断线恢复 |
+| [构建、测试与验证](docs/testing.md) | Windows／Linux 检查、离线测试、显式 OMP／SSH 测试及界面验证隔离 |
 | [变更与历史记录](docs/changelog.md) | 当前未发布改动和早期版本记录 |
 
 ## 数据与兼容
 
-GUI 数据默认位于 `%LOCALAPPDATA%\OMP GUI`，可用 `--data-dir` 或 `OMP_GUI_DATA_DIR` 指定；一个数据目录同时只有一个可写窗口。OMP 配置目录由本机 `omp config path` 决定，和 GUI 数据目录分别管理。
+GUI 数据默认位于 `%LOCALAPPDATA%\OMP GUI`，可用 `--data-dir` 或 `OMP_GUI_DATA_DIR` 指定；一个数据目录同时只有一个可写窗口。OMP 配置目录由所选环境的 `omp config path` 决定，和 GUI 数据目录分别管理。工作区升级为版本 2，首次保存旧版本时保留原始 `workspace.v1.backup.json`。
 
 原生会话共用 OMP 的项目存储，GUI 删除也会删除终端可恢复的对应记录。评论、草稿和归档状态保存在 GUI 数据目录。`--data-dir` 仅隔离 GUI 数据；测试时如需隔离原生会话，另设 `PI_CODING_AGENT_DIR`，见[界面验证隔离](docs/testing.md#界面验证隔离)。
 
 普通文件支持编辑与保存；变更、历史引用及演示快照保持只读。打开文件支持 UTF-8、单文件不超过 2 MB、最多枚举 5000 项。LaTeX 公式暂显示原文。高级服务配置、认证和未覆盖的功能仍可通过 OMP 原生入口维护，详见[使用范围](docs/usage.md#数据目录与限制)。
 
-当前已验证本机 OMP 18.11.3；附带公开目录来源标注为 18.14.0，二者并非同一兼容性声明。协议与配置参考 [OMP 官方文档](https://github.com/can1357/oh-my-pi/tree/main/docs)，原生组件参考 [gpui-kit](https://github.com/longbridge/gpui-kit)。
+已验证本机 OMP 18.11.3 和远端 Linux x86_64 的 OMP 18.14.2；附带公开目录来源标注为 18.14.0，这些不是最低版本声明。协议与配置参考 [OMP 官方文档](https://github.com/can1357/oh-my-pi/tree/main/docs)，原生组件参考 [gpui-kit](https://github.com/longbridge/gpui-kit)。

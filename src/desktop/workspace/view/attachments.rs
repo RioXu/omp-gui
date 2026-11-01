@@ -73,7 +73,7 @@ impl Workspace {
         {
             content = content.child(self.render_attachments(
                 &session.draft_attachments,
-                !self.save_disabled,
+                !self.save_disabled && self.runtime.preparing.is_none(),
                 "draft",
                 cx,
             ));

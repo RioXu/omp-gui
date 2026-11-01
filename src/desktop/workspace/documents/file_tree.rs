@@ -9,6 +9,15 @@ struct Node {
 }
 
 pub(crate) fn update(tree: &mut TreeState, paths: &[PathBuf], cx: &mut Context<TreeState>) {
+    update_for_host(tree, paths, false, cx)
+}
+
+pub(crate) fn update_for_host(
+    tree: &mut TreeState,
+    paths: &[PathBuf],
+    posix: bool,
+    cx: &mut Context<TreeState>,
+) {
     fn remember(item: &TreeItem, expanded: &mut std::collections::HashSet<String>) {
         if item.is_expanded() {
             expanded.insert(item.id.to_string());
@@ -39,7 +48,7 @@ pub(crate) fn update(tree: &mut TreeState, paths: &[PathBuf], cx: &mut Context<T
         }
     }
     tree.set_items(
-        items(paths)
+        items_for_host(paths, posix)
             .into_iter()
             .map(|i| restore(i, &expanded))
             .collect::<Vec<_>>(),
@@ -49,15 +58,27 @@ pub(crate) fn update(tree: &mut TreeState, paths: &[PathBuf], cx: &mut Context<T
         tree.set_selected_index(tree.index_of(&id), cx);
     }
 }
-pub(crate) fn items(paths: &[PathBuf]) -> Vec<TreeItem> {
+#[cfg(test)]
+fn items(paths: &[PathBuf]) -> Vec<TreeItem> {
+    items_for_host(paths, false)
+}
+
+fn items_for_host(paths: &[PathBuf], posix: bool) -> Vec<TreeItem> {
     let mut root = Node::default();
     for path in paths {
         let mut node = &mut root;
-        for part in path.components() {
-            node = node
-                .children
-                .entry(part.as_os_str().to_string_lossy().into_owned())
-                .or_default();
+        let parts = if posix {
+            path.to_string_lossy()
+                .split('/')
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        } else {
+            path.components()
+                .map(|part| part.as_os_str().to_string_lossy().into_owned())
+                .collect()
+        };
+        for part in parts {
+            node = node.children.entry(part).or_default();
         }
         node.file = true;
     }

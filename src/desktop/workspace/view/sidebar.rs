@@ -12,9 +12,8 @@ impl Workspace {
     ) -> AnyElement {
         let disabled = self.save_disabled;
         let groups = self
-            .db
-            .projects
-            .iter()
+            .environment_projects()
+            .into_iter()
             .map(|project| {
                 let mut sessions = self
                     .db
@@ -22,7 +21,9 @@ impl Workspace {
                     .iter()
                     .enumerate()
                     .filter(|(_, s)| {
-                        &s.project == project && !s.deleted && s.archived == self.show_archived
+                        s.project_location() == project
+                            && !s.deleted
+                            && s.archived == self.show_archived
                     })
                     .collect::<Vec<_>>();
                 sessions.sort_by_key(|(_, s)| std::cmp::Reverse(s.updated));
@@ -77,16 +78,11 @@ impl Workspace {
                     .collect();
                 ProjectNavigation {
                     path: project.clone(),
-                    label: project
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .into_owned()
-                        .into(),
+                    label: project.label().into(),
                     sessions,
                     workspace: cx.entity().downgrade(),
                     archived: self.show_archived,
-                    folded: self.collapsed_projects.contains(project),
+                    folded: self.collapsed_projects.contains(&project),
                     disabled,
                 }
             })
@@ -119,6 +115,7 @@ impl Workspace {
                                     .child("OMP"),
                             ),
                     )
+                    .child(self.render_environment_selector(cx))
                     .child(
                         div().group("projects-heading").px_3().pt_2().child(
                             Toolbar::new("projects-toolbar")
@@ -185,6 +182,62 @@ impl Workspace {
                             .on_click(cx.listener(|this, _, w, cx| this.settings(w, cx))),
                     )
                     .render("sidebar-actions", window, cx),
+            )
+            .into_any_element()
+    }
+
+    fn render_environment_selector(&self, cx: &mut Context<Self>) -> AnyElement {
+        let environments = self.db.environments.clone();
+        let active = self.db.active_environment.clone();
+        let label = if active == "local" {
+            "本地".into()
+        } else {
+            format!("SSH：{}", self.environment().name)
+        };
+        let weak = cx.entity().downgrade();
+        div()
+            .px_3()
+            .pt_2()
+            .child(
+                Button::new("execution-environment")
+                    .ghost()
+                    .small()
+                    .w_full()
+                    .label(label)
+                    .disabled(self.save_disabled)
+                    .dropdown_menu(move |mut menu, _, _| {
+                        for environment in &environments {
+                            let id = environment.id.clone();
+                            let weak = weak.clone();
+                            menu = menu.item(
+                                PopupMenuItem::new(environment.name.clone())
+                                    .checked(active == environment.id)
+                                    .on_click(move |_, w, cx| {
+                                        let _ = weak.update(cx, |this, cx| {
+                                            this.switch_environment(&id, w, cx)
+                                        });
+                                    }),
+                            );
+                        }
+                        if active != "local" {
+                            let weak = weak.clone();
+                            let active = active.clone();
+                            menu = menu.item(PopupMenuItem::new("编辑当前连接…").on_click(
+                                move |_, w, cx| {
+                                    let _ = weak.update(cx, |this, cx| {
+                                        this.manage_connection(Some(active.clone()), w, cx)
+                                    });
+                                },
+                            ));
+                        }
+                        let weak = weak.clone();
+                        menu.item(
+                            PopupMenuItem::new("新增 SSH 连接…").on_click(move |_, w, cx| {
+                                let _ =
+                                    weak.update(cx, |this, cx| this.manage_connection(None, w, cx));
+                            }),
+                        )
+                    }),
             )
             .into_any_element()
     }

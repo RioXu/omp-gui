@@ -18,7 +18,7 @@ impl Render for FileListFixture {
                 1,
                 cx.processor(|this, _, _, cx| {
                     vec![
-                        changed_file_item(&this.change, true, cx).on_click(cx.listener(
+                        changed_file_item(&this.change, true, false, cx).on_click(cx.listener(
                             |this, _, _, cx| {
                                 this.clicked = true;
                                 cx.notify();

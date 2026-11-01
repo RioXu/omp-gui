@@ -5,7 +5,7 @@ use gpui_kit::component::Collapsible;
 // session identities here; Sidebar still owns scrolling and menu presentation.
 #[derive(Clone)]
 pub(super) struct ProjectNavigation {
-    pub(super) path: std::path::PathBuf,
+    pub(super) path: omp_core::environment::ProjectLocation,
     pub(super) label: SharedString,
     pub(super) sessions: Vec<(SharedString, SidebarMenuItem)>,
     pub(super) workspace: WeakEntity<Workspace>,
@@ -30,7 +30,11 @@ impl SidebarItem for ProjectNavigation {
         window: &mut Window,
         cx: &mut App,
     ) -> impl IntoElement {
-        let group_id = SharedString::from(format!("project-{}", self.path.display()));
+        let group_id = SharedString::from(format!(
+            "project-{}-{}",
+            self.path.environment,
+            self.path.path.text()
+        ));
         let action_group = group_id.clone();
         let toggle = self.workspace.clone();
         let toggle_path = self.path.clone();
@@ -109,11 +113,7 @@ impl SidebarItem for ProjectNavigation {
                                                     .on_click(move |_, w, cx| {
                                                         cx.stop_propagation();
                                                         let _ = weak.update(cx, |this, cx| {
-                                                            this.new_project_session(
-                                                                path.clone(),
-                                                                w,
-                                                                cx,
-                                                            )
+                                                            this.new_session_at(path.clone(), w, cx)
                                                         });
                                                     }),
                                             ),

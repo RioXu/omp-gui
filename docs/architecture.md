@@ -2,7 +2,7 @@
 
 [返回 README](../README.md) · [使用说明](usage.md) · [构建与验证](testing.md)
 
-项目使用 Cargo workspace。根包负责 Windows 桌面界面；`crates/omp-core` 提供可在 Windows 和 Linux 独立构建的领域规则及基础设施，不依赖 GPUI。根库重导出共享组件，保持已有集成测试入口兼容。
+项目使用 Cargo workspace。根包负责 Windows 桌面界面；`crates/omp-core` 提供可在 Windows 和 Linux 独立构建的领域规则及基础设施，不依赖 GPUI；`crates/omp-remote` 是 Linux 服务。根库重导出共享组件，保持已有集成测试入口兼容。
 
 默认在 `main` 分支直接工作，只有用户明确要求时才创建或切换其他分支；仓库约定见 [AGENTS.md](../AGENTS.md)。
 
@@ -15,7 +15,8 @@ src/
 crates/omp-core/src/
   domain/                         会话、消息、评论、快照和历史规则
   environment/                    环境身份及本地/POSIX 路径类型
-  host/                           目录浏览、项目文件接口与本地适配
+  host/                           目录／文件／监听接口、ExecutionHost、NativeStore、Configuration
+  remote/                         版本化管理协议、SSH、重连与操作确认记录
   infrastructure/
     omp/                          OMP 子进程、JSONL 协议与安装检测
       sessions/                   原生会话发现、历史读取、迁移、创建删除和占用锁
@@ -26,7 +27,12 @@ crates/omp-core/src/
       authoring/                  子智能体文档、角色映射与原生模型能力
       providers/                  服务目录、模型覆盖、连接验证与凭据导入
     process.rs                    Windows 隐藏子进程的通用启动方式
+crates/omp-remote/src/
+  main.rs                         stdio 管理请求、监听模式与用户环境启动
+  daemon/                         私有 Unix socket、会话监督与有界事件恢复
 src/desktop/
+    project_picker.rs             本地／远端共用的组件式目录选择器
+    remote_install.rs             校验并上传服务产物或内置源码
     bootstrap.rs                  参数、主题、快捷键和原生窗口创建
     theme.rs                      gpui-kit 语义主题
     workspace/                    主工作区协调与交互功能
@@ -49,13 +55,19 @@ resources/                        随版本附带的服务目录等静态数据
 scripts/                          开发与数据更新工具
 ```
 
-允许的依赖方向是 `desktop → infrastructure → domain`，桌面层也可直接使用领域类型。`domain` 不引用 GPUI、基础设施或桌面层；`infrastructure` 不引用桌面层或 GPUI。领域层负责数据和规则，涉及文件系统、环境配置、OMP 安装路径等操作放在基础设施中。
+桌面层通过 `host` 能力接口使用本地／远端适配，也可直接使用领域类型；适配器调用基础设施。`domain` 和纯环境／路径类型不引用 GPUI、基础设施或桌面层；`infrastructure` 与 `remote` 不引用桌面层或 GPUI。领域层负责数据和规则，文件系统、环境配置及 OMP 安装发现等效果放在适配器及基础设施中，Linux 服务只依赖共享核心。
 
 `desktop` 是 Windows 原生客户端，明确替代含义宽泛的 `app` 命名。`workspace` 是主窗口的工作区，而不是整个程序。OMP 通信明确称为 `omp::Client`，不再用 `engine` 混合指代协议、业务和测试。
 
-`DirectoryBrowser` 隔离目录选择与本机文件访问；`ProjectFiles` 隔离项目列表、文档读取和带版本校验的保存；`SessionConnection` 隔离会话 RPC 传输。`environment::HostPath` 区分本地路径与 POSIX 路径，远端路径不能交给本地解析器。当前本地实现接入文件操作，目录选择由 `desktop/project_picker.rs` 统一使用 Input、Button、虚拟列表及 Dialog 构成，不调用系统文件选择窗口。浏览异步执行，按请求代次丢弃迟到结果。
+`DirectoryBrowser` 隔离目录选择与本机文件访问；`ProjectFiles` 隔离项目列表、文档读取和带版本校验的保存；`FileWatch` 隔离文件通知；`SessionConnection` 隔离会话 RPC 传输。`ExecutionHost` 组合本地与 SSH 适配，`NativeStore` 负责对应原生存储，`Configuration` 将配置效果留在所属环境。`environment::HostPath` 区分本地路径与 POSIX 路径，远端路径不能交给本地解析器。目录选择由 `desktop/project_picker.rs` 统一使用 Input、Button、虚拟列表及 Dialog 构成，不调用系统文件选择窗口。浏览异步执行，按请求代次丢弃迟到结果。
 
 新工作区的 OMP 使用 PATH 中的 `omp`，设置路径留空恢复自动查找，已有人工路径覆盖保留。共享核心同时兼容 Windows 互斥锁和 Linux 抽象 Unix socket 原生会话占用规则；Linux 路径身份区分大小写。
+
+`workspace/environments.rs` 管理稳定环境身份、连接、切换及异步会话创建／删除。Host 或 profile 改变时新增归属，不把旧历史改指向新主机；会话保留 `ProjectLocation`，后台事件在其原运行时处理。工作区版本 1 兼容迁移到版本 2，首次保存保留原始备份，不修改原生 OMP 日志。
+
+`remote/requests.rs` 使用有界管理队列和请求期限，发生传输错误后重建通道；只读操作可重试，变更只查询受理／结果记录。`remote/session.rs` 为模型事件桥保留进程代次、序号和未确认操作，退避重连，不重发原生变更。大附件使用独立通道，管理操作、文件监听与模型事件不共用阻塞流；不依赖 Windows 的 SSH ControlMaster。
+
+Linux `daemon` 按用户／profile／协议／版本建立私有 Unix socket，每个原生会话只有一个写入者。OMP 由持续存在的会话线程创建，与 SSH 生命周期分离；父线程意外退出时通过 Linux 父死亡信号结束 OMP，避免遗留无管理的原生写入者。服务保留有界内存事件；缺口或积压过多时由 GUI 请求原生历史、状态及订阅快照，并按权威列表清理／去重交互请求。操作记录先落盘再执行，保存确认后再清 dirty；确认不明时保留编辑，必要时核对实际目标与精确内容。断线不代表任务停止，远端 OMP／服务退出不承诺工具无缝恢复。生命周期、部署和资源限制见[远程说明](remote.md)。
 
 ## 状态、交互与渲染
 
@@ -112,9 +124,9 @@ OMP 适配器进一步分为：`client.rs` 管理进程及收发线程，`framin
 CI 执行格式检查、所有目标的 Clippy 和默认测试，配置见 [check.yml](../.github/workflows/check.yml)：
 
 ```powershell
-cargo fmt --check
-cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked
+cargo fmt --all --check
+cargo clippy --workspace --locked --all-targets -- -D warnings
+cargo test --workspace --locked
 ```
 
 本地构建额外执行 `cargo build --locked`。当前测试清单、本机集成测试的具体名称与依赖，以及 GUI 数据／OMP 配置的隔离方法统一维护在[验证说明](testing.md)，避免在多处保留过时计数和命令。
@@ -131,4 +143,4 @@ python scripts/update_service_catalog.py D:\src\oh-my-pi
 
 输入必须是包含 `packages/catalog/src/models.json`、兼容规则和 `packages/coding-agent/package.json` 的 OMP 源码目录。脚本仅提取公开字段，不读取认证凭据；不要手工维护服务枚举。更新后核对来源版本、授权与目录测试，重新验证与本机可用模型的合并。
 
-输入框和配置表单的可用模型及推理档位来自本机 OMP，不以附带目录判定账户可用性。服务注册界面则合并附带目录与本机目录，帮助注册尚未配置的服务；新的尚未注册内置服务可能需要随 GUI 更新元数据，也可通过自定义入口配置。
+输入框和配置表单的可用模型及推理档位来自所属环境的 OMP，不以附带目录判定账户可用性。服务注册界面则合并附带目录与该环境的目录，帮助注册尚未配置的服务；新的尚未注册内置服务可能需要随 GUI 更新元数据，也可通过自定义入口配置。

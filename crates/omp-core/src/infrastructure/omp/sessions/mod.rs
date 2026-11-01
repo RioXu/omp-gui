@@ -22,7 +22,7 @@ use std::{
     time::SystemTime,
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct NativeSession {
     pub id: String,
     pub path: PathBuf,
@@ -35,6 +35,7 @@ pub struct NativeSession {
     pub agents: Vec<Value>,
 }
 /// Background discovery needs bindings, never GUI snapshots or comment bodies.
+#[derive(Clone, serde::Serialize, serde::Deserialize, Debug)]
 pub struct Registration {
     pub id: String,
     title: String,
@@ -64,6 +65,7 @@ pub struct SessionStore {
     owners: PathBuf,
     cache: Arc<Mutex<Cache>>,
 }
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct Scan {
     pub sessions: Vec<NativeSession>,
     pub bindings: Vec<(String, NativeSession)>,
@@ -71,6 +73,20 @@ pub struct Scan {
     pub errors: Vec<String>,
 }
 impl SessionStore {
+    pub fn child_transcript(
+        primary: &Path,
+        agent: &str,
+        explicit: Option<&Path>,
+    ) -> Result<Vec<Message>> {
+        let artifacts = primary.with_extension("");
+        let path = explicit
+            .map(Path::to_owned)
+            .unwrap_or_else(|| artifacts.join(format!("{agent}.jsonl")));
+        let base = fs::canonicalize(&artifacts)?;
+        let path = fs::canonicalize(path)?;
+        ensure!(path.starts_with(base), "子会话不属于当前主会话");
+        Self::transcript(&path)
+    }
     pub fn transcript(path: &Path) -> Result<Vec<Message>> {
         Ok(history::read(path)?.messages.as_ref().clone())
     }
@@ -105,6 +121,18 @@ impl SessionStore {
     pub fn available(&self, id: &str) -> Result<()> {
         drop(lease::acquire(&self.owners, id)?);
         Ok(())
+    }
+    /// Validate a requested journal against this profile and the actual project.
+    pub fn inspect(&self, path: &Path, cwd: &Path) -> Result<NativeSession> {
+        let path = fs::canonicalize(path)?;
+        let root = fs::canonicalize(self.root.join("sessions"))?;
+        ensure!(path.starts_with(root), "会话不属于当前 OMP profile");
+        let native = history::read(&path)?;
+        ensure!(
+            fs::canonicalize(&native.cwd)? == fs::canonicalize(cwd)?,
+            "会话不属于当前项目"
+        );
+        Ok(native)
     }
     pub fn list(&self, projects: &[PathBuf]) -> Result<Vec<NativeSession>> {
         let scan = self.scan(projects, &[], Path::new(""))?;

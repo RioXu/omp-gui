@@ -88,16 +88,19 @@ impl Workspace {
                 let paths = &self.document_state.files;
                 let tree_state = &self.document_state.tree;
                 let weak = cx.entity().downgrade();
+                let posix = self
+                    .session()
+                    .is_some_and(|session| session.environment_id() != "local");
                 let active_path = self
                     .document_state
                     .path
                     .as_ref()
-                    .map(|p| p.to_string_lossy().replace('\\', "/"));
+                    .map(|p| omp_core::environment::display_path(p, posix));
                 let changes = self
                     .document_state
                     .changes
                     .iter()
-                    .map(|c| (c.path.to_string_lossy().replace('\\', "/"), c.kind))
+                    .map(|c| (omp_core::environment::display_path(&c.path, posix), c.kind))
                     .collect::<std::collections::HashMap<_, _>>();
                 body = body.child(
                     div().flex_1().min_h_0().child(

@@ -27,8 +27,7 @@ impl RegistryView {
             cx.notify();
             return;
         }
-        let omp = self.omp.clone();
-        let cwd = self.cwd.clone();
+        let configuration = self.configuration.clone();
         let root = self.root.clone();
         let project = self.project;
         let enabled = self.web_enabled;
@@ -40,38 +39,22 @@ impl RegistryView {
                     let provider = service
                         .strip_prefix("web/")
                         .unwrap_or_else(|| service.split('/').next().unwrap_or(&service));
-                    registry::import_key(&omp, &cwd, provider, &key)?;
+                    configuration.call::<()>(ConfigAction::ImportKey {
+                        omp: configuration.omp.clone(),
+                        cwd: configuration.cwd.text(),
+                        provider: provider.into(),
+                        key: key.clone(),
+                    })?;
                 }
                 if service == "web/searxng" {
-                    registry::save_scoped(
-                        &omp,
-                        &cwd,
-                        &root,
-                        project,
-                        "searxng.endpoint",
-                        json!(url),
-                    )?;
+                    configuration.save_scoped(&root, project, "searxng.endpoint", json!(url))?;
                     if !token.is_empty() {
-                        registry::save_scoped(
-                            &omp,
-                            &cwd,
-                            &root,
-                            project,
-                            "searxng.token",
-                            json!(token),
-                        )?;
+                        configuration.save_scoped(&root, project, "searxng.token", json!(token))?;
                     }
                 }
-                registry::save_scoped(&omp, &cwd, &root, project, "modelRoles", roles)?;
-                registry::save_scoped(&omp, &cwd, &root, project, "retry.fallbackChains", chains)?;
-                registry::save_scoped(
-                    &omp,
-                    &cwd,
-                    &root,
-                    project,
-                    "web_search.enabled",
-                    json!(enabled),
-                )
+                configuration.save_scoped(&root, project, "modelRoles", roles)?;
+                configuration.save_scoped(&root, project, "retry.fallbackChains", chains)?;
+                configuration.save_scoped(&root, project, "web_search.enabled", json!(enabled))
             })();
             let _ = tx.send(ResultEvent::WebSaved(result.map_err(|e| format!("{e:#}"))));
         });

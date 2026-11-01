@@ -1,0 +1,15 @@
+[package]
+name = "omp-gui-remote"
+version = "0.8.0"
+edition = "2024"
+license = "MIT"
+description = "Linux host service for OMP GUI over SSH"
+
+[dependencies]
+omp-core = { path = "../omp-core" }
+anyhow = "1"
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

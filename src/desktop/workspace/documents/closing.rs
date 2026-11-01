@@ -7,7 +7,8 @@ use gpui_kit::component::{
 #[derive(Clone)]
 pub(in crate::desktop::workspace) enum LeaveAction {
     Activate(String),
-    NewSession(PathBuf),
+    NewSession(omp_core::environment::ProjectLocation),
+    SwitchEnvironment(String),
     ManageSession { id: String, delete: bool },
     CloseAll,
     CloseWindow,
@@ -15,6 +16,8 @@ pub(in crate::desktop::workspace) enum LeaveAction {
 
 impl Workspace {
     pub(in crate::desktop::workspace) fn clear_documents(&mut self) {
+        self.document_state.references = Default::default();
+        self.document_state.watch_retry = None;
         self.document_state.subscriptions.clear();
         self.document_state.tabs.clear();
         self.activate_document(None);
@@ -38,12 +41,11 @@ impl Workspace {
             cx.notify();
             return;
         }
-        let name = tab
-            .path
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .into_owned();
+        let name = omp_core::environment::file_label(
+            &tab.path,
+            self.session()
+                .is_some_and(|session| session.environment_id() != "local"),
+        );
         let token = id();
         self.document_state.prompt = Some(token.clone());
         let session = self.session().map(|s| s.id.clone());
@@ -112,6 +114,14 @@ impl Workspace {
                                 return true;
                             }
                             if !this.save_document(&save_key, w, cx) {
+                                if let Some(tab) = this
+                                    .document_state
+                                    .tabs
+                                    .iter_mut()
+                                    .find(|tab| tab.key == save_key && tab.saving.is_some())
+                                {
+                                    tab.close_after_save = Some(save_token.clone());
+                                }
                                 return false;
                             }
                             this.document_state.prompt = None;
@@ -223,7 +233,10 @@ impl Workspace {
                     self.activate(ix, window, cx);
                 }
             }
-            LeaveAction::NewSession(path) => self.new_project_session(path, window, cx),
+            LeaveAction::NewSession(path) => self.new_session_at(path, window, cx),
+            LeaveAction::SwitchEnvironment(environment) => {
+                self.switch_environment(&environment, window, cx)
+            }
             LeaveAction::ManageSession { id, delete } => {
                 self.manage_session(&id, delete, window, cx)
             }

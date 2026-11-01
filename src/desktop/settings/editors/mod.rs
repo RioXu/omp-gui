@@ -18,14 +18,13 @@ enum EditorResult {
 }
 
 fn channel(
-    omp: String,
-    cwd: PathBuf,
+    configuration: Configuration,
 ) -> (mpsc::Sender<EditorResult>, mpsc::Receiver<EditorResult>) {
     let (tx, rx) = mpsc::channel();
     let result_tx = tx.clone();
     std::thread::spawn(move || {
         let _ = result_tx.send(EditorResult::Models(
-            authoring::available_models(&omp, &cwd).map_err(|e| format!("{e:#}")),
+            configuration.models().map_err(|e| format!("{e:#}")),
         ));
     });
     (tx, rx)

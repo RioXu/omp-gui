@@ -8,6 +8,7 @@ struct RoleRow {
 }
 pub(in crate::desktop::settings) struct RoleEditor {
     draft: authoring::RoleDraft,
+    configuration: Configuration,
     rows: Vec<RoleRow>,
     models: Vec<Value>,
     new_name: Entity<InputState>,
@@ -21,8 +22,7 @@ impl EventEmitter<EditorEvent> for RoleEditor {}
 impl RoleEditor {
     pub(in crate::desktop::settings) fn new(
         draft: authoring::RoleDraft,
-        omp: String,
-        cwd: PathBuf,
+        configuration: Configuration,
         w: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -57,7 +57,7 @@ impl RoleEditor {
                 }
             })
             .collect();
-        let (tx, rx) = channel(omp, cwd);
+        let (tx, rx) = channel(configuration.clone());
         cx.spawn_in(w, async move |view, cx| {
             loop {
                 cx.background_executor()
@@ -102,6 +102,7 @@ impl RoleEditor {
         .detach();
         Self {
             draft,
+            configuration,
             rows,
             models: Vec::new(),
             new_name: cx.new(|cx| InputState::new(w, cx).placeholder("例如 review、fast_worker")),
@@ -160,10 +161,16 @@ impl RoleEditor {
             }
         }
         let (draft, tx) = (self.draft.clone(), self.tx.clone());
+        let configuration = self.configuration.clone();
         self.busy = true;
         std::thread::spawn(move || {
             let _ = tx.send(EditorResult::Saved(
-                draft.save(values).map_err(|e| format!("{e:#}")),
+                configuration
+                    .call(ConfigAction::SaveRoles {
+                        draft: Box::new(draft),
+                        values,
+                    })
+                    .map_err(|e| format!("{e:#}")),
             ));
         });
         cx.notify();

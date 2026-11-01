@@ -5,6 +5,26 @@ use serde_json::Value;
 
 pub(super) const MAX_FRAME: usize = 1024 * 1024;
 pub(super) const MAX_MESSAGE: usize = 64 * 1024 * 1024;
+/// Encode a logical message using the same protocol-v2 chunks as native OMP.
+pub fn encode(frame: &Value) -> Result<Vec<u8>> {
+    let mut bytes = serde_json::to_vec(frame)?;
+    ensure!(bytes.len() < MAX_MESSAGE, "OMP message exceeds limit");
+    if bytes.len() < MAX_FRAME {
+        bytes.push(b'\n');
+        return Ok(bytes);
+    }
+    let id = crate::domain::id();
+    let count = bytes.len().div_ceil(512 * 1024);
+    let mut output = Vec::new();
+    for (index, part) in bytes.chunks(512 * 1024).enumerate() {
+        serde_json::to_writer(
+            &mut output,
+            &serde_json::json!({"type":"rpc_chunk","chunkId":id,"index":index,"count":count,"byteLength":bytes.len(),"data":STANDARD.encode(part)}),
+        )?;
+        output.push(b'\n');
+    }
+    Ok(output)
+}
 #[derive(Default)]
 pub struct Decoder {
     chunk: Option<Chunk>,
@@ -70,6 +90,20 @@ impl Decoder {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn supervisor_encodes_large_unicode_messages_with_bounded_physical_frames() {
+        let value = json!({"type":"message_update","text":"中文🌍".repeat(250000)});
+        let encoded = encode(&value).unwrap();
+        let mut decoder = Decoder::default();
+        let mut restored = None;
+        for line in encoded.split_inclusive(|byte| *byte == b'\n') {
+            assert!(line.len() <= MAX_FRAME);
+            if let Some(value) = decoder.decode(line).unwrap() {
+                restored = Some(value);
+            }
+        }
+        assert_eq!(restored.unwrap(), value);
+    }
     #[test]
     fn chunked_unicode_roundtrip() {
         let bytes = serde_json::to_vec(&json!({"type":"message_end","text":"你好 🌍"})).unwrap();

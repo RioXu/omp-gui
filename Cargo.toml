@@ -1,12 +1,12 @@
 [package]
 name = "omp-gui"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2024"
 description = "A native Windows workspace for Oh My Pi"
 license = "MIT"
 
 [workspace]
-members = ["crates/omp-core"]
+members = ["crates/omp-core", "crates/omp-remote"]
 default-members = [".", "crates/omp-core"]
 resolver = "3"
 
@@ -18,20 +18,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
 anyhow = "1"
-similar = "2"
 ropey = "=2.0.0-beta.1"
-notify = "=8.2.1"
 base64 = "0.22"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff", "ico", "pnm"] }
 sha2 = "0.10"
-yaml-edit = "0.3.5"
-serde_yaml_ng = "0.10"
+tar = "0.4"
 chrono = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
-xxhash-rust = { version = "0.8.15", features = ["xxh64"] }
-
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_Security"] }
 
 [dev-dependencies]
 omp-core = { path = "crates/omp-core", features = ["test-support"] }

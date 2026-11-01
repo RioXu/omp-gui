@@ -4,6 +4,7 @@ use gpui_kit::component::form::{field, v_form};
 pub(in crate::desktop::settings) struct AgentEditor {
     base: PathBuf,
     draft: authoring::AgentDraft,
+    configuration: Configuration,
     name: Entity<InputState>,
     description: Entity<InputState>,
     prompt: Entity<TextareaState>,
@@ -19,13 +20,12 @@ impl AgentEditor {
     pub(in crate::desktop::settings) fn new(
         base: PathBuf,
         draft: authoring::AgentDraft,
-        omp: String,
-        cwd: PathBuf,
+        configuration: Configuration,
         aliases: Value,
         w: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let (tx, rx) = channel(omp, cwd);
+        let (tx, rx) = channel(configuration.clone());
         let name = cx.new(|cx| {
             InputState::new(w, cx)
                 .placeholder("例如 reviewer")
@@ -92,6 +92,7 @@ impl AgentEditor {
         Self {
             base,
             draft,
+            configuration,
             name,
             description,
             prompt,
@@ -122,11 +123,17 @@ impl AgentEditor {
             }
         };
         let (draft, base, tx) = (self.draft.clone(), self.base.clone(), self.tx.clone());
+        let configuration = self.configuration.clone();
         self.busy = true;
         std::thread::spawn(move || {
             let _ = tx.send(EditorResult::Saved(
-                draft
-                    .save(&base, &name, &text)
+                configuration
+                    .call(ConfigAction::SaveAgent {
+                        draft: Box::new(draft),
+                        base: base.to_string_lossy().into_owned(),
+                        name,
+                        text,
+                    })
                     .map_err(|e| format!("{e:#}")),
             ));
         });

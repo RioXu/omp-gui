@@ -50,7 +50,19 @@ impl Render for SettingsView {
                 .p_4()
                 .border_b_1()
                 .border_color(theme.border)
-                .child(div().text_lg().flex_1().child(self.category))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .child(div().text_lg().child(self.category))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .truncate()
+                                .child(self.configuration.target_label()),
+                        ),
+                )
                 .child(
                     Button::new("scope-global")
                         .small()

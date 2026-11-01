@@ -121,6 +121,20 @@ pub fn import(root: &Path, session: &str, source: Source) -> Result<Attachment> 
 /// Image payloads use the native `images` field. Ordinary files use OMP's
 /// quoted file mentions, so its own readers process text/PDF/other formats.
 pub fn prompt(text: &str, attachments: &[Attachment]) -> Result<(String, Vec<serde_json::Value>)> {
+    prompt_with_paths(text, attachments, |attachment, _| {
+        Ok(
+            crate::infrastructure::omp::sessions::plain_path(&attachment.path)
+                .to_string_lossy()
+                .replace('\\', "/"),
+        )
+    })
+}
+
+pub fn prompt_with_paths(
+    text: &str,
+    attachments: &[Attachment],
+    mut file_path: impl FnMut(&Attachment, &[u8]) -> Result<String>,
+) -> Result<(String, Vec<serde_json::Value>)> {
     ensure!(attachments.len() <= MAX_COUNT, "最多添加 16 个附件");
     ensure!(
         attachments.iter().map(|a| a.bytes).sum::<u64>() <= MAX_TOTAL,
@@ -147,9 +161,7 @@ pub fn prompt(text: &str, attachments: &[Attachment]) -> Result<(String, Vec<ser
                 serde_json::to_string(&attachment.name)?
             ));
         } else {
-            let path = crate::infrastructure::omp::sessions::plain_path(&attachment.path)
-                .to_string_lossy()
-                .replace('\\', "/");
+            let path = file_path(attachment, &bytes)?;
             ensure!(
                 !path.contains(['"', '\n', '\r']),
                 "附件路径包含不支持的字符"

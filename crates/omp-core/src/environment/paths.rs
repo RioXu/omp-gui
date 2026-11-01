@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// A remote POSIX path is never passed through the client's native path resolver.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "path", rename_all = "snake_case")]
 pub enum HostPath {
     Local(PathBuf),
@@ -11,6 +11,28 @@ pub enum HostPath {
 }
 
 impl HostPath {
+    pub fn parent(&self) -> Option<Self> {
+        match self {
+            Self::Local(path) => path.parent().map(|parent| Self::Local(parent.to_owned())),
+            Self::Posix(path) => {
+                let (parent, _) = path.trim_end_matches('/').rsplit_once('/')?;
+                Some(Self::Posix(if parent.is_empty() {
+                    "/".into()
+                } else {
+                    parent.into()
+                }))
+            }
+        }
+    }
+    pub fn is_within(&self, root: &Self) -> bool {
+        match (self, root) {
+            (Self::Local(path), Self::Local(root)) => path.starts_with(root),
+            (Self::Posix(path), Self::Posix(root)) => {
+                path == root || path.starts_with(&format!("{}/", root.trim_end_matches('/')))
+            }
+            _ => false,
+        }
+    }
     pub fn posix(path: impl Into<String>) -> Result<Self> {
         let path = path.into();
         ensure!(

@@ -20,22 +20,34 @@ impl SettingsView {
                             .label("保存 OMP 路径")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 let value = this.executable.read(cx).value().trim().to_string();
-                                this.omp = if value.is_empty() {
+                                let command = if value.is_empty() {
                                     "omp".into()
                                 } else {
                                     value
                                 };
-                                if let Err(error) =
-                                    crate::infrastructure::omp::installation::resolve(&this.omp)
-                                {
-                                    this.notice = format!("{error:#}");
-                                    cx.notify();
-                                    return;
-                                }
-                                cx.emit(SettingsEvent::OmpPath(this.omp.clone()));
-                                this.reload();
+                                let configuration = this.configuration.clone();
+                                let tx = this.tx.clone();
+                                this.busy = true;
+                                std::thread::spawn(move || {
+                                    let result = configuration
+                                        .call(ConfigAction::ResolveOmp {
+                                            omp: command.clone(),
+                                        })
+                                        .map_err(|error| format!("{error:#}"));
+                                    let _ =
+                                        tx.send(ResultEvent::OverrideValidated(command, result));
+                                });
                                 cx.notify();
                             })),
+                    )
+                    .child(
+                        Button::new("manage-ssh-connections")
+                            .label("新增 SSH 连接…")
+                            .on_click(
+                                cx.listener(|_, _, _, cx| {
+                                    cx.emit(SettingsEvent::ManageConnections)
+                                }),
+                            ),
                     )
                     .child(div().text_sm().child(
                         "新会话直接在项目目录执行，修改立即反映到该目录。不创建 Git 分支或工作树。",
@@ -89,8 +101,8 @@ impl SettingsView {
                 let mcp = self.category == "MCP";
                 body=body.child(div().text_sm().child(if mcp{"管理服务器地址、启动命令、环境变量及启用状态。OAuth 登录与诊断可使用 OMP 终端 /mcp。"}else{"管理语言服务器命令、文件类型、项目标记及 settings。OMP 保留内置服务器自动检测。"}))
                 .child(Button::new("server-config").icon(IconName::Settings).label("管理服务器…").disabled(!ready).on_click(cx.listener(move|this,_,w,cx|{
-                    let path=if mcp{this.base().join("mcp.json")}else{let base=this.base();["lsp.json",".lsp.json","lsp.yaml",".lsp.yaml","lsp.yml",".lsp.yml"].iter().map(|n|base.join(n)).find(|p|p.exists()).unwrap_or(base.join("lsp.json"))};
-                    this.file(path,if mcp{"{\n  \"mcpServers\": {}\n}\n"}else{"{\n  \"servers\": {}\n}\n"},w,cx);
+                    let _ = w;
+                    this.server_file(mcp,cx);
                 })));
             }
             "角色与提示词" | "技能" => {
@@ -117,7 +129,7 @@ impl SettingsView {
                                     .disabled(!ready)
                                     .on_click(cx.listener(|this, _, w, cx| {
                                         this.file(
-                                            this.base().join("SYSTEM.md"),
+                                            this.configuration.join(&this.base(), "SYSTEM.md"),
                                             "请在这里编写主会话的自定义系统指令。",
                                             w,
                                             cx,
@@ -131,7 +143,8 @@ impl SettingsView {
                                     .disabled(!ready)
                                     .on_click(cx.listener(|this, _, w, cx| {
                                         this.file(
-                                            this.base().join("APPEND_SYSTEM.md"),
+                                            this.configuration
+                                                .join(&this.base(), "APPEND_SYSTEM.md"),
                                             "请在这里编写追加到系统提示词的指令。",
                                             w,
                                             cx,

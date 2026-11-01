@@ -3,3 +3,4 @@ pub mod domain;
 pub mod environment;
 pub mod host;
 pub mod infrastructure;
+pub mod remote;

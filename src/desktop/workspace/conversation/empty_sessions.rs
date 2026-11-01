@@ -4,6 +4,7 @@ impl Workspace {
     pub(super) fn discard_empty_session_on_leave(&mut self, target: &str) -> Option<String> {
         if self.save_disabled
             || self.runtime.running
+            || self.runtime.preparing.is_some()
             || self.runtime.pending_send.is_some()
             || self.importing_attachments()
         {
@@ -18,6 +19,15 @@ impl Workspace {
         self.runtime.engine = None;
         self.runtime.connected = false;
         self.runtime.starting = false;
+        if (session.environment_id() != "local" || self.runtime.connection_result.is_some())
+            && session.omp_session.is_some()
+            && !self.demo
+        {
+            if let Some(store) = self.session_sync.store.clone() {
+                self.delete_native_session(session, store, true);
+            }
+            return None;
+        }
         let removed = if self.demo || session.omp_session.is_none() {
             Ok(true)
         } else {

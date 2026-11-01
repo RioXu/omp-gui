@@ -40,7 +40,7 @@ impl Workspace {
         sources: Vec<Source>,
         cx: &mut Context<Self>,
     ) {
-        if self.save_disabled {
+        if self.save_disabled || self.runtime.preparing.is_some() {
             return;
         }
         let Some(session) = self.session() else {

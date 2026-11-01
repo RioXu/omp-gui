@@ -8,7 +8,7 @@ impl RegistryView {
                 .flex()
                 .flex_col()
                 .gap_3()
-                .child(div().text_sm().child("本机 OMP 可用服务与自定义配置"))
+                .child(div().text_sm().child("当前环境 OMP 可用服务与自定义配置"))
                 .child(
                     div()
                         .flex()
@@ -42,7 +42,7 @@ impl RegistryView {
         registered.extend(self.providers.values.keys().cloned());
         if registered.is_empty() {
             body = body.child(if self.catalog_loading {
-                "正在读取本机 OMP 服务…"
+                "正在读取当前环境 OMP 服务…"
             } else {
                 "尚未发现可用服务；可选择服务配置连接。"
             });
@@ -91,7 +91,7 @@ impl RegistryView {
             );
         }
         body.child(div().text_xs().text_color(theme.muted_foreground)
-            .child("目录基于 OMP 原生模型数据，并合并本机可用模型。需要浏览器登录的账号请在 OMP 终端完成登录；未覆盖的配置仍可在终端管理。"))
+            .child("目录基于当前环境的 OMP 模型数据。需要浏览器登录的账号请在对应环境的 OMP 终端完成登录；未覆盖的配置仍可在终端管理。"))
             .into_any_element()
     }
     pub(super) fn search_directory(&self, cx: &mut Context<Self>) -> AnyElement {

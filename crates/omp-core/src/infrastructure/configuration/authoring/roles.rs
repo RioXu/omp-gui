@@ -29,7 +29,7 @@ pub fn role_names(effective: &Value) -> Vec<String> {
     names.into_iter().collect()
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct RoleDraft {
     pub values: Map<String, Value>,
     pub effective: Value,

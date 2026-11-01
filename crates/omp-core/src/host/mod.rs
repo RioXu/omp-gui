@@ -1,12 +1,18 @@
 //! Operating-host interfaces. Call blocking adapters only from worker threads.
+pub mod configuration;
+mod environment;
+pub use configuration::{ConfigAction, Configuration};
 mod local;
+mod watch;
 use crate::{
     domain::Snapshot, environment::HostPath, infrastructure::filesystem::changes::ChangedFile,
 };
 use anyhow::Result;
+pub use environment::{ExecutionHost, NativeStore};
 pub use local::LocalHost;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+pub use watch::{FileChange, FileWatch};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Directory {

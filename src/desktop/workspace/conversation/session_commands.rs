@@ -9,7 +9,9 @@ impl Workspace {
             cx.notify();
             return;
         }
-        if self.runtime.stopping
+        if self.creating_session()
+            || self.runtime.preparing.is_some()
+            || self.runtime.stopping
             || self.runtime.pending_send.is_some()
             || self.runtime.steering_request.is_some()
             || self.importing_attachments()
@@ -39,15 +41,70 @@ impl Workspace {
         }
         let prompt = s.prompt(&text, self.runtime.follow_up.as_deref());
         let attachments = s.draft_attachments.clone();
-        let (prompt, images) =
-            match crate::infrastructure::filesystem::attachments::prompt(&prompt, &attachments) {
-                Ok(prepared) => prepared,
-                Err(error) => {
-                    self.runtime.error = Some(format!("{error:#}"));
-                    cx.notify();
-                    return;
-                }
-            };
+        let comment_ids = s
+            .comments
+            .iter()
+            .filter(|comment| !comment.sent || Some(&comment.id) == self.runtime.follow_up.as_ref())
+            .map(|comment| comment.id.clone())
+            .collect();
+        if !self.demo && !self.runtime.connected {
+            self.runtime.error = Some("OMP 尚未连接，请稍后发送或在设置中重新连接".into());
+            cx.notify();
+            return;
+        }
+        if attachments
+            .iter()
+            .any(|attachment| attachment.mime.is_some())
+            && !self.demo
+            && !self.image_input_available()
+        {
+            self.runtime.error =
+                Some("当前模型及已配置模型均不支持图片；附件已保留，请先配置视觉模型。".into());
+            cx.notify();
+            return;
+        }
+        let host = match self.execution_host() {
+            Ok(host) => host,
+            Err(error) => {
+                self.runtime.error = Some(format!("{error:#}"));
+                cx.notify();
+                return;
+            }
+        };
+        let session = s.id.clone();
+        let (tx, rx) = mpsc::channel();
+        let importing = attachments.clone();
+        self.runtime.preparing = Some(super::submission::PreparingSubmission {
+            comment_ids,
+            text,
+            attachments,
+            follow_up: self.runtime.follow_up.clone(),
+            result: rx,
+        });
+        self.runtime.status = "正在准备输入与附件…".into();
+        std::thread::spawn(move || {
+            let result = host
+                .prepare_input(&session, &prompt, &importing)
+                .map_err(|error| format!("{error:#}"));
+            let _ = tx.send(result);
+        });
+        cx.notify();
+    }
+
+    pub(in crate::desktop::workspace) fn submit_prepared(
+        &mut self,
+        prepared: super::submission::PreparingSubmission,
+        prompt: String,
+        images: Vec<Value>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let text = prepared.text;
+        let attachments = prepared.attachments;
+        let comment_ids = prepared.comment_ids;
+        let Some(s) = self.session() else {
+            return;
+        };
         if !images.is_empty() && !self.demo && !self.image_input_available() {
             self.runtime.error = Some(
                 "当前模型及已配置模型均不支持图片；请先在模型设置中配置视觉模型。附件已保留。"
@@ -57,9 +114,9 @@ impl Workspace {
             return;
         }
         if self.demo {
-            let follow = self.runtime.follow_up.take();
+            let follow = prepared.follow_up;
             if let Some(s) = self.session_mut() {
-                s.submit(text, follow);
+                s.submit_selected(text, follow, &comment_ids);
                 if let Some(m) = s.messages.last_mut() {
                     m.attachments = std::mem::take(&mut s.draft_attachments);
                 }
@@ -80,9 +137,10 @@ impl Workspace {
             cx.notify();
             return;
         }
-        if s.omp_session
-            .as_deref()
-            .is_some_and(|p| !std::path::Path::new(p).is_file())
+        if s.environment_id() == "local"
+            && s.omp_session
+                .as_deref()
+                .is_some_and(|p| !std::path::Path::new(p).is_file())
         {
             self.runtime.engine = None;
             self.runtime.connected = false;
@@ -108,10 +166,14 @@ impl Workspace {
             }
             match e.send(frame) {
                 Ok(()) => {
+                    if self.runtime.follow_up == prepared.follow_up {
+                        self.runtime.follow_up = None;
+                    }
                     self.runtime.pending_send = Some(PendingSubmission {
+                        comment_ids,
                         id: request_id,
                         text,
-                        follow_up: self.runtime.follow_up.take(),
+                        follow_up: prepared.follow_up,
                         was_running: self.runtime.running,
                         wire_text: prompt,
                         delivered: false,
@@ -141,18 +203,25 @@ impl Workspace {
             button::{Button, ButtonVariants},
             dialog::{DialogAction, DialogClose, DialogFooter},
         };
-        use omp_core::{environment::HostPath, host::LocalHost};
+        use omp_core::environment::{HostPath, ProjectLocation};
+        let host = match self.execution_host() {
+            Ok(host) => host,
+            Err(error) => {
+                self.runtime.error = Some(format!("{error:#}"));
+                cx.notify();
+                return;
+            }
+        };
         let recent = self
-            .db
-            .projects
-            .iter()
+            .environment_projects()
+            .into_iter()
             .rev()
-            .cloned()
-            .map(HostPath::Local)
+            .map(|project| project.path)
             .collect();
+        let environment = self.environment().clone();
         let picker = cx.new(|cx| {
             crate::desktop::project_picker::ProjectPicker::new(
-                std::sync::Arc::new(LocalHost),
+                std::sync::Arc::new(host),
                 recent,
                 window,
                 cx,
@@ -162,6 +231,7 @@ impl Workspace {
         window.open_dialog(cx, move |dialog, _, _| {
             let selected = picker.clone();
             let weak = weak.clone();
+            let environment = environment.clone();
             dialog
                 .title("选择 OMP 工作目录")
                 .child(picker.clone())
@@ -177,13 +247,29 @@ impl Workspace {
                         ),
                 )
                 .on_ok(move |_, _, cx| {
-                    let Some(HostPath::Local(path)) = selected.read(cx).selected(cx) else {
+                    let Some(path) = selected.read(cx).selected(cx) else {
                         return false;
                     };
-                    let path = project_path(&path);
                     let _ = weak.update(cx, |this, cx| {
-                        if !this.db.projects.contains(&path) {
-                            this.db.projects.push(path);
+                        if this.db.active_environment != environment.id {
+                            return;
+                        }
+                        match path {
+                            HostPath::Local(path) => {
+                                if !this.db.projects.contains(&path) {
+                                    this.db.projects.push(path);
+                                }
+                            }
+                            path @ HostPath::Posix(_) => {
+                                let project = ProjectLocation {
+                                    environment: environment.id.clone(),
+                                    profile: environment.profile.clone(),
+                                    path,
+                                };
+                                if !this.db.remote_projects.contains(&project) {
+                                    this.db.remote_projects.push(project);
+                                }
+                            }
                         }
                         crate::infrastructure::filesystem::project_paths::normalize_workspace(
                             &mut this.db,
@@ -254,7 +340,7 @@ impl Workspace {
             return;
         }
         if let Some(s) = self.session() {
-            self.new_project_session(s.project.clone(), window, cx);
+            self.new_session_at(s.project_location(), window, cx);
         } else {
             self.open_project(window, cx);
         }
@@ -265,44 +351,51 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.new_session_at(
+            omp_core::environment::ProjectLocation::local(project),
+            window,
+            cx,
+        );
+    }
+    pub(in crate::desktop::workspace) fn new_session_at(
+        &mut self,
+        location: omp_core::environment::ProjectLocation,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.save_disabled {
             return;
         }
-        if !project.is_dir() {
+        if matches!(&location.path, omp_core::environment::HostPath::Local(project) if !project.is_dir())
+        {
             self.runtime.error = Some("项目目录不存在".into());
             cx.notify();
             return;
         }
         if !self.guard_documents(
-            documents::LeaveAction::NewSession(project.clone()),
+            documents::LeaveAction::NewSession(location.clone()),
             window,
             cx,
         ) {
             return;
         }
-        let mut session = Session::new(project_path(&project));
+        let mut session = Session::new(match &location.path {
+            omp_core::environment::HostPath::Local(project) => project_path(project),
+            _ => PathBuf::new(),
+        });
+        session.location = Some(location.clone());
         if !self.demo {
             let Some(store) = self.session_sync.store.as_ref() else {
-                self.session_sync.pending_create = Some(project);
+                self.session_sync.pending_create = Some(location);
                 self.scan_sessions();
                 self.runtime.status = "正在同步 OMP 项目会话…".into();
                 cx.notify();
                 return;
             };
-            match store.create(session.cwd(), &session.title) {
-                Ok(native) => {
-                    session.native_root = Some(store.root.to_string_lossy().into_owned());
-                    session.native_id = Some(native.id);
-                    session.omp_session = Some(native.path.to_string_lossy().into_owned());
-                }
-                Err(e) => {
-                    self.runtime.error = Some(format!("创建原生会话失败：{e:#}"));
-                    cx.notify();
-                    return;
-                }
-            }
+            self.create_native_session(session, store.clone(), cx);
+            return;
         }
-        self.collapsed_projects.remove(&session.project);
+        self.collapsed_projects.remove(&location);
         self.db.sessions.push(session);
         crate::infrastructure::filesystem::project_paths::normalize_workspace(&mut self.db);
         self.activate(self.db.sessions.len() - 1, window, cx);
@@ -320,6 +413,16 @@ impl Workspace {
         let Some(ix) = self.db.sessions.iter().position(|s| s.id == sid) else {
             return;
         };
+        if (self.active == Some(ix) && self.runtime.starting)
+            || self
+                .background
+                .get(sid)
+                .is_some_and(|runtime| runtime.starting)
+        {
+            self.runtime.error = Some("会话正在连接，请在连接结束后再归档或删除。".into());
+            cx.notify();
+            return;
+        }
         if self.active == Some(ix)
             && (delete || !self.db.sessions[ix].archived)
             && !self.guard_documents(
@@ -345,22 +448,14 @@ impl Workspace {
                 self.runtime.connected = false;
                 self.runtime.starting = false;
             }
-            let result = self
-                .session_sync
-                .store
-                .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("OMP 会话尚未同步"))
-                .and_then(|store| {
-                    store.delete(
-                        &self.db.sessions[ix],
-                        &storage::data_dir().join("omp-sessions"),
-                    )
-                });
-            if let Err(e) = result {
-                self.runtime.error = Some(format!("删除会话失败：{e:#}"));
+            let Some(store) = self.session_sync.store.clone() else {
+                self.runtime.error = Some("OMP 会话尚未同步".into());
                 cx.notify();
                 return;
-            }
+            };
+            self.delete_native_session(self.db.sessions[ix].clone(), store, false);
+            cx.notify();
+            return;
         }
         self.manage_local_session(sid, delete, window, cx);
     }
@@ -376,7 +471,7 @@ impl Workspace {
         }
         self.manage_local_session(sid, true, window, cx);
     }
-    fn manage_local_session(
+    pub(in crate::desktop::workspace) fn manage_local_session(
         &mut self,
         sid: &str,
         delete: bool,

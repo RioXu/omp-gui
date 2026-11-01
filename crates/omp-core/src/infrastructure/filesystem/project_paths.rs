@@ -24,11 +24,12 @@ pub fn project_key(path: &Path) -> String {
 pub fn normalize_workspace(db: &mut Database) {
     let mut paths = BTreeMap::new();
     let mut ordered = Vec::new();
-    for path in db
-        .projects
-        .iter()
-        .chain(db.sessions.iter().map(|s| &s.project))
-    {
+    for path in db.projects.iter().chain(
+        db.sessions
+            .iter()
+            .filter(|s| s.environment_id() == "local")
+            .map(|s| &s.project),
+    ) {
         let key = project_key(path);
         if let std::collections::btree_map::Entry::Vacant(entry) = paths.entry(key) {
             let normalized = project_path(path);
@@ -37,6 +38,9 @@ pub fn normalize_workspace(db: &mut Database) {
         }
     }
     for session in &mut db.sessions {
+        if session.environment_id() != "local" {
+            continue;
+        }
         session.project = paths[&project_key(&session.project)].clone();
         if let Some(location) = &mut session.location
             && location.environment == "local"
