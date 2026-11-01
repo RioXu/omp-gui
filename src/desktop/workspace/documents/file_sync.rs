@@ -1,6 +1,10 @@
 use super::*;
-use crate::infrastructure::filesystem::changes::{self, ChangeKind, ChangedFile};
+use crate::infrastructure::filesystem::changes::{ChangeKind, ChangedFile};
 use notify::{EventKind, RecursiveMode, Watcher};
+use omp_core::{
+    environment::HostPath,
+    host::{LocalHost, ProjectFiles},
+};
 
 impl Workspace {
     pub fn clear_file_preview(&mut self) {
@@ -141,7 +145,8 @@ impl Workspace {
         let tx = self.document_state.tx.clone();
         self.document_state.loading = true;
         std::thread::spawn(move || {
-            let result = (|| Ok((project_files::list(&project)?, changes::list(&project)?)))()
+            let result = LocalHost
+                .lists(&HostPath::Local(project))
                 .map_err(|e: anyhow::Error| format!("{e:#}"));
             let _ = tx.send(FileEvent::Lists {
                 session: sid,

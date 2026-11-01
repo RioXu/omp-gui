@@ -137,32 +137,64 @@ impl Workspace {
         if self.save_disabled {
             return;
         }
-        let paths = cx.prompt_for_paths(PathPromptOptions {
-            files: false,
-            directories: true,
-            multiple: false,
-            prompt: Some("选择 OMP 工作目录".into()),
+        use gpui_kit::component::{
+            button::{Button, ButtonVariants},
+            dialog::{DialogAction, DialogClose, DialogFooter},
+        };
+        use omp_core::{environment::HostPath, host::LocalHost};
+        let recent = self
+            .db
+            .projects
+            .iter()
+            .rev()
+            .cloned()
+            .map(HostPath::Local)
+            .collect();
+        let picker = cx.new(|cx| {
+            crate::desktop::project_picker::ProjectPicker::new(
+                std::sync::Arc::new(LocalHost),
+                recent,
+                window,
+                cx,
+            )
         });
-        cx.spawn_in(window, async move |this, cx| {
-            if let Ok(Ok(Some(paths))) = paths.await
-                && let Some(path) = paths.first()
-            {
-                let path = project_path(path);
-                let _ = this.update_in(cx, |this, window, cx| {
-                    if !this.db.projects.contains(&path) {
-                        this.db.projects.push(path);
-                    }
-                    crate::infrastructure::filesystem::project_paths::normalize_workspace(
-                        &mut this.db,
-                    );
-                    this.persist();
-                    this.scan_sessions();
-                    let _ = window;
-                    cx.notify();
-                });
-            }
-        })
-        .detach();
+        let weak = cx.entity().downgrade();
+        window.open_dialog(cx, move |dialog, _, _| {
+            let selected = picker.clone();
+            let weak = weak.clone();
+            dialog
+                .title("选择 OMP 工作目录")
+                .child(picker.clone())
+                .footer(
+                    DialogFooter::new()
+                        .child(DialogClose::new().trigger(|button| button.label("取消")))
+                        .child(
+                            DialogAction::new().child(
+                                Button::new("open-project-directory")
+                                    .primary()
+                                    .label("打开目录"),
+                            ),
+                        ),
+                )
+                .on_ok(move |_, _, cx| {
+                    let Some(HostPath::Local(path)) = selected.read(cx).selected(cx) else {
+                        return false;
+                    };
+                    let path = project_path(&path);
+                    let _ = weak.update(cx, |this, cx| {
+                        if !this.db.projects.contains(&path) {
+                            this.db.projects.push(path);
+                        }
+                        crate::infrastructure::filesystem::project_paths::normalize_workspace(
+                            &mut this.db,
+                        );
+                        this.persist();
+                        this.scan_sessions();
+                        cx.notify();
+                    });
+                    true
+                })
+        });
     }
     pub fn activate(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
         if self.db.sessions.get(ix).is_none_or(|s| s.deleted) {

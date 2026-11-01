@@ -7,13 +7,31 @@ impl SettingsView {
         match self.category {
             "常规" => {
                 body = body
-                    .child(div().text_sm().child("本机 OMP 可执行文件"))
+                    .child(div().text_sm().child("OMP 可执行文件（留空自动查找）"))
                     .child(Input::new(&self.executable))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(format!("检测结果：{}", self.resolved_executable)),
+                    )
                     .child(
                         Button::new("save-executable")
                             .label("保存 OMP 路径")
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.omp = this.executable.read(cx).value().trim().to_string();
+                                let value = this.executable.read(cx).value().trim().to_string();
+                                this.omp = if value.is_empty() {
+                                    "omp".into()
+                                } else {
+                                    value
+                                };
+                                if let Err(error) =
+                                    crate::infrastructure::omp::installation::resolve(&this.omp)
+                                {
+                                    this.notice = format!("{error:#}");
+                                    cx.notify();
+                                    return;
+                                }
                                 cx.emit(SettingsEvent::OmpPath(this.omp.clone()));
                                 this.reload();
                                 cx.notify();

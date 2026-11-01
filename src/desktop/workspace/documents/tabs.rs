@@ -1,6 +1,9 @@
 use super::*;
 use crate::domain::file_buffer::FileBuffer;
-use crate::infrastructure::filesystem::document_store;
+use omp_core::{
+    environment::HostPath,
+    host::{LocalHost, ProjectFiles},
+};
 
 #[derive(Clone)]
 pub(crate) struct DocumentTab {
@@ -134,12 +137,11 @@ impl Workspace {
         }
         std::thread::spawn(move || {
             let result = (|| -> anyhow::Result<_> {
-                let target = if changes {
-                    None
-                } else {
-                    Some(document_store::target(&root, &path)?)
-                };
-                let snapshot = project_files::document_snapshot(&root, &path)?;
+                let (snapshot, target) =
+                    LocalHost.document(&HostPath::Local(root), &path, changes)?;
+                let target = target
+                    .map(|p| p.local().map(std::path::Path::to_owned))
+                    .transpose()?;
                 Ok(LoadedDocument { snapshot, target })
             })()
             .map_err(|e| format!("{e:#}"));

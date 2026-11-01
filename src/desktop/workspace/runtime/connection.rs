@@ -67,7 +67,7 @@ impl Workspace {
         })();
         match result {
             Ok(e) => {
-                self.runtime.engine = Some(e);
+                self.runtime.engine = Some(Box::new(e));
                 self.runtime.error = None;
                 self.runtime.status = "正在连接本机 OMP…".into();
             }

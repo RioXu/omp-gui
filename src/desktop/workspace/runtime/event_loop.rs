@@ -21,7 +21,7 @@ impl Workspace {
             .runtime
             .engine
             .as_ref()
-            .map(|e| e.events.try_iter().take(200).collect::<Vec<_>>())
+            .map(|e| e.poll(200))
             .unwrap_or_default();
         let changed = !events.is_empty();
         for event in events {

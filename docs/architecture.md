@@ -2,7 +2,7 @@
 
 [返回 README](../README.md) · [使用说明](usage.md) · [构建与验证](testing.md)
 
-项目使用一个 Cargo 包，二进制入口只启动桌面应用；组件放在库中，使集成测试通过真实的组件接口运行。当前不拆成多个 crate，避免为目录整理引入额外的发布和依赖管理成本。
+项目使用 Cargo workspace。根包负责 Windows 桌面界面；`crates/omp-core` 提供可在 Windows 和 Linux 独立构建的领域规则及基础设施，不依赖 GPUI。根库重导出共享组件，保持已有集成测试入口兼容。
 
 默认在 `main` 分支直接工作，只有用户明确要求时才创建或切换其他分支；仓库约定见 [AGENTS.md](../AGENTS.md)。
 
@@ -12,7 +12,10 @@
 src/
   main.rs                         二进制入口
   lib.rs                          组件边界
+crates/omp-core/src/
   domain/                         会话、消息、评论、快照和历史规则
+  environment/                    环境身份及本地/POSIX 路径类型
+  host/                           目录浏览、项目文件接口与本地适配
   infrastructure/
     omp/                          OMP 子进程、JSONL 协议与安装检测
       sessions/                   原生会话发现、历史读取、迁移、创建删除和占用锁
@@ -23,7 +26,7 @@ src/
       authoring/                  子智能体文档、角色映射与原生模型能力
       providers/                  服务目录、模型覆盖、连接验证与凭据导入
     process.rs                    Windows 隐藏子进程的通用启动方式
-  desktop/
+src/desktop/
     bootstrap.rs                  参数、主题、快捷键和原生窗口创建
     theme.rs                      gpui-kit 语义主题
     workspace/                    主工作区协调与交互功能
@@ -49,6 +52,10 @@ scripts/                          开发与数据更新工具
 允许的依赖方向是 `desktop → infrastructure → domain`，桌面层也可直接使用领域类型。`domain` 不引用 GPUI、基础设施或桌面层；`infrastructure` 不引用桌面层或 GPUI。领域层负责数据和规则，涉及文件系统、环境配置、OMP 安装路径等操作放在基础设施中。
 
 `desktop` 是 Windows 原生客户端，明确替代含义宽泛的 `app` 命名。`workspace` 是主窗口的工作区，而不是整个程序。OMP 通信明确称为 `omp::Client`，不再用 `engine` 混合指代协议、业务和测试。
+
+`DirectoryBrowser` 隔离目录选择与本机文件访问；`ProjectFiles` 隔离项目列表、文档读取和带版本校验的保存；`SessionConnection` 隔离会话 RPC 传输。`environment::HostPath` 区分本地路径与 POSIX 路径，远端路径不能交给本地解析器。当前本地实现接入文件操作，目录选择由 `desktop/project_picker.rs` 统一使用 Input、Button、虚拟列表及 Dialog 构成，不调用系统文件选择窗口。浏览异步执行，按请求代次丢弃迟到结果。
+
+新工作区的 OMP 使用 PATH 中的 `omp`，设置路径留空恢复自动查找，已有人工路径覆盖保留。共享核心同时兼容 Windows 互斥锁和 Linux 抽象 Unix socket 原生会话占用规则；Linux 路径身份区分大小写。
 
 ## 状态、交互与渲染
 

@@ -33,6 +33,7 @@ pub(crate) enum SettingsEvent {
 }
 impl EventEmitter<SettingsEvent> for SettingsView {}
 enum ResultEvent {
+    Executable(String, Result<String, String>),
     Catalog(Result<Catalog, String>),
     Saved(Result<(), String>),
     Plugins(Result<String, String>),
@@ -57,6 +58,7 @@ pub(crate) struct SettingsView {
     category: &'static str,
     search: Entity<InputState>,
     executable: Entity<InputState>,
+    resolved_executable: String,
     name: Entity<InputState>,
     editor: Entity<TextareaState>,
     scalar: Entity<InputState>,
@@ -152,7 +154,15 @@ impl SettingsView {
     ) -> Self {
         let (tx, rx) = mpsc::channel();
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("搜索设置名称或说明…"));
-        let executable = cx.new(|cx| InputState::new(window, cx).default_value(omp.clone()));
+        let executable = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("自动：从当前环境 PATH 查找 omp；可填写绝对路径覆盖")
+                .default_value(if omp == "omp" {
+                    String::new()
+                } else {
+                    omp.clone()
+                })
+        });
         let name = cx.new(|cx| InputState::new(window, cx).placeholder("名称 / 插件包 / 本地路径"));
         let editor = cx.new(|cx| TextareaState::new(window, cx).auto_grow(8, 22));
         let subscription = cx.subscribe_in(&search, window, |this, _, event, w, cx| {
@@ -177,6 +187,7 @@ impl SettingsView {
             category: "常规",
             search,
             executable,
+            resolved_executable: "正在检测…".into(),
             name,
             editor,
             scalar: cx.new(|cx| InputState::new(window, cx)),
@@ -206,6 +217,12 @@ impl SettingsView {
                                 this.busy = false;
                             }
                             match result {
+                                ResultEvent::Executable(command, result) => {
+                                    if command == this.omp {
+                                        this.resolved_executable =
+                                            result.unwrap_or_else(|error| error);
+                                    }
+                                }
                                 ResultEvent::Catalog(Ok(c)) => {
                                     this.loading = false;
                                     this.catalog = c;

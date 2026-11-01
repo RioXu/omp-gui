@@ -17,7 +17,6 @@ use crate::domain::Anchor;
 use crate::{
     domain::*,
     infrastructure::{
-        filesystem::project_files,
         omp::{Client as OmpClient, Event},
         persistence::workspace_store::{self as storage, Persistence},
     },

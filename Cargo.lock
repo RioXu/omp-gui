@@ -4442,6 +4442,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "omp-core"
+version = "0.7.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "chrono",
+ "image",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "sha2 0.10.9",
+ "similar",
+ "uuid",
+ "windows-sys 0.61.2",
+ "xxhash-rust",
+ "yaml-edit",
+]
+
+[[package]]
 name = "omp-gui"
 version = "0.7.0"
 dependencies = [
@@ -4453,6 +4473,7 @@ dependencies = [
  "image",
  "markdown",
  "notify",
+ "omp-core",
  "reqwest",
  "ropey",
  "serde",

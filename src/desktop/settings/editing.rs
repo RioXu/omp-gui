@@ -14,6 +14,10 @@ impl SettingsView {
         let omp = self.omp.clone();
         let cwd = self.cwd.clone();
         std::thread::spawn(move || {
+            let resolved = crate::infrastructure::omp::installation::resolve(&omp)
+                .map(|path| path.to_string_lossy().into_owned())
+                .map_err(|error| format!("{error:#}"));
+            let _ = tx.send(ResultEvent::Executable(omp.clone(), resolved));
             let _ = tx.send(ResultEvent::Catalog(
                 settings::catalog(&omp, &cwd).map_err(|e| format!("{e:#}")),
             ));

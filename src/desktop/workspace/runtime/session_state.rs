@@ -15,7 +15,7 @@ pub(in crate::desktop::workspace) struct SessionRuntime {
     pub expanded_process: std::collections::HashSet<String>,
     pub text_update_pending: bool,
     pub texts: HashMap<String, TextEntry>,
-    pub engine: Option<OmpClient>,
+    pub engine: Option<Box<dyn crate::infrastructure::omp::SessionConnection>>,
     pub connected: bool,
     pub running: bool,
     pub starting: bool,

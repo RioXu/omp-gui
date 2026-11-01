@@ -1,5 +1,9 @@
 use super::*;
-use crate::{domain::file_buffer::FileBuffer, infrastructure::filesystem::document_store};
+use crate::domain::file_buffer::FileBuffer;
+use omp_core::{
+    environment::HostPath,
+    host::{LocalHost, ProjectFiles},
+};
 
 impl DocumentTab {
     pub(in crate::desktop::workspace) fn is_dirty(&self, cx: &App) -> bool {
@@ -98,9 +102,13 @@ impl Workspace {
             return true;
         }
         let disk = buffer.encode(&text);
-        if let Err(error) =
-            document_store::save(&root, &tab.path, target, buffer.disk_text(), &disk)
-        {
+        if let Err(error) = LocalHost.save(
+            &HostPath::Local(root),
+            &tab.path,
+            &HostPath::Local(target.clone()),
+            buffer.disk_text(),
+            &disk,
+        ) {
             tab.error = Some(format!("保存失败：{error:#}"));
             cx.notify();
             return false;
