@@ -1,5 +1,5 @@
 use super::*;
-use gpui_kit::component::sidebar::{Sidebar, SidebarHeader};
+use gpui_kit::component::sidebar::Sidebar;
 
 mod project;
 use project::ProjectNavigation;
@@ -100,21 +100,6 @@ impl Workspace {
                     .w(px(self.db.sidebar_width - 1.))
                     .mt(rems(-0.75))
                     .mx(rems(-0.75))
-                    .child(
-                        SidebarHeader::new()
-                            .h(px(PANE_HEADER_HEIGHT))
-                            .py_0()
-                            .px_4()
-                            .rounded_none()
-                            .border_b_1()
-                            .border_color(cx.theme().border)
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child("OMP"),
-                            ),
-                    )
                     .child(self.render_environment_selector(cx))
                     .child(
                         div().group("projects-heading").px_3().pt_2().child(
@@ -187,6 +172,8 @@ impl Workspace {
     }
 
     fn render_environment_selector(&self, cx: &mut Context<Self>) -> AnyElement {
+        use gpui_kit::assets::IconName as EnvironmentIcon;
+
         let environments = self.db.environments.clone();
         let active = self.db.active_environment.clone();
         let label = if active == "local" {
@@ -195,50 +182,101 @@ impl Workspace {
             format!("SSH：{}", self.environment().name)
         };
         let weak = cx.entity().downgrade();
-        div()
+        let trigger = Button::new("execution-environment")
+            .ghost()
+            .small()
+            // DropdownMenu's popover is a shrink-to-fit flex item. Give its
+            // trigger the actual pane width so one hit area spans the row.
+            .h(px(PANE_HEADER_HEIGHT - 1.))
+            .w(px(self.db.sidebar_width - 1.))
+            .rounded_none()
             .px_3()
-            .pt_2()
+            .accessibility_label(format!("选择连接：{label}"))
+            .disabled(self.save_disabled)
             .child(
-                Button::new("execution-environment")
-                    .ghost()
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .flex_1()
+                    .min_w_0()
+                    .child(
+                        Icon::new(if active == "local" {
+                            EnvironmentIcon::Monitor
+                        } else {
+                            EnvironmentIcon::Server
+                        })
+                        .small()
+                        .flex_shrink_0()
+                        .text_color(cx.theme().muted_foreground),
+                    )
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .text_sm()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(label),
+                    ),
+            )
+            .child(
+                Icon::new(EnvironmentIcon::ChevronDown)
                     .small()
-                    .w_full()
-                    .label(label)
-                    .disabled(self.save_disabled)
-                    .dropdown_menu(move |mut menu, _, _| {
-                        for environment in &environments {
-                            let id = environment.id.clone();
-                            let weak = weak.clone();
-                            menu = menu.item(
-                                PopupMenuItem::new(environment.name.clone())
-                                    .checked(active == environment.id)
-                                    .on_click(move |_, w, cx| {
-                                        let _ = weak.update(cx, |this, cx| {
-                                            this.switch_environment(&id, w, cx)
-                                        });
-                                    }),
-                            );
-                        }
-                        if active != "local" {
-                            let weak = weak.clone();
-                            let active = active.clone();
-                            menu = menu.item(PopupMenuItem::new("编辑当前连接…").on_click(
-                                move |_, w, cx| {
-                                    let _ = weak.update(cx, |this, cx| {
-                                        this.manage_connection(Some(active.clone()), w, cx)
-                                    });
-                                },
-                            ));
-                        }
-                        let weak = weak.clone();
-                        menu.item(
-                            PopupMenuItem::new("新增 SSH 连接…").on_click(move |_, w, cx| {
-                                let _ =
-                                    weak.update(cx, |this, cx| this.manage_connection(None, w, cx));
-                            }),
-                        )
+                    .flex_shrink_0()
+                    .text_color(cx.theme().muted_foreground),
+            );
+        let menu_width = px((self.db.sidebar_width - 16.).max(220.));
+        let selector = trigger.dropdown_menu(move |mut menu, _, _| {
+            menu = menu.min_w(menu_width);
+            for environment in &environments {
+                let id = environment.id.clone();
+                let weak = weak.clone();
+                menu = menu.item(
+                    PopupMenuItem::new(environment.name.clone())
+                        .icon(Icon::new(if environment.id == "local" {
+                            EnvironmentIcon::Monitor
+                        } else {
+                            EnvironmentIcon::Server
+                        }))
+                        .checked(active == environment.id)
+                        .on_click(move |_, w, cx| {
+                            let _ = weak.update(cx, |this, cx| this.switch_environment(&id, w, cx));
+                        }),
+                );
+            }
+            menu = menu.separator();
+            if active != "local" {
+                let weak = weak.clone();
+                let active = active.clone();
+                menu = menu.item(
+                    PopupMenuItem::new("编辑当前连接…")
+                        .icon(IconName::Settings)
+                        .on_click(move |_, w, cx| {
+                            let _ = weak.update(cx, |this, cx| {
+                                this.manage_connection(Some(active.clone()), w, cx)
+                            });
+                        }),
+                );
+            }
+            let weak = weak.clone();
+            menu.item(
+                PopupMenuItem::new("新增 SSH 连接…")
+                    .icon(IconName::Plus)
+                    .on_click(move |_, w, cx| {
+                        let _ = weak.update(cx, |this, cx| this.manage_connection(None, w, cx));
                     }),
             )
+        });
+        Toolbar::new("connection-toolbar")
+            .xsmall()
+            .h(px(PANE_HEADER_HEIGHT))
+            .min_w_0()
+            .py_0()
+            .px_0()
+            .rounded_none()
+            .border_b_1()
+            .border_color(cx.theme().border)
+            .content(selector)
             .into_any_element()
     }
 }
