@@ -59,7 +59,7 @@ impl Workspace {
                 .text_sm()
                 .text_color(theme.muted_foreground)
                 .child(if executing {
-                    gpui_kit::component::spinner::Spinner::new()
+                    icon_spinner()
                         .xsmall()
                         .color(theme.primary)
                         .into_any_element()

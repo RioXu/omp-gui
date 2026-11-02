@@ -11,11 +11,11 @@ impl Workspace {
         if let TranscriptRow::Notice(ix) = entry {
             let message = &session.messages[*ix];
             let mut card = div()
+                .debug_selector(|| "conversation-notice-body".into())
                 .flex()
                 .flex_col()
                 .gap_2()
                 .w_full()
-                .max_w(rems(52.))
                 .mx_auto()
                 .my_3()
                 .p_3()
@@ -41,7 +41,11 @@ impl Workspace {
                     card = card.child(self.render_comment(comment, cx));
                 }
             }
-            return div().w_full().px_6().child(card).into_any_element();
+            return div()
+                .w_full()
+                .px(relative(0.1))
+                .child(card)
+                .into_any_element();
         }
         let theme = cx.theme().clone();
         let (range, user) = match entry {
@@ -66,12 +70,12 @@ impl Workspace {
                 .rposition(|m| m.state != MessageState::Queued)
                 .is_some_and(|last| range.contains(&last)));
         let mut body = div()
+            .debug_selector(|| "conversation-message-body".into())
             .group("message")
             .flex()
             .flex_col()
             .gap_2()
             .w_full()
-            .max_w(rems(52.))
             .mx_auto()
             .py_3()
             .child(
@@ -203,6 +207,10 @@ impl Workspace {
                     .child(time),
             ),
         );
-        div().w_full().px_6().child(body).into_any_element()
+        div()
+            .w_full()
+            .px(relative(0.1))
+            .child(body)
+            .into_any_element()
     }
 }

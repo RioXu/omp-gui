@@ -30,6 +30,7 @@ pub(in crate::desktop::workspace) struct SessionRuntime {
     pub running: bool,
     pub starting: bool,
     pub status: String,
+    pub working_intent: Option<String>,
     pub error: Option<String>,
     pub todos: Vec<Value>,
     pub agents: Vec<Value>,
@@ -151,6 +152,7 @@ impl Workspace {
                 "选择项目以连接 OMP".into()
             },
             error,
+            working_intent: None,
             todos: vec![],
             agents: vec![],
             context_percent: 0.,

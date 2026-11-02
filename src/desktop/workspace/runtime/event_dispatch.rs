@@ -2,6 +2,7 @@ use super::*;
 
 impl Workspace {
     pub fn on_frame(&mut self, f: Value, window: &mut Window, cx: &mut Context<Self>) {
+        self.update_working_intent(&f);
         let kind = f["type"].as_str().unwrap_or("");
         if matches!(
             kind,

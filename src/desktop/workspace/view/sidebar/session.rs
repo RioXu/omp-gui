@@ -34,7 +34,10 @@ impl SidebarItem for NavigationItem {
         match self {
             Self::Project(project) => project.render("project", window, cx).into_any_element(),
             Self::Empty(archived) => div()
-                .pl_8()
+                .ml_3p5()
+                .pl_2p5()
+                .border_l_1()
+                .border_color(cx.theme().sidebar_border)
                 .py_1()
                 .text_xs()
                 .text_color(cx.theme().muted_foreground)
@@ -51,11 +54,7 @@ impl SidebarItem for NavigationItem {
                     .active(session.active)
                     .disable(session.disabled)
                     .when(session.running, |item| {
-                        item.suffix(|_, cx| {
-                            gpui_kit::component::spinner::Spinner::new()
-                                .xsmall()
-                                .color(cx.theme().primary)
-                        })
+                        item.suffix(|_, cx| icon_spinner().xsmall().color(cx.theme().primary))
                     })
                     .context_menu({
                         let weak = weak.clone();
@@ -101,7 +100,10 @@ impl SidebarItem for NavigationItem {
                         move || format!("sidebar-session-{id}")
                     })
                     .id(session.id.clone())
-                    .pl_3()
+                    .ml_3p5()
+                    .pl_2p5()
+                    .border_l_1()
+                    .border_color(cx.theme().sidebar_border)
                     .child(item.render(session.id, window, cx))
                     .into_any_element()
             }

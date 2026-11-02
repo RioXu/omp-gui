@@ -81,6 +81,8 @@ Linux `daemon` 按用户／profile／协议／版本建立私有 Unix socket，�
 
 `desktop/markdown.rs` 兼容原生解析器对多行公式围栏的要求，仅在显示副本中补齐定界符换行；通过 Markdown AST 排除代码示例，并记录插入位置。`TextEntry` 保留原始正文及双向字节范围映射，选区创建评论时映回原文，定位历史评论时映到显示源，不改写持久化回复；主会话、思考与子智能体展示共用处理。
 
+会话消息、插入通知及输入区共享可用宽度，保留会话区域两侧各 10% 的边距，不再使用固定 52 rem 上限。`omp/intent.rs` 投影 OMP 终端同源的工具意图：工具执行事件的 intent，以及流式工具调用 arguments.i／intent；忽略非字符串和空值，采用最后一个有效意图，整理为单行。`runtime/working_intent.rs` 管理每会话临时摘要，开始新任务、完成、断开或空闲状态确认时清除，停止期间忽略迟到更新；不从思考正文推测摘要，也不改变持久化消息。`view/working_intent.rs` 在输入框上方组合原生 Spinner、状态语义和完整文字提示，长文字单行截断。
+
 `runtime/session_state.rs` 定义每个会话独立的 `SessionRuntime`，包含 OMP 连接、模型控件、输入实体、交互答复输入、队列、错误、tokens、协作状态及消息视图。`runtime/sessions.rs` 按稳定会话 ID 保留后台状态，在同一 UI 更新中临时切换所属状态并消费事件，完成后立即恢复可见会话；持久化的活动 ID 不随后台轮询变化。后台事件不修改可见文件面板或查找状态，输入订阅还校验实体身份，延迟发送校验原输入的归属。后台空闲连接释放原生占用，正在运行或等待交互的连接保留；扫描只合并不早于各会话最近事件的原生日志。
 
 `domain/attachments.rs` 定义可序列化附件元数据，草稿及消息保存元数据，二进制不进入工作区 JSON。`filesystem/attachments.rs` 保存本地副本、校验大小和图片解码限额、转换 BMP 等图片，并生成原生 `images` 与文件引用。`composer/attachments.rs` 在后台导入，完成事件校验原会话身份；`view/attachments.rs` 组合原生 Attachment 卡片。提交、停止及断线恢复同时保留文字和附件。发送采用 OMP 原生 JSONL 输入格式，允许有界的 64 MiB 逻辑消息；接收物理帧仍保持 1 MiB 限制并重组协议 v2 分片。

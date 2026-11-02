@@ -3,6 +3,8 @@ mod attachments;
 mod comment_editor;
 mod composer;
 mod conversation;
+#[cfg(test)]
+mod conversation_layout_tests;
 mod documents;
 mod panel;
 mod progress;
@@ -12,6 +14,7 @@ mod selection;
 mod shell;
 pub(in crate::desktop::workspace) mod sidebar;
 mod transcript;
+mod working_intent;
 
 use super::*;
 use chrono::{Local, TimeZone};
@@ -34,6 +37,10 @@ use gpui_kit::component::{
 use gpui_kit::{prelude::FluentBuilder, *};
 
 const PANE_HEADER_HEIGHT: f32 = 36.;
+
+fn icon_spinner() -> gpui_kit::component::spinner::Spinner {
+    gpui_kit::component::spinner::Spinner::new().icon(assets::IconName::LoaderCircle)
+}
 #[derive(Clone)]
 struct ResizeSide(bool);
 

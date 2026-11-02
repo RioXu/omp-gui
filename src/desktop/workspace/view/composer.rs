@@ -188,8 +188,15 @@ impl Workspace {
                 }
                 menu
             });
-        let mut area = div().flex().flex_col().gap_2().px_6().pb_4().pt_2();
+        let mut area = div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .px(relative(0.1))
+            .pb_4()
+            .pt_2();
         let mut inner = div()
+            .debug_selector(|| "conversation-composer-body".into())
             .when(!self.completions(cx).is_empty(), |d| {
                 d.key_context("ComposerCompletion")
             })
@@ -200,7 +207,6 @@ impl Workspace {
             .flex()
             .flex_col()
             .w_full()
-            .max_w(rems(52.))
             .mx_auto()
             .gap_2()
             .child(self.render_pending(cx));
@@ -294,12 +300,14 @@ impl Workspace {
         }
         inner = inner
             .child(self.render_completions(window, cx))
+            .child(self.render_working_intent(cx))
             .child(
                 div()
                     .flex()
                     .flex_col()
                     .gap_2()
                     .p_3()
+                    .debug_selector(|| "composer-input-card".into())
                     .rounded_xl()
                     .bg(theme.muted)
                     .border_1()

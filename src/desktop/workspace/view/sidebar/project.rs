@@ -45,80 +45,87 @@ impl SidebarItem for ProjectNavigation {
         );
         let weak = self.workspace;
         let path = self.path;
-        div().id(group_id.clone()).child(
-            gpui_kit::component::collapsible::Collapsible::new()
-                .open(!folded)
-                .gap_1()
-                .pb_3()
-                .child(
-                    div()
-                        .group(group_id)
-                        .id("project-toggle")
-                        .role(Role::Button)
-                        .aria_label(toggle_label)
-                        .cursor_pointer()
-                        .on_click(move |_, _, cx| {
-                            let _ = toggle.update(cx, |this, cx| {
-                                if !this.collapsed_projects.remove(&toggle_path) {
-                                    this.collapsed_projects.insert(toggle_path.clone());
-                                }
-                                cx.notify();
-                            });
-                        })
-                        .child(
-                            Toolbar::new("project-heading")
-                                .xsmall()
-                                .h(px(32.))
-                                .px_2()
-                                .content(
-                                    div()
-                                        .flex()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .items_center()
-                                        .gap_2()
-                                        .child(
-                                            Icon::new(if folded {
-                                                assets::IconName::Folder
-                                            } else {
-                                                assets::IconName::FolderOpen
-                                            })
-                                            .size_4()
-                                            .text_color(cx.theme().muted_foreground),
-                                        )
-                                        .child(
-                                            div()
-                                                .flex_1()
-                                                .min_w_0()
-                                                .truncate()
-                                                .text_sm()
-                                                .child(self.label),
-                                        ),
-                                )
-                                .when(!self.archived, |bar| {
-                                    bar.content(
+        div()
+            .debug_selector(|| "sidebar-project-row".into())
+            .id(group_id.clone())
+            .child(
+                gpui_kit::component::collapsible::Collapsible::new()
+                    .open(!folded)
+                    .gap_0()
+                    .pb_0()
+                    .child(
+                        div()
+                            .group(group_id)
+                            .id("project-toggle")
+                            .role(Role::Button)
+                            .aria_label(toggle_label)
+                            .cursor_pointer()
+                            .on_click(move |_, _, cx| {
+                                let _ = toggle.update(cx, |this, cx| {
+                                    if !this.collapsed_projects.remove(&toggle_path) {
+                                        this.collapsed_projects.insert(toggle_path.clone());
+                                    }
+                                    cx.notify();
+                                });
+                            })
+                            .child(
+                                Toolbar::new("project-heading")
+                                    .xsmall()
+                                    .h(px(32.))
+                                    .px_2()
+                                    .content(
                                         div()
-                                            .invisible()
-                                            .group_hover(action_group, |d| d.visible())
+                                            .flex()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .items_center()
+                                            .gap_2()
                                             .child(
-                                                Button::new("add-session")
-                                                    .ghost()
-                                                    .xsmall()
-                                                    .icon(IconName::Plus)
-                                                    .accessibility_label("新建会话")
-                                                    .tooltip("在项目内新建会话")
-                                                    .disabled(self.disabled)
-                                                    .on_click(move |_, w, cx| {
-                                                        cx.stop_propagation();
-                                                        let _ = weak.update(cx, |this, cx| {
-                                                            this.new_session_at(path.clone(), w, cx)
-                                                        });
-                                                    }),
+                                                Icon::new(if folded {
+                                                    assets::IconName::Folder
+                                                } else {
+                                                    assets::IconName::FolderOpen
+                                                })
+                                                .size_4()
+                                                .text_color(cx.theme().muted_foreground),
+                                            )
+                                            .child(
+                                                div()
+                                                    .flex_1()
+                                                    .min_w_0()
+                                                    .truncate()
+                                                    .text_sm()
+                                                    .child(self.label),
                                             ),
                                     )
-                                }),
-                        ),
-                ),
-        )
+                                    .when(!self.archived, |bar| {
+                                        bar.content(
+                                            div()
+                                                .invisible()
+                                                .group_hover(action_group, |d| d.visible())
+                                                .child(
+                                                    Button::new("add-session")
+                                                        .ghost()
+                                                        .xsmall()
+                                                        .icon(IconName::Plus)
+                                                        .accessibility_label("新建会话")
+                                                        .tooltip("在项目内新建会话")
+                                                        .disabled(self.disabled)
+                                                        .on_click(move |_, w, cx| {
+                                                            cx.stop_propagation();
+                                                            let _ = weak.update(cx, |this, cx| {
+                                                                this.new_session_at(
+                                                                    path.clone(),
+                                                                    w,
+                                                                    cx,
+                                                                )
+                                                            });
+                                                        }),
+                                                ),
+                                        )
+                                    }),
+                            ),
+                    ),
+            )
     }
 }

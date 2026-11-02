@@ -185,4 +185,6 @@ impl Workspace {
 pub(in crate::desktop::workspace) mod tests;
 
 #[cfg(test)]
+mod intent_tests;
+#[cfg(test)]
 mod performance_tests;

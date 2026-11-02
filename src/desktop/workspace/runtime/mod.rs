@@ -5,6 +5,7 @@ mod connection;
 mod event_dispatch;
 mod event_loop;
 pub(in crate::desktop::workspace) mod model_controls;
+mod working_intent;
 
 mod model_state;
 pub(in crate::desktop::workspace) use model_state::ModelControlState;

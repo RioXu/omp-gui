@@ -65,6 +65,7 @@ impl Workspace {
                     self.runtime.error = Some(e);
                 }
                 Event::Closed => {
+                    self.runtime.working_intent = None;
                     self.runtime.engine = None;
                     self.runtime.active_tools.clear();
                     if let Some(pending) = self.runtime.pending_send.take() {

@@ -2,7 +2,6 @@ use super::*;
 use crate::domain::activity::status_label;
 use gpui_kit::component::{
     marker::{Marker, MarkerContent, MarkerIcon},
-    spinner::Spinner,
     tooltip::Tooltip,
 };
 
@@ -230,7 +229,7 @@ fn task_marker(task: &Value, id: SharedString, cx: &App) -> Marker {
     };
     let icon = match status {
         "started" | "running" | "in_progress" => {
-            Spinner::new().xsmall().color(color).into_any_element()
+            icon_spinner().xsmall().color(color).into_any_element()
         }
         _ => Icon::new(match status {
             "completed" => assets::IconName::CircleCheck,

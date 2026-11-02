@@ -22,6 +22,8 @@ fn large_sidebar_draws_visible_sessions_and_collapsing_hides_them(cx: &mut TestA
                 cx.new(|cx| {
                     let mut this: Workspace = fixture(window, cx);
                     this.db.projects.push("fixture".into());
+                    this.db.sessions[0].id = "first-fixture".into();
+                    this.db.sessions[1].id = "second-fixture".into();
                     for index in 0..2000 {
                         let mut s = Session::new("fixture".into());
                         s.title = format!("session {index}");
@@ -39,6 +41,32 @@ fn large_sidebar_draws_visible_sessions_and_collapsing_hides_them(cx: &mut TestA
     let mut visual = VisualTestContext::from_window(window, cx);
     visual.run_until_parked();
     visual.update(|window, cx| window.draw(cx).clear(cx));
+    let heading = visual.debug_bounds("sidebar-project-row").unwrap();
+    let first = visual
+        .debug_bounds("sidebar-session-first-fixture")
+        .unwrap();
+    let second = visual
+        .debug_bounds("sidebar-session-second-fixture")
+        .unwrap();
+    assert!(
+        (first.top() - heading.bottom()).abs() <= px(2.),
+        "project-to-session gap is too large"
+    );
+    assert!(
+        (second.top() - first.bottom()).abs() <= px(1.),
+        "hierarchy guide must stay continuous"
+    );
+    let guide_painted = visual.update(|window, _| {
+        let scale = window.scale_factor();
+        window.painted_quads().iter().any(|quad| {
+            let bounds = quad.bounds.map(|value| px(value.0 / scale));
+            quad.border_widths.left.0 > 0.
+                && (bounds.left() - first.left()).abs() <= px(1.)
+                && (bounds.top() - first.top()).abs() <= px(1.)
+                && bounds.size.height >= first.size.height
+        })
+    });
+    assert!(guide_painted, "session hierarchy line must be painted");
     assert!(
         visual
             .debug_bounds("sidebar-session-visible-fixture")

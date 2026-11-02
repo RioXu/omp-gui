@@ -27,6 +27,7 @@ impl Workspace {
         self.runtime.reconnecting = false;
         self.runtime.resync_needed = false;
         self.runtime.running = false;
+        self.runtime.working_intent = None;
         self.runtime.active_tools.clear();
         self.runtime.context_limit = 0;
         self.runtime.context_used = None;

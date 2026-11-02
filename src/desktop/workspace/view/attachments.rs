@@ -1,10 +1,7 @@
 use super::*;
-use gpui_kit::component::{
-    attachment::{
-        Attachment as AttachmentCard, AttachmentContent, AttachmentDescription, AttachmentGroup,
-        AttachmentMedia, AttachmentTitle,
-    },
-    spinner::Spinner,
+use gpui_kit::component::attachment::{
+    Attachment as AttachmentCard, AttachmentContent, AttachmentDescription, AttachmentGroup,
+    AttachmentMedia, AttachmentTitle,
 };
 
 impl Workspace {
@@ -85,7 +82,7 @@ impl Workspace {
                     .items_center()
                     .gap_2()
                     .text_xs()
-                    .child(Spinner::new().xsmall())
+                    .child(icon_spinner().xsmall())
                     .child("正在添加附件…"),
             );
         }
