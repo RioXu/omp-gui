@@ -22,7 +22,7 @@ if ($pe.Length -lt 64 -or $pe[0] -ne 0x4d -or $pe[1] -ne 0x5a) { throw 'GUI is n
 $peOffset = [BitConverter]::ToInt32($pe, 60)
 if ($peOffset -lt 0 -or $peOffset + 6 -gt $pe.Length -or [BitConverter]::ToUInt32($pe, $peOffset) -ne 0x00004550 -or [BitConverter]::ToUInt16($pe, $peOffset + 4) -ne 0x8664) { throw 'GUI is not Windows x86_64' }
 Copy-Item -LiteralPath $binaryPath -Destination (Join-Path $stage 'omp-gui.exe')
-foreach ($target in @(@{Name='linux-x86_64'; Machine=62}, @{Name='linux-aarch64'; Machine=183})) {
+foreach ($target in @(@{Name='linux-x86_64'; Machine=62})) {
     $source = Join-Path $remotePath "$($target.Name)/omp-gui-remote"
     $elf = [IO.File]::ReadAllBytes($source)
     if ($elf.Length -lt 20 -or [BitConverter]::ToUInt32($elf, 0) -ne 0x464c457f -or [BitConverter]::ToUInt16($elf, 18) -ne $target.Machine) { throw "Invalid ELF: $source" }
@@ -41,7 +41,8 @@ OMP GUI v$version - Windows x64 portable
 
 完整解压后运行 omp-gui.exe，无需安装 Rust。
 本地模式需要 OMP 和 Git。远程模式需要 Windows OpenSSH、远端 OMP 和 Git。
-保留 remote 目录，GUI 按远端 Linux 架构自动部署相应服务。
+保留 remote 目录，GUI 自动部署随包提供的 Linux x86_64 服务。
+本版仅附带 Linux x86_64 服务，不提供未经实机验证的 ARM64 版本。
 Linux 预编译服务面向 Ubuntu 24.04 同等或较新的 glibc 环境；旧系统可使用源码构建或自备服务。
 首次 SSH 连接请先在终端完成主机身份确认和密钥解锁。
 GUI 数据默认保存在 %LOCALAPPDATA%\OMP GUI，升级时保留原数据目录。

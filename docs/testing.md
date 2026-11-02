@@ -9,7 +9,7 @@
 | 项目 | 已有验证结果与范围 |
 | --- | --- |
 | 离线测试 | Windows 共 130 项通过（共享核心 84、桌面 46）；新增弹窗短距离过渡、中途关闭连续性、减少动态效果和目录加载／错误布局稳定性验证，以及原生动作意图投影、跨会话摘要隔离、两侧各 10% 留白的响应式布局和连续层级竖线绘制验证，保留共享快照、增量更新、协议、保存和原生同步等覆盖 |
-| Linux 共享核心与服务 | 隔离 SSH 测试目录内核心 71 项通过，服务构建及 core／remote Clippy 通过，不构建 GPUI；实际目标 Linux x86_64，OMP 18.14.2。ARM64 仅配置 CI，未实机验收 |
+| Linux 共享核心与服务 | 隔离 SSH 测试目录内核心 71 项通过，服务构建及 core／remote Clippy 通过，不构建 GPUI；实际目标 Linux x86_64，OMP 18.14.2。ARM64 未实机验收，不纳入当前 CI 构建和发布范围 |
 | 公式与面板动效 | 真实回复隔离副本验证行内／块级公式、深色皮肤下的 SVG 字形和思考正文颜色；回归覆盖常见数学语法、缓存复用、单行公式规范化和原文范围映射。原生鼠标点击测试验证切页立即生效、不触发扫描，首个 16ms 动画帧已有明显位移、约 128ms 内到位以及快速反向切换 |
 | 动画性能 | 首次未优化调试版的 render 时间戳采样约 17–21 次更新／秒；随后用原生 Draw／Present 定位为 CPU 绘制瓶颈，并验证优化开发构建满足 60FPS 帧预算。详细数据、P95 和验证边界见下方原生动画基准；16ms 模拟时钟测试不作为实际帧率证据 |
 | 原文定位 | 隔离副本复现真实回复定位导致的重复无障碍节点崩溃；修复后两种跳转入口正常，跨段落引用准确高亮。回归验证长原文重复往返定位且引用位于可见区域 |
@@ -108,7 +108,7 @@ cargo build --locked
 
 发布优化构建使用 `cargo build --locked --release`，产物在 `target/release/omp-gui.exe`；普通构建在 `target/debug/omp-gui.exe`。
 
-[CI](../.github/workflows/check.yml) 在 Windows 检查 workspace，并在 Linux x86_64／ARM64 检查共享核心和服务、构建远端 release 产物。检查工作流保存独立的 Linux artifact；另有 [Release 工作流](../.github/workflows/release.yml) 为版本标签构建 Windows 优化程序与两种 Linux 服务，全部检查通过后组装便携 ZIP、生成 SHA-256 并发布，见[发布说明](releasing.md)。修改文档时检查引用、链接及命令示例，不必重复执行真实模型任务。
+[CI](../.github/workflows/check.yml) 在 Windows 检查 workspace，并在 Linux x86_64 检查共享核心和服务、构建远端 release 产物。检查工作流保存独立的 Linux artifact；另有 [Release 工作流](../.github/workflows/release.yml) 为版本标签构建 Windows 优化程序与 Linux x86_64 服务，全部检查通过后组装便携 ZIP、生成 SHA-256 并发布，见[发布说明](releasing.md)。修改文档时检查引用、链接及命令示例，不必重复执行真实模型任务。
 
 在 Linux 单独验证远端组件：
 
