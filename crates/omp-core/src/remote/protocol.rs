@@ -2,7 +2,7 @@ use crate::{domain::Session, environment::HostPath};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const VERSION: u32 = 4;
+pub const VERSION: u32 = 5;
 pub const MAX_MESSAGE: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -38,7 +38,8 @@ pub enum Operation {
         session: String,
         id: String,
         name: String,
-        data: String,
+        #[serde(with = "serde_bytes")]
+        data: Vec<u8>,
         sha256: String,
     },
     Configure {
@@ -52,6 +53,7 @@ pub enum Operation {
     },
     Lists {
         root: HostPath,
+        refresh_files: bool,
     },
     GitBranch {
         root: HostPath,

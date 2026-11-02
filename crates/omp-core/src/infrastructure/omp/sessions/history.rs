@@ -92,9 +92,17 @@ pub(super) fn header(path: &Path) -> Result<Value> {
 }
 
 pub(super) fn read(path: &Path) -> Result<NativeSession> {
-    let bytes = fs::read(path)?;
+    let mut reader = BufReader::new(fs::File::open(path)?);
+    let mut bytes = Vec::new();
+    let mut digest = Sha256::new();
     let mut rows = Vec::new();
-    for line in bytes.split_inclusive(|b| *b == b'\n') {
+    loop {
+        bytes.clear();
+        if reader.read_until(b'\n', &mut bytes)? == 0 {
+            break;
+        }
+        digest.update(&bytes);
+        let line = bytes.as_slice();
         if line.iter().all(u8::is_ascii_whitespace) {
             continue;
         }
@@ -174,11 +182,13 @@ pub(super) fn read(path: &Path) -> Result<NativeSession> {
     }
     chain.reverse();
     let mut messages: Vec<Message> = Vec::new();
+    let mut tool_calls: HashMap<String, (usize, usize)> = HashMap::new();
     let mut todos = Vec::new();
     let mut agents = Vec::new();
     for row in chain {
         if row["type"] == "reset_boundary" {
             messages.clear();
+            tool_calls.clear();
             todos.clear();
             agents.clear();
         }
@@ -200,11 +210,10 @@ pub(super) fn read(path: &Path) -> Result<NativeSession> {
         if m["role"] == "toolResult" {
             merge_tool_activity(&mut todos, &mut agents, &m["details"]);
             let call = m["toolCallId"].as_str().unwrap_or_default();
-            if let Some(block) = messages
-                .iter_mut()
-                .rev()
-                .flat_map(|m| m.process.iter_mut())
-                .find(|b| b.id == call)
+            if let Some(&(message, block)) = tool_calls.get(call)
+                && let Some(block) = messages
+                    .get_mut(message)
+                    .and_then(|m| m.process.get_mut(block))
             {
                 block.set_result(super::super::message_text(m), &m["details"]);
             }
@@ -224,6 +233,9 @@ pub(super) fn read(path: &Path) -> Result<NativeSession> {
                         .map(|d| d.timestamp().max(0) as u64)
                 })
                 .unwrap_or(0);
+            for (index, block) in message.process.iter().enumerate() {
+                tool_calls.insert(block.id.clone(), (messages.len(), index));
+            }
             messages.push(message);
         }
     }
@@ -250,6 +262,6 @@ pub(super) fn read(path: &Path) -> Result<NativeSession> {
         messages: Arc::new(messages),
         todos,
         agents,
-        revision: format!("display-v2:{:x}", Sha256::digest(&bytes)),
+        revision: format!("display-v2:{:x}", digest.finalize()),
     })
 }

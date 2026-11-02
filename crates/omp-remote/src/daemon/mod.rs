@@ -2,11 +2,12 @@
 mod session;
 
 use anyhow::{Context, Result, ensure};
+use crossbeam_channel as mpsc;
 use omp_core::{domain::hash, remote::receipts::private_directory};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufReader, Read, Write},
     os::unix::{
         fs::{FileTypeExt, MetadataExt, PermissionsExt},
         net::{UnixListener, UnixStream},
@@ -17,7 +18,6 @@ use std::{
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
-        mpsc,
     },
     time::{Duration, Instant},
 };
@@ -33,7 +33,7 @@ pub(super) struct Attach {
 }
 
 struct Handle {
-    tx: mpsc::SyncSender<session::Input>,
+    tx: mpsc::Sender<session::Input>,
     alive: Arc<AtomicBool>,
     root: PathBuf,
 }
@@ -117,18 +117,18 @@ fn attach(mut stream: UnixStream, registry: Registry) -> Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(20)))?;
     stream.set_write_timeout(Some(Duration::from_secs(10)))?;
     let mut reader = BufReader::new(stream.try_clone()?);
-    let line = read_line(&mut reader, 32768)?.context("缺少附着请求")?;
-    let mut request: Attach = serde_json::from_slice(&line)?;
+    let mut request: Attach =
+        omp_core::remote::wire::read(&mut reader, 32768)?.context("缺少附着请求")?;
     ensure!(
         request.owner.len() <= 128 && !request.owner.is_empty(),
         "无效连接身份"
     );
-    let result = (|| -> Result<mpsc::SyncSender<session::Input>> {
+    let result = (|| -> Result<mpsc::Sender<session::Input>> {
         let root = std::fs::canonicalize(&request.root)?;
         let path = std::fs::canonicalize(&request.resume)?;
         request.root = root.to_string_lossy().into_owned();
         request.resume = path.to_string_lossy().into_owned();
-        let mut actors = registry
+        let actors = registry
             .lock()
             .map_err(|_| anyhow::anyhow!("服务状态不可用"))?;
         if let Some(actor) = actors
@@ -138,16 +138,28 @@ fn attach(mut stream: UnixStream, registry: Registry) -> Result<()> {
             ensure!(actor.root == root, "会话不属于当前项目");
             return Ok(actor.tx.clone());
         }
+        drop(actors);
         let store =
             omp_core::infrastructure::omp::sessions::SessionStore::discover(&request.omp, &root)?;
         let native = store.inspect(&path, &root)?;
-        store.available(&native.id)?;
         let key = hash(&request.resume);
         omp_core::remote::receipts::Ledger::new(
             &omp_core::infrastructure::persistence::workspace_store::data_dir(),
             &format!("native-{key}"),
         )?;
-        let (tx, rx) = mpsc::sync_channel(256);
+        let mut actors = registry
+            .lock()
+            .map_err(|_| anyhow::anyhow!("服务状态不可用"))?;
+        // Another attach may have won while discovery ran outside the lock.
+        if let Some(actor) = actors
+            .get(&path)
+            .filter(|actor| actor.alive.load(Ordering::Acquire))
+        {
+            ensure!(actor.root == root, "会话不属于当前项目");
+            return Ok(actor.tx.clone());
+        }
+        store.available(&native.id)?;
+        let (tx, rx) = mpsc::bounded(256);
         let alive = Arc::new(AtomicBool::new(true));
         let alive_actor = alive.clone();
         let startup = request.clone();
@@ -170,7 +182,7 @@ fn attach(mut stream: UnixStream, registry: Registry) -> Result<()> {
     let tx = match result {
         Ok(tx) => tx,
         Err(error) => {
-            stream.write_all(&omp_core::infrastructure::omp::encode_transport_frame(&serde_json::json!({"type":"__omp_gui_transport","state":"blocked","error":format!("{error:#}")}))?)?;
+            stream.write_all(&encode_frame(&serde_json::json!({"type":"__omp_gui_transport","state":"blocked","error":format!("{error:#}")}))?)?;
             return Ok(());
         }
     };
@@ -182,8 +194,9 @@ fn attach(mut stream: UnixStream, registry: Registry) -> Result<()> {
         stream,
     })
     .context("会话已退出，请重连")?;
-    while let Some(line) = read_line(&mut reader, omp_core::remote::protocol::MAX_MESSAGE)? {
-        let frame = serde_json::from_slice(&line)?;
+    while let Some(frame) =
+        omp_core::remote::wire::read(&mut reader, omp_core::remote::protocol::MAX_MESSAGE)?
+    {
         if tx
             .try_send(session::Input::Frame {
                 generation: generation.clone(),
@@ -198,17 +211,8 @@ fn attach(mut stream: UnixStream, registry: Registry) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn read_line(reader: &mut impl BufRead, max: usize) -> Result<Option<Vec<u8>>> {
-    let mut line = Vec::new();
-    let count = reader.take((max + 1) as u64).read_until(b'\n', &mut line)?;
-    if count == 0 {
-        return Ok(None);
-    }
-    ensure!(
-        count <= max && line.ends_with(b"\n"),
-        "远端传输不完整或超过限制"
-    );
-    Ok(Some(line))
+pub(super) fn encode_frame(frame: &serde_json::Value) -> Result<Vec<u8>> {
+    omp_core::remote::wire::encode(frame, omp_core::remote::wire::MAX_RESPONSE)
 }
 
 pub fn bridge(args: &[String]) -> Result<()> {
@@ -267,8 +271,7 @@ pub fn bridge(args: &[String]) -> Result<()> {
             }
         }
     };
-    serde_json::to_writer(&mut stream, &request)?;
-    stream.write_all(b"\n")?;
+    omp_core::remote::wire::write(&mut stream, &request, 32768)?;
     let mut writer = stream.try_clone()?;
     std::thread::spawn(move || {
         let mut input = std::io::stdin().lock();

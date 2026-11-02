@@ -79,6 +79,7 @@ pub(in crate::desktop::workspace) fn fixture(
             watched_session: String::new(),
             watch_retry: None,
             refresh_pending: None,
+            pending_change: None,
             last_scan: Instant::now(),
             tree: cx.new(|cx| TreeState::new(cx)),
             diff: None,

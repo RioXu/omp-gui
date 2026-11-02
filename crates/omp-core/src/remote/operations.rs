@@ -99,7 +99,6 @@ pub fn execute(operation: Operation) -> Result<Value> {
             data,
             sha256,
         } => {
-            use base64::Engine as _;
             use sha2::{Digest, Sha256};
             ensure!(
                 !name.is_empty()
@@ -117,13 +116,7 @@ pub fn execute(operation: Operation) -> Result<Value> {
                         .all(|b| b.is_ascii_alphanumeric() || b"-_".contains(&b)),
                 "附件身份无效"
             );
-            ensure!(
-                data.len()
-                    <= crate::infrastructure::filesystem::attachments::MAX_ATTACHMENT.div_ceil(3)
-                        * 4,
-                "附件超过限制"
-            );
-            let bytes = base64::engine::general_purpose::STANDARD.decode(data)?;
+            let bytes = data;
             ensure!(
                 bytes.len() <= crate::infrastructure::filesystem::attachments::MAX_ATTACHMENT,
                 "附件超过限制"
@@ -186,7 +179,12 @@ pub fn execute(operation: Operation) -> Result<Value> {
             }
             Ok(serde_json::to_value(directory)?)
         }
-        Operation::Lists { root } => Ok(serde_json::to_value(LocalHost.lists(&local(&root)?)?)?),
+        Operation::Lists {
+            root,
+            refresh_files,
+        } => Ok(serde_json::to_value(
+            LocalHost.refresh_lists(&local(&root)?, refresh_files)?,
+        )?),
         Operation::GitBranch { root } => {
             Ok(serde_json::to_value(LocalHost.git_branch(&local(&root)?)?)?)
         }
@@ -316,7 +314,26 @@ pub fn dispatch(request: Request) -> Result<Value> {
     }
     use super::receipts::{Admission, Ledger};
     let ledger = Ledger::new(&workspace_store::data_dir(), &receipt_scope())?;
-    let digest = crate::domain::hash(&serde_json::to_string(&request.operation)?);
+    let digest = match &request.operation {
+        Operation::Upload {
+            session,
+            id,
+            name,
+            data,
+            sha256,
+        } => {
+            use sha2::{Digest, Sha256};
+            // Hash raw attachment bytes, avoiding a large JSON integer array.
+            crate::domain::hash(&serde_json::to_string(&(
+                session,
+                id,
+                name,
+                sha256,
+                format!("{:x}", Sha256::digest(data)),
+            ))?)
+        }
+        operation => crate::domain::hash(&serde_json::to_string(operation)?),
+    };
     match ledger.begin(&request.id, digest)? {
         Admission::New(commit) => {
             let result = execute(request.operation).map_err(|error| format!("{error:#}"));

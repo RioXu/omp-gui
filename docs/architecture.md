@@ -67,7 +67,7 @@ scripts/                          开发与数据更新工具
 
 `SessionConnection::release_idle` 消费当前所有者的连接；本地释放自己的进程，远端通过当前订阅代次请求监督服务释放空闲子进程，并在子进程退出后确认。普通 Drop 只断开远端桥，不能等价于停止任务。`SessionRuntime::releasing` 保存后台释放确认，删除或快速切回时先核对它；删除期间禁止自动重连，最终删除仍取得 OMP 原生锁，不按 PID 或路径杀其他写者。
 
-`remote/requests.rs` 使用有界管理队列和请求期限，发生传输错误后重建通道；只读操作可重试，变更只查询受理／结果记录。`remote/response.rs` 负责有界响应分片与校验，超限通过应用错误报告，不关闭管理通道。`remote/session.rs` 为模型事件桥保留进程代次、序号和未确认操作，退避重连，不重发原生变更。大附件、会话索引／历史同步使用独立通道，新建／删除不排在历史传输之后；管理操作、文件监听与模型事件不共用阻塞流。不依赖 Windows 的 SSH ControlMaster。
+`remote/requests.rs` 使用有界管理队列和请求期限，发生传输错误后重建通道；只读操作可重试，变更只查询受理／结果记录。`remote/wire.rs` 和 `remote/wire/serde_codec.rs` 将现有 Serde 领域类型直接映射为平坦的 rkyv 归档，并在校验后直接反序列化，不经过 JSON 文本或中间 Value 树；`remote/response.rs` 负责有界二进制响应与校验，超限通过应用错误报告，不关闭管理通道。`remote/session.rs` 为模型事件桥保留进程代次、序号和未确认操作，退避重连，不重发原生变更。大附件、会话索引／历史同步使用独立通道，新建／删除不排在历史传输之后；管理操作、文件监听与模型事件不共用阻塞流。不依赖 Windows 的 SSH ControlMaster。
 
 远端 `NativeStore::sync` 先扫描仅含元数据的索引，再按当前 GUI 会话绑定按需读取历史。`native_index_revision` 表示文件大小／修改时间得到的索引版本，`native_revision` 仅表示已加载正文版本；元数据刷新不能把未加载正文标成最新，也不能清空已有正文、任务或子智能体。会话恢复等待原生协商完成，空闲会话重新核对日志，运行中会话查询当前消息。
 
@@ -162,3 +162,12 @@ python scripts/update_service_catalog.py D:\src\oh-my-pi
 数学排版通过原生 Markdown 扩展接入 [RaTeX](https://github.com/erweixin/RaTeX)，在解析阶段生成带字体轮廓的 SVG，再由 GPUI 绘制；缓存上限为 128 项／4 MiB。内嵌 KaTeX 字体的许可见 [OFL](../resources/KaTeX-OFL.txt)。公式节点保留原始 LaTeX 与源区间，皮肤切换复用几何数据并采用当前文字颜色。
 
 Windows 程序图标为 [omp.ico](../resources/omp.ico)，原样提取自本机 OMP 18.14.0 的 `omp.exe`（原资源组 `IDI_MYICON`，256×256、32 位），保留原始图像数据。构建脚本使用 `embed-resource` 将 [omp-gui.rc](../resources/omp-gui.rc) 仅链接到 GUI 二进制；图标资源 ID 为 1，与 GPUI 原生窗口加载规则一致。
+
+
+### v0.8.4 远端性能边界
+
+应用通信采用管理协议 5：SSH stdio 与监督 Unix socket 均使用 OMR5／长度前缀／rkyv 归档。命令行版本查询和部署 shell 保持普通 CLI 语义；原生 OMP 子进程一侧保持 JSONL RPC v2，磁盘 JSON／JSONL 和操作确认记录格式不变。附件上传使用原始字节，不经过 Base64。
+
+SessionStore 发现结果在进程内有界共享，按 cwd／OMP／profile 环境隔离并定期重查。索引通过 notify 维护变化目录集合和完整补查时限；历史缓存按源文件大小／mtime 校验。历史逐行解析，工具结果通过调用 ID 索引定位。文件通知携带合并路径，桌面保留定期完整刷新，普通事件选择性重读标签；路径匹配保留 POSIX 反斜线语义。
+
+附着流程在全局注册表锁外发现配置及验证路径，再持锁二次检查并注册唯一 actor。Client 输出事件使用有界 crossbeam channel，actor 用 select 同时等待事件、输入和退出期限，保留 owner／generation／原生 lease 保护及普通断线不终止任务的语义。

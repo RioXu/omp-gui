@@ -46,7 +46,6 @@ impl ExecutionHost {
                 crate::infrastructure::filesystem::attachments::prompt(text, attachments)
             }
             Self::Remote(remote) => {
-                use base64::Engine as _;
                 use sha2::{Digest, Sha256};
                 let transfer = if attachments
                     .iter()
@@ -69,7 +68,7 @@ impl ExecutionHost {
                                 session: session.into(),
                                 id: attachment.id.clone(),
                                 name: attachment.name.clone(),
-                                data: base64::engine::general_purpose::STANDARD.encode(bytes),
+                                data: bytes.to_vec(),
                                 sha256: format!("{:x}", Sha256::digest(bytes)),
                             })?;
                         Ok(path.text())
@@ -106,6 +105,16 @@ impl ProjectFiles for ExecutionHost {
         match self {
             Self::Local => LocalHost.lists(root),
             Self::Remote(host) => host.lists(root),
+        }
+    }
+    fn refresh_lists(
+        &self,
+        root: &HostPath,
+        refresh_files: bool,
+    ) -> Result<(Vec<PathBuf>, Vec<ChangedFile>)> {
+        match self {
+            Self::Local => LocalHost.refresh_lists(root, refresh_files),
+            Self::Remote(host) => host.refresh_lists(root, refresh_files),
         }
     }
     fn document(

@@ -1,6 +1,6 @@
 //! Manage the OMP child process and asynchronous JSONL transport.
 use super::framing::{Decoder, MAX_COMMAND, MAX_FRAME};
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use std::{
     io::{BufRead, BufReader, Read, Write},
@@ -17,8 +17,9 @@ pub enum Event {
 }
 pub struct Client {
     child: Child,
-    tx: mpsc::SyncSender<Value>,
-    pub events: mpsc::Receiver<Event>,
+    tx: mpsc::SyncSender<Vec<u8>>,
+    pub events: crossbeam_channel::Receiver<Event>,
+    binary: bool,
 }
 impl Client {
     #[cfg(feature = "test-support")]
@@ -75,7 +76,13 @@ impl Client {
             .with_context(|| format!("无法启动 {executable}，请检查设置中的 OMP 路径"))
     }
 
-    pub fn from_command(mut cmd: std::process::Command) -> Result<Self> {
+    pub fn from_command(cmd: std::process::Command) -> Result<Self> {
+        Self::from_transport(cmd, false)
+    }
+    pub fn from_binary_command(cmd: std::process::Command) -> Result<Self> {
+        Self::from_transport(cmd, true)
+    }
+    fn from_transport(mut cmd: std::process::Command, binary: bool) -> Result<Self> {
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -83,22 +90,12 @@ impl Client {
         let mut stdin = child.stdin.take().context("OMP stdin missing")?;
         let stdout = child.stdout.take().context("OMP stdout missing")?;
         let stderr = child.stderr.take().context("OMP stderr missing")?;
-        let (tx, rx) = mpsc::sync_channel::<Value>(32);
-        let (event_tx, events) = mpsc::sync_channel(128);
+        let (tx, rx) = mpsc::sync_channel::<Vec<u8>>(32);
+        let (event_tx, events) = crossbeam_channel::bounded(128);
         let write_tx = event_tx.clone();
         thread::spawn(move || {
-            for frame in rx {
-                let result = (|| -> Result<()> {
-                    let mut bytes = serde_json::to_vec(&frame)?;
-                    bytes.push(b'\n');
-                    ensure!(
-                        bytes.len() <= MAX_COMMAND,
-                        "消息及附件超过 64 MiB，请减少附件"
-                    );
-                    stdin.write_all(&bytes)?;
-                    stdin.flush()?;
-                    Ok(())
-                })();
+            for bytes in rx {
+                let result = stdin.write_all(&bytes).and_then(|()| stdin.flush());
                 if let Err(e) = result {
                     let _ = write_tx.send(Event::Error(format!("发送失败：{e:#}")));
                     break;
@@ -111,6 +108,24 @@ impl Client {
             let mut decoder = Decoder::default();
             let mut line = Vec::new();
             loop {
+                if binary {
+                    match crate::remote::wire::read::<Value>(
+                        &mut reader,
+                        crate::remote::wire::MAX_RESPONSE,
+                    ) {
+                        Ok(Some(frame)) => {
+                            if read_tx.send(Event::Frame(frame)).is_err() {
+                                return;
+                            }
+                        }
+                        Ok(None) => break,
+                        Err(error) => {
+                            let _ = read_tx.send(Event::Error(format!("远端通信错误：{error:#}")));
+                            break;
+                        }
+                    }
+                    continue;
+                }
                 line.clear();
                 let result = reader
                     .by_ref()
@@ -148,17 +163,29 @@ impl Client {
                 }
             }
         });
-        Ok(Self { child, tx, events })
+        Ok(Self {
+            child,
+            tx,
+            events,
+            binary,
+        })
     }
     pub fn send(&self, frame: Value) -> Result<()> {
         // Native rpc-input parses complete JSONL commands (including images).
         // MAX_FRAME applies to received physical frames; outgoing commands are
         // bounded by the logical message limit instead.
-        if serde_json::to_vec(&frame)?.len() + 1 > MAX_COMMAND {
-            bail!("消息及附件超过 64 MiB，请减少附件后重试");
-        }
+        let bytes = if self.binary {
+            crate::remote::wire::encode(&frame, MAX_COMMAND)?
+        } else {
+            let mut bytes = serde_json::to_vec(&frame)?;
+            if bytes.len() + 1 > MAX_COMMAND {
+                bail!("消息及附件超过 64 MiB，请减少附件后重试");
+            }
+            bytes.push(b'\n');
+            bytes
+        };
         self.tx
-            .try_send(frame)
+            .try_send(bytes)
             .context("OMP 发送队列忙或连接已关闭，输入未重放")
     }
 }

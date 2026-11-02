@@ -38,6 +38,7 @@ impl Fixture {
             root: base.join("profile"),
             owners: base.join("owners"),
             cache: Default::default(),
+            index: Default::default(),
         };
         Self {
             base,
@@ -493,4 +494,78 @@ fn merge_duplicate_prompts_preserves_anchors_and_augmented_comment_text() {
     s.merge_native_history(rewind);
     assert_eq!(s.messages.len(), 2);
     assert_eq!(s.messages[1].text, "withdrawn");
+}
+
+#[test]
+fn index_watch_invalidates_external_changes_and_history_cache_reuses_projection() {
+    let f = Fixture::new();
+    let native = f.store.create(&f.project, "before").unwrap();
+    let first = f.store.read_history(&native.path, &f.project).unwrap();
+    let second = f.store.read_history(&native.path, &f.project).unwrap();
+    assert!(Arc::ptr_eq(&first.messages, &second.messages));
+    assert_eq!(
+        f.store
+            .scan_index(std::slice::from_ref(&f.project), &[])
+            .unwrap()
+            .sessions
+            .len(),
+        1
+    );
+    let mut file = fs::OpenOptions::new()
+        .append(true)
+        .open(&native.path)
+        .unwrap();
+    writeln!(file, "{}", json!({"type":"title_change","title":"after"})).unwrap();
+    drop(file);
+    let full = f.store.read_history(&native.path, &f.project).unwrap();
+    assert_eq!(full.title, "after");
+    assert!(!Arc::ptr_eq(&first.messages, &full.messages));
+    fs::remove_file(&native.path).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    loop {
+        if f.store
+            .scan_index(std::slice::from_ref(&f.project), &[])
+            .unwrap()
+            .sessions
+            .is_empty()
+        {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "watch did not invalidate removed journal"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn discovery_reuses_store_without_relaunching_omp_and_separates_projects() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = Fixture::new();
+    let executable = f.base.join("fake-omp");
+    let counter = f.base.join("calls");
+    let quote = crate::remote::ssh::quote;
+    fs::write(
+        &executable,
+        format!(
+            "#!/bin/sh\nprintf x >> {}\nprintf '%s\\n' {}\n",
+            quote(&counter.to_string_lossy()).unwrap(),
+            quote(&f.store.root.to_string_lossy()).unwrap()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    let omp = executable.to_string_lossy();
+    let first = SessionStore::discover(&omp, &f.project).unwrap();
+    for _ in 0..10 {
+        let next = SessionStore::discover(&omp, &f.project).unwrap();
+        assert!(Arc::ptr_eq(&first.cache, &next.cache));
+    }
+    assert_eq!(fs::read(&counter).unwrap(), b"x");
+    let other = f.base.join("other-project");
+    fs::create_dir(&other).unwrap();
+    SessionStore::discover(&omp, &other).unwrap();
+    assert_eq!(fs::read(&counter).unwrap(), b"xx");
 }

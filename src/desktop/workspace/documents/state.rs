@@ -18,6 +18,7 @@ pub(in crate::desktop::workspace) struct DocumentState {
     pub(in crate::desktop::workspace) watcher: Option<Box<dyn omp_core::host::FileWatch>>,
     pub(in crate::desktop::workspace) watched_session: String,
     pub(in crate::desktop::workspace) watch_retry: Option<Instant>,
+    pub(in crate::desktop::workspace) pending_change: Option<omp_core::host::FileChange>,
     pub(in crate::desktop::workspace) refresh_pending: Option<Instant>,
     pub(in crate::desktop::workspace) last_scan: Instant,
     pub(in crate::desktop::workspace) tree: Entity<TreeState>,
@@ -58,7 +59,7 @@ pub(in crate::desktop::workspace) enum FileEvent {
     },
     Changed {
         session: String,
-        links_changed: bool,
+        change: omp_core::host::FileChange,
     },
     Lists {
         session: String,

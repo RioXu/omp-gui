@@ -116,3 +116,34 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<PathBuf>, depth: usize) -> anyhow
     }
     Ok(())
 }
+
+/// File names change less often than Git status. Bounded, process-local cache;
+/// callers invalidate on create/remove/rename, with a periodic full fallback.
+pub fn list_cached(root: &Path, refresh: bool) -> anyhow::Result<Vec<PathBuf>> {
+    use std::{
+        collections::HashMap,
+        sync::{Mutex, OnceLock},
+        time::Instant,
+    };
+    type Cache = HashMap<PathBuf, (Instant, Vec<PathBuf>)>;
+    static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    if !refresh
+        && let Some((_, paths)) = cache
+            .lock()
+            .map_err(|_| anyhow::anyhow!("文件索引不可用"))?
+            .get(root)
+            .filter(|(at, _)| at.elapsed().as_secs() < 30)
+    {
+        return Ok(paths.clone());
+    }
+    let paths = list(root)?;
+    let mut cache = cache
+        .lock()
+        .map_err(|_| anyhow::anyhow!("文件索引不可用"))?;
+    if cache.len() >= 16 {
+        cache.clear();
+    }
+    cache.insert(root.to_owned(), (Instant::now(), paths.clone()));
+    Ok(paths)
+}

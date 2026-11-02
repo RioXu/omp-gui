@@ -2,7 +2,36 @@
 
 [返回 README](../README.md) · [使用说明](usage.md) · [组件架构](architecture.md)
 
-## v0.8.3 验证
+## v0.8.4 开发验证（2026-11-02）
+
+本轮直接在 main 实现五项远端性能优化和 rkyv 协议 5 迁移，尚未发布或替换默认部署。Linux x86_64 的 core／remote 全目标 Clippy、89 项默认测试及 release 服务构建通过，另有 3 项手工基准和 1 项进程集成测试默认忽略。本轮 Linux 未优化测试中的原有 JSON 深度用例需要设置 RUST_MIN_STACK=8388608，默认线程栈首轮曾溢出；不把加大测试线程栈描述为修复生产解析器。
+
+新增默认回归覆盖发现缓存（同项目连续 11 次发现只启动一次假 OMP）、跨项目隔离、历史投影共享及外部日志删除通知、合并路径和 POSIX 反斜线、二进制类型化枚举／完整 Session 请求、Unicode／数值边界、畸形归档／长度／容器及超大响应错误后通道存活。
+
+显式 Linux 进程集成测试 binary_management_watch_and_supervised_release 使用真实 OMP 和全新临时 profile／项目，验证管理握手、原始附件字节上传、会话索引、二进制文件通知、竞争 owner 被拒、桥断开后重附着、状态查询、空闲释放及原生锁可用。仅配置虚拟模型身份供 OMP 启动，不发模型请求。此测试直接启动 helper 进程，覆盖 stdio／Unix socket／原生 OMP 协议边界，不能代替真实跨主机 SSH 应用协议回归；源码上传和远端构建本身通过已有 SSH 主机完成。
+
+本轮 Windows 格式检查通过；测试、Clippy 和 GUI 构建未完成：当前机器只有 coreutils 的 link.exe，移除该冲突目录后提示找不到 MSVC linker，既有 Visual Studio 目录为空。未安装或更改系统工具链，也未关闭用户窗口。恢复 MSVC C++ Build Tools 后执行下方标准 Windows 检查和真实 SSH 回归，再打包发布。
+
+### rkyv 合成基准
+
+Linux x86_64 release，对同一数据分别执行编码与完整解码，单次样本；包括归档验证，不包括 SSH、OMP 启动、磁盘及 GUI 渲染。直接通过 Serde 适配平坦 rkyv 归档，不包装 JSON 文本，不构造中间 JSON Value 树。
+
+| 数据 | 次数 | JSON 字节／次 | rkyv 字节／次（含帧头） | JSON 总耗时 | rkyv 总耗时 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 小事件 | 20000 | 72 | 123 | 14.41 ms | 24.50 ms |
+| 合成历史，2000 条消息 | 20 | 4280904 | 4344043 | 180.00 ms | 95.81 ms |
+
+该大历史样本编解码耗时约下降 47%；小事件增加约 0.5 微秒／次，体积也更大，不能宣称 rkyv 对所有消息都更快。旧管理大响应还需 Base64 分片，此表用裸 JSON 作保守对照；不据此推断端到端收益。普通附件上传不再承担 Base64 体积增量。其他五项优化目前有行为与进程次数证据，尚无 CPU／RSS 或真实大项目 P95 的量化对照。
+
+复现命令：
+
+~~~sh
+RUST_MIN_STACK=8388608 cargo test -p omp-core -p omp-gui-remote -- --test-threads=1
+OMP_GUI_TEST_OMP=/absolute/path/to/omp cargo test -p omp-gui-remote --test transport -- --ignored --nocapture
+RUST_MIN_STACK=8388608 cargo test --release -p omp-core transport_roundtrip_benchmark -- --ignored --nocapture
+~~~
+
+## v0.8.3 验证（历史）
 
 Windows 默认测试 133 项通过（共享核心 86、桌面 47），另有需显式启用的集成测试和基准保持忽略；格式检查、全 workspace／全功能 Clippy 和本地构建通过。新增验证覆盖身份开关保存／回读及字段保留、Git 新仓库／中文分支／子目录／独立工作树／分离 HEAD、标题栏与窄窗口布局、切换会话隔离及非 Git 目录隐藏。协议 4 的 SSH 查询已接入，尚未在远端实机验证。
 

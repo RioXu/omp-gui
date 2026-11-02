@@ -3,7 +3,7 @@ use super::{protocol::*, ssh::ssh_command};
 use anyhow::{Context, Result, ensure};
 use serde_json::Value;
 use std::{
-    io::{BufReader, Read, Write},
+    io::{BufReader, Read},
     process::{Child, ChildStdin, ChildStdout, Stdio},
     sync::{
         Arc, Mutex,
@@ -98,11 +98,7 @@ impl Transport {
             *deadline = Some(expires.min(Instant::now() + Duration::from_secs(40)));
         }
         let result = (|| -> Result<Value> {
-            let bytes = serde_json::to_vec(request)?;
-            ensure!(bytes.len() < MAX_MESSAGE, "远端请求超过 64 MiB");
-            self.input.write_all(&bytes)?;
-            self.input.write_all(b"\n")?;
-            self.input.flush()?;
+            super::wire::write(&mut self.input, request, MAX_MESSAGE)?;
             let response =
                 super::response::read(&mut self.output, &request.id).with_context(|| {
                     format!(

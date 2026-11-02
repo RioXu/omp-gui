@@ -69,6 +69,7 @@ pub struct SessionStore {
     pub root: PathBuf,
     owners: PathBuf,
     cache: Arc<Mutex<Cache>>,
+    index: Arc<Mutex<Option<IndexCache>>>,
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Scan {
@@ -77,6 +78,26 @@ pub struct Scan {
     pub missing: Vec<String>,
     pub errors: Vec<String>,
 }
+struct IndexCache {
+    rows: Vec<NativeSession>,
+    dirty: Arc<std::sync::atomic::AtomicBool>,
+    changed: Arc<Mutex<std::collections::HashSet<PathBuf>>>,
+    _watcher: notify::RecommendedWatcher,
+    checked: std::time::Instant,
+}
+
+struct IndexRefresh {
+    dirty: Arc<std::sync::atomic::AtomicBool>,
+    successful: bool,
+}
+impl Drop for IndexRefresh {
+    fn drop(&mut self) {
+        if !self.successful {
+            self.dirty.store(true, std::sync::atomic::Ordering::Release);
+        }
+    }
+}
+
 impl SessionStore {
     pub fn child_transcript(
         primary: &Path,
@@ -96,6 +117,47 @@ impl SessionStore {
         Ok(history::read(path)?.messages.as_ref().clone())
     }
     pub fn discover(omp: &str, cwd: &Path) -> Result<Self> {
+        use std::sync::OnceLock;
+        type Stores = Vec<(String, std::time::Instant, SessionStore)>;
+        static STORES: OnceLock<Mutex<Stores>> = OnceLock::new();
+        let key = format!(
+            "{omp}|{}|{:?}|{:?}|{:?}|{:?}",
+            cwd.display(),
+            std::env::var_os("PI_CODING_AGENT_DIR"),
+            std::env::var_os("PI_CONFIG_DIR"),
+            std::env::var_os("PI_TEST_SESSION_OWNERS_DIR"),
+            std::env::var_os("HOME")
+        );
+        let stores = STORES.get_or_init(Default::default);
+        {
+            let stores = stores
+                .lock()
+                .map_err(|_| anyhow::anyhow!("会话存储缓存不可用"))?;
+            if let Some((_, _, store)) = stores
+                .iter()
+                .find(|(k, at, _)| k == &key && at.elapsed().as_secs() < 30)
+            {
+                return Ok(store.clone());
+            }
+        }
+        // Process startup must never happen under the shared cache lock.
+        let store = Self::discover_uncached(omp, cwd)?;
+        let mut stores = stores
+            .lock()
+            .map_err(|_| anyhow::anyhow!("会话存储缓存不可用"))?;
+        let store = stores
+            .iter()
+            .find(|(_, _, existing)| existing.root == store.root && existing.owners == store.owners)
+            .map(|(_, _, existing)| existing.clone())
+            .unwrap_or(store);
+        stores.retain(|(k, at, _)| k != &key && at.elapsed().as_secs() < 30);
+        if stores.len() >= 16 {
+            stores.remove(0);
+        }
+        stores.push((key, std::time::Instant::now(), store.clone()));
+        Ok(store)
+    }
+    fn discover_uncached(omp: &str, cwd: &Path) -> Result<Self> {
         let root = PathBuf::from(
             crate::infrastructure::configuration::settings::command(omp, cwd, &["config", "path"])?
                 .trim(),
@@ -121,6 +183,7 @@ impl SessionStore {
             root: plain_path(&root),
             owners: plain_path(&owners),
             cache: Default::default(),
+            index: Default::default(),
         })
     }
     pub fn available(&self, id: &str) -> Result<()> {
@@ -196,41 +259,28 @@ impl SessionStore {
             }
         }
         let root = self.root.join("sessions");
-        if root.try_exists()? {
-            for dir in fs::read_dir(&root)? {
-                let dir = dir?;
-                if !dir.file_type()?.is_dir() {
+        if metadata_only {
+            for native in self.index_rows()? {
+                if projects
+                    .iter()
+                    .any(|p| project_key(p) == project_key(&native.cwd))
+                {
+                    result.sessions.push(native);
+                }
+            }
+        } else if root.try_exists()? {
+            for native in self.index_rows()? {
+                if !projects
+                    .iter()
+                    .any(|p| project_key(p) == project_key(&native.cwd))
+                {
                     continue;
                 }
-                for entry in fs::read_dir(dir.path())? {
-                    let entry = entry?;
-                    let path = entry.path();
-                    if path.extension().is_none_or(|e| e != "jsonl")
-                        || !entry.file_type()?.is_file()
-                    {
-                        continue;
-                    }
-                    // Read only a small header for unrelated projects.
-                    let matches = history::header(&path).ok().is_some_and(|header| {
-                        header["cwd"].as_str().is_some_and(|cwd| {
-                            projects
-                                .iter()
-                                .any(|p| project_key(p) == project_key(Path::new(cwd)))
-                        })
-                    });
-                    if !matches {
-                        continue;
-                    }
-                    match if metadata_only {
-                        history::summary(&path)
-                    } else {
-                        self.cached_read(&path)
-                    } {
-                        Ok(native) => result.sessions.push(native),
-                        Err(e) => result
-                            .errors
-                            .push(format!("读取 {} 失败：{e:#}", path.display())),
-                    }
+                match self.cached_read(&native.path) {
+                    Ok(native) => result.sessions.push(native),
+                    Err(e) => result
+                        .errors
+                        .push(format!("读取 {} 失败：{e:#}", native.path.display())),
                 }
             }
         }
@@ -269,6 +319,126 @@ impl SessionStore {
         result.sessions.sort_by_key(|s| s.updated);
         Ok(result)
     }
+    fn index_rows(&self) -> Result<Vec<NativeSession>> {
+        use notify::Watcher;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let root = self.root.join("sessions");
+        if !root.try_exists()? {
+            return Ok(Vec::new());
+        }
+        let mut cached = self
+            .index
+            .lock()
+            .map_err(|_| anyhow::anyhow!("会话索引不可用"))?;
+        if let Some(cache) = cached.as_ref()
+            && !cache.dirty.load(Ordering::Acquire)
+            && cache.changed.lock().is_ok_and(|p| p.is_empty())
+            && cache.checked.elapsed().as_secs() < 30
+        {
+            return Ok(cache.rows.clone());
+        }
+        if cached.is_none() {
+            let dirty = Arc::new(AtomicBool::new(true));
+            let signal = dirty.clone();
+            let changed = Arc::new(Mutex::new(std::collections::HashSet::new()));
+            let changes = changed.clone();
+            let watched_root = root.clone();
+            let mut watcher = notify::recommended_watcher(
+                move |event: notify::Result<notify::Event>| match event {
+                    Ok(event) if matches!(event.kind, notify::EventKind::Access(_)) => {}
+                    Ok(event) if !event.need_rescan() && !event.paths.is_empty() => {
+                        if let Ok(mut dirs) = changes.lock() {
+                            for path in event.paths {
+                                if let Some(first) = path
+                                    .strip_prefix(&watched_root)
+                                    .ok()
+                                    .and_then(|p| p.components().next())
+                                {
+                                    dirs.insert(watched_root.join(first));
+                                } else {
+                                    signal.store(true, Ordering::Release);
+                                }
+                            }
+                            if dirs.len() > 256 {
+                                dirs.clear();
+                                signal.store(true, Ordering::Release);
+                            }
+                        } else {
+                            signal.store(true, Ordering::Release);
+                        }
+                    }
+                    _ => signal.store(true, Ordering::Release),
+                },
+            )?;
+            watcher.watch(&root, notify::RecursiveMode::Recursive)?;
+            *cached = Some(IndexCache {
+                rows: Vec::new(),
+                dirty,
+                changed,
+                _watcher: watcher,
+                checked: std::time::Instant::now(),
+            });
+        }
+        let cache = cached.as_mut().unwrap();
+        let full =
+            cache.dirty.swap(false, Ordering::AcqRel) || cache.checked.elapsed().as_secs() >= 30;
+        let changed = std::mem::take(
+            &mut *cache
+                .changed
+                .lock()
+                .map_err(|_| anyhow::anyhow!("会话变更索引不可用"))?,
+        );
+        let mut refresh = IndexRefresh {
+            dirty: cache.dirty.clone(),
+            successful: false,
+        };
+        let old: HashMap<_, _> = cache.rows.iter().map(|n| (n.path.clone(), n)).collect();
+        let directories = if full {
+            fs::read_dir(&root)?
+                .filter_map(|d| d.ok())
+                .filter(|d| d.file_type().is_ok_and(|t| t.is_dir()))
+                .map(|d| d.path())
+                .collect::<Vec<_>>()
+        } else {
+            changed.iter().filter(|p| p.is_dir()).cloned().collect()
+        };
+        let mut rows = if full {
+            Vec::new()
+        } else {
+            cache
+                .rows
+                .iter()
+                .filter(|n| n.path.parent().is_some_and(|p| !changed.contains(p)))
+                .cloned()
+                .collect()
+        };
+        for dir in directories {
+            for entry in fs::read_dir(&dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.extension().is_none_or(|e| e != "jsonl") || !entry.file_type()?.is_file() {
+                    continue;
+                }
+                let meta = entry.metadata()?;
+                let stamp = meta
+                    .modified()?
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default();
+                let revision = format!("index-v1:{}:{}", meta.len(), stamp.as_nanos());
+                if let Some(previous) = old.get(&path).filter(|n| n.revision == revision) {
+                    rows.push((*previous).clone());
+                } else if let Ok(summary) = history::summary(&path) {
+                    rows.push(summary);
+                }
+            }
+        }
+        cache.rows = rows;
+        if full {
+            cache.checked = std::time::Instant::now();
+        }
+        refresh.successful = true;
+        Ok(cache.rows.clone())
+    }
     fn cached_read(&self, path: &Path) -> Result<NativeSession> {
         let meta = fs::metadata(path)?;
         let stamp = meta.modified()?;
@@ -283,7 +453,17 @@ impl SessionStore {
             return Ok(native.clone());
         }
         let native = history::read(path)?;
-        cache.insert(path.to_owned(), (meta.len(), stamp, native.clone()));
+        // Bound retained histories by source size and count. Very large histories
+        // are served without retaining another long-lived projection.
+        cache.retain(|_, (len, _, _)| *len <= 32 * 1024 * 1024);
+        if cache.len() >= 3
+            || cache.values().map(|(len, _, _)| *len).sum::<u64>() + meta.len() > 32 * 1024 * 1024
+        {
+            cache.clear();
+        }
+        if meta.len() <= 32 * 1024 * 1024 {
+            cache.insert(path.to_owned(), (meta.len(), stamp, native.clone()));
+        }
         Ok(native)
     }
 }

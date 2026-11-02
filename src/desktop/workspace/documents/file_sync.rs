@@ -70,7 +70,7 @@ impl Workspace {
                     Ok(change) => {
                         let _ = self.document_state.tx.send(FileEvent::Changed {
                             session: sid.clone(),
-                            links_changed: change.links_changed,
+                            change,
                         });
                     }
                     Err(_) => {
@@ -95,6 +95,7 @@ impl Workspace {
         self.document_state.watched_session = signature.clone();
         self.document_state.loading = false;
         self.document_state.refresh_pending = Some(Instant::now());
+        self.document_state.pending_change = None;
         let Some(host) = host else {
             return;
         };
@@ -117,7 +118,12 @@ impl Workspace {
         if self.document_state.loading {
             return;
         }
-        self.document_state.last_scan = Instant::now();
+        let change = self.document_state.pending_change.take();
+        let full = change.as_ref().is_none_or(|c| c.full_rescan)
+            || self.document_state.last_scan.elapsed() >= Duration::from_secs(30);
+        if full {
+            self.document_state.last_scan = Instant::now();
+        }
         self.document_state.refresh_pending = None;
         if self.demo {
             if let Some(s) = self.session() {
@@ -163,10 +169,29 @@ impl Workspace {
         let sid = s.id.clone();
         let tx = self.document_state.tx.clone();
         self.document_state.loading = true;
+        let refresh_branch = full || change.as_ref().is_some_and(|c| c.git_changed());
+        let refresh_names = refresh_branch
+            || change.as_ref().is_some_and(|c| {
+                c.links_changed
+                    || c.paths
+                        .iter()
+                        .any(|p| p.ends_with(".gitignore") || p.ends_with(".git/info/exclude"))
+            });
+        let previous_branch = self
+            .document_state
+            .git_branch
+            .as_ref()
+            .and_then(|(id, branch)| (id == &sid).then(|| branch.clone()));
+        let refresh_project = project.clone();
         std::thread::spawn(move || {
-            let git_branch = host.git_branch(&project).unwrap_or(None);
+            let project = refresh_project;
+            let git_branch = if refresh_branch {
+                host.git_branch(&project).unwrap_or(None)
+            } else {
+                previous_branch
+            };
             let result = host
-                .lists(&project)
+                .refresh_lists(&project, refresh_names)
                 .map_err(|e: anyhow::Error| format!("{e:#}"));
             let _ = tx.send(FileEvent::Lists {
                 session: sid,
@@ -179,6 +204,25 @@ impl Workspace {
             .tabs
             .iter()
             .filter(|t| !t.historical)
+            .filter(|t| {
+                full || change.as_ref().is_some_and(|c| {
+                    use omp_core::environment::HostPath;
+                    let original = match &project {
+                        HostPath::Local(root) => HostPath::Local(root.join(&t.path)),
+                        HostPath::Posix(root) => {
+                            let path = t.path.to_string_lossy();
+                            HostPath::Posix(if path.starts_with('/') {
+                                path.into_owned()
+                            } else {
+                                format!("{}/{}", root.trim_end_matches('/'), path)
+                            })
+                        }
+                    };
+                    c.git_changed()
+                        || c.affects(&original)
+                        || t.save_path.as_ref().is_some_and(|p| c.affects(p))
+                })
+            })
             .map(|t| t.key.clone())
             .collect::<Vec<_>>();
         for key in keys {
@@ -221,13 +265,15 @@ impl Workspace {
             } if session == sid => {
                 self.finish_save(&key, &request, (disk, text), result, window, cx)
             }
-            FileEvent::Changed {
-                session,
-                links_changed,
-            } if session == sid => {
-                if links_changed {
+            FileEvent::Changed { session, change } if session == sid => {
+                if change.links_changed {
                     self.document_state.file_link_revision =
                         self.document_state.file_link_revision.wrapping_add(1);
+                }
+                if let Some(pending) = &mut self.document_state.pending_change {
+                    pending.merge(change);
+                } else {
+                    self.document_state.pending_change = Some(change);
                 }
                 self.document_state
                     .refresh_pending

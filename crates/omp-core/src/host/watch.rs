@@ -4,14 +4,48 @@ use anyhow::{Context, Result};
 use notify::{EventKind, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::{
-    io::{BufRead, BufReader, Read},
+    io::BufReader,
     process::{Child, Stdio},
-    sync::mpsc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
 };
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct FileChange {
     pub links_changed: bool,
+    pub paths: Vec<String>,
+    pub full_rescan: bool,
+}
+impl FileChange {
+    pub fn merge(&mut self, other: Self) {
+        self.links_changed |= other.links_changed;
+        self.full_rescan |= other.full_rescan;
+        self.paths.extend(other.paths);
+        self.paths.sort();
+        self.paths.dedup();
+        if self.paths.len() > 512 {
+            self.paths.clear();
+            self.full_rescan = true;
+        }
+    }
+    pub fn affects(&self, path: &HostPath) -> bool {
+        self.full_rescan
+            || self.paths.iter().any(|changed| match path {
+                HostPath::Local(path) => path.starts_with(changed),
+                HostPath::Posix(path) => {
+                    path == changed
+                        || path.starts_with(&format!("{}/", changed.trim_end_matches('/')))
+                }
+            })
+    }
+    pub fn git_changed(&self) -> bool {
+        self.paths
+            .iter()
+            .any(|path| path.split(['/', '\\']).any(|p| p == ".git"))
+    }
 }
 pub trait FileWatch: Send {
     fn poll(&self) -> Vec<Result<FileChange, String>>;
@@ -19,11 +53,24 @@ pub trait FileWatch: Send {
 
 struct LocalWatch {
     _watcher: notify::RecommendedWatcher,
+    overflow: Arc<AtomicBool>,
     rx: mpsc::Receiver<Result<FileChange, String>>,
 }
 impl FileWatch for LocalWatch {
     fn poll(&self) -> Vec<Result<FileChange, String>> {
-        self.rx.try_iter().collect()
+        let mut change = FileChange::default();
+        let mut seen = self.overflow.swap(false, Ordering::AcqRel);
+        change.full_rescan = seen;
+        for event in self.rx.try_iter() {
+            match event {
+                Ok(event) => {
+                    seen = true;
+                    change.merge(event);
+                }
+                Err(error) => return vec![Err(error)],
+            }
+        }
+        if seen { vec![Ok(change)] } else { Vec::new() }
     }
 }
 
@@ -64,7 +111,9 @@ impl ExecutionHost {
     pub fn watch(&self, root: &HostPath, external: &[HostPath]) -> Result<Box<dyn FileWatch>> {
         match self {
             Self::Local => {
-                let (tx, rx) = mpsc::channel();
+                let (tx, rx) = mpsc::sync_channel(256);
+                let overflow = Arc::new(AtomicBool::new(false));
+                let lost = overflow.clone();
                 let watched_root = root.local()?.to_owned();
                 let mut watcher =
                     notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
@@ -84,13 +133,22 @@ impl ExecutionHost {
                             {
                                 Some(Ok(FileChange {
                                     links_changed: changes_file_links(&watched_root, &event),
+                                    paths: event
+                                        .paths
+                                        .iter()
+                                        .take(512)
+                                        .map(|p| p.to_string_lossy().into_owned())
+                                        .collect(),
+                                    full_rescan: event.need_rescan() || event.paths.len() > 512,
                                 }))
                             }
                             Err(error) => Some(Err(error.to_string())),
                             _ => None,
                         };
-                        if let Some(change) = change {
-                            let _ = tx.send(change);
+                        if let Some(change) = change
+                            && tx.try_send(change).is_err()
+                        {
+                            lost.store(true, Ordering::Release);
                         }
                     })?;
                 watcher.watch(root.local()?, RecursiveMode::Recursive)?;
@@ -99,6 +157,7 @@ impl ExecutionHost {
                 }
                 Ok(Box::new(LocalWatch {
                     _watcher: watcher,
+                    overflow,
                     rx,
                 }))
             }
@@ -123,18 +182,10 @@ impl ExecutionHost {
                 std::thread::spawn(move || {
                     let mut output = BufReader::new(output);
                     loop {
-                        let mut line = Vec::new();
-                        let result = (|| -> Result<Option<FileChange>> {
-                            let count = output.by_ref().take(4097).read_until(b'\n', &mut line)?;
-                            if count == 0 {
-                                return Ok(None);
-                            }
-                            anyhow::ensure!(
-                                count <= 4096 && line.ends_with(b"\n"),
-                                "无效远端文件通知"
-                            );
-                            Ok(Some(serde_json::from_slice(&line)?))
-                        })();
+                        let result = crate::remote::wire::read::<FileChange>(
+                            &mut output,
+                            crate::remote::protocol::MAX_MESSAGE,
+                        );
                         match result {
                             Ok(Some(change)) => {
                                 if tx.send(Ok(change)).is_err() {
@@ -202,5 +253,36 @@ mod tests {
             )))
             .add_path(root.join("src/existing.rs"))
         ));
+    }
+}
+
+#[cfg(test)]
+mod change_tests {
+    use super::*;
+    #[test]
+    fn merging_bounds_paths_and_keeps_posix_backslashes_literal() {
+        let mut change = FileChange {
+            paths: vec![
+                "/project/a".into(),
+                "/project/a".into(),
+                "/project/a\\b".into(),
+            ],
+            ..Default::default()
+        };
+        change.merge(FileChange {
+            links_changed: true,
+            paths: vec!["/project/a/child".into()],
+            ..Default::default()
+        });
+        assert_eq!(change.paths.len(), 3);
+        assert!(change.affects(&HostPath::Posix("/project/a/child/file".into())));
+        assert!(!change.affects(&HostPath::Posix("/project/another".into())));
+        assert!(change.affects(&HostPath::Posix("/project/a\\b".into())));
+        change.merge(FileChange {
+            paths: (0..513).map(|i| format!("/p/{i}")).collect(),
+            ..Default::default()
+        });
+        assert!(change.full_rescan);
+        assert!(change.paths.is_empty());
     }
 }

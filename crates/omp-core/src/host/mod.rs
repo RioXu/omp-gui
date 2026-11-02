@@ -36,6 +36,14 @@ pub trait DirectoryBrowser: Send + Sync {
 pub trait ProjectFiles: Send + Sync {
     fn git_branch(&self, root: &HostPath) -> Result<Option<String>>;
     fn lists(&self, root: &HostPath) -> Result<(Vec<PathBuf>, Vec<ChangedFile>)>;
+    fn refresh_lists(
+        &self,
+        root: &HostPath,
+        refresh_files: bool,
+    ) -> Result<(Vec<PathBuf>, Vec<ChangedFile>)> {
+        let _ = refresh_files;
+        self.lists(root)
+    }
     fn document(
         &self,
         root: &HostPath,

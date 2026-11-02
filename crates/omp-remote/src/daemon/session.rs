@@ -2,7 +2,7 @@ use super::{Attach, Duration, Instant, UnixStream, mpsc};
 use anyhow::{Context, Result};
 use omp_core::{
     infrastructure::{
-        omp::{Client, Event, SessionConnection, encode_transport_frame},
+        omp::{Client, Event, SessionConnection},
         persistence::workspace_store::data_dir,
     },
     remote::receipts::{Admission, Commit, Ledger, native_mutation},
@@ -30,7 +30,7 @@ type Outbound = (Arc<Vec<u8>>, Option<mpsc::Sender<()>>);
 struct Subscriber {
     owner: String,
     generation: String,
-    tx: mpsc::SyncSender<Outbound>,
+    tx: mpsc::Sender<Outbound>,
     stream: UnixStream,
 }
 impl Drop for Subscriber {
@@ -85,7 +85,7 @@ pub fn run(start: Attach, rx: mpsc::Receiver<Input>, key: &str) -> Result<()> {
         Ok(client) => client,
         Err(error) => {
             if let Ok(Input::Attach { mut stream, .. }) = rx.recv_timeout(Duration::from_secs(5)) {
-                let _=stream.write_all(&encode_transport_frame(&json!({"type":"__omp_gui_transport","state":"blocked","error":format!("{error:#}")}))?);
+                let _=stream.write_all(&super::encode_frame(&json!({"type":"__omp_gui_transport","state":"blocked","error":format!("{error:#}")}))?);
             }
             return Err(error);
         }
@@ -104,8 +104,10 @@ pub fn run(start: Attach, rx: mpsc::Receiver<Input>, key: &str) -> Result<()> {
         messages: HashMap::new(),
         ledger: Ledger::new(&data_dir(), &format!("native-{key}"))?,
     };
+    let mut next_event = None;
+    let mut next_input = None;
     loop {
-        for event in client.poll(200) {
+        for event in next_event.take().into_iter().chain(client.poll(200)) {
             match event {
                 Event::Frame(mut frame) => {
                     match frame["type"].as_str().unwrap_or("") {
@@ -171,7 +173,7 @@ pub fn run(start: Attach, rx: mpsc::Receiver<Input>, key: &str) -> Result<()> {
                 }
             }
         }
-        for input in rx.try_iter().take(200) {
+        for input in next_input.take().into_iter().chain(rx.try_iter()).take(200) {
             match input {
                 Input::Attach {
                     request,
@@ -183,11 +185,11 @@ pub fn run(start: Attach, rx: mpsc::Receiver<Input>, key: &str) -> Result<()> {
                         .as_ref()
                         .is_some_and(|subscriber| subscriber.owner != request.owner)
                     {
-                        stream.write_all(&encode_transport_frame(&json!({"type":"__omp_gui_transport","state":"blocked","error":"此原生会话已在另一个 GUI 中连接"}))?)?;
+                        stream.write_all(&super::encode_frame(&json!({"type":"__omp_gui_transport","state":"blocked","error":"此原生会话已在另一个 GUI 中连接"}))?)?;
                         continue;
                     }
                     actor.subscriber = None;
-                    let (tx, events) = mpsc::sync_channel::<Outbound>(256);
+                    let (tx, events) = mpsc::bounded::<Outbound>(256);
                     let mut writer = stream.try_clone()?;
                     std::thread::spawn(move || {
                         for (bytes, ack) in events {
@@ -350,7 +352,19 @@ pub fn run(start: Attach, rx: mpsc::Receiver<Input>, key: &str) -> Result<()> {
         {
             return Ok(());
         }
-        std::thread::sleep(Duration::from_millis(10));
+        let timeout = if actor.subscriber.is_none() && !actor.busy && actor.requests.is_empty() {
+            Duration::from_secs(10).saturating_sub(actor.idle.elapsed())
+        } else {
+            Duration::from_secs(60)
+        };
+        crossbeam_channel::select! {
+            recv(client.events) -> event => next_event = Some(event.unwrap_or(Event::Closed)),
+            recv(rx) -> input => match input {
+                Ok(input) => next_input = Some(input),
+                Err(_) => return Ok(()),
+            },
+            default(timeout) => {}
+        }
     }
 }
 fn message_key(message: &Value) -> String {
@@ -371,15 +385,15 @@ impl Actor {
         }
     }
     fn control(&mut self, frame: Value) -> Result<()> {
-        self.deliver(Arc::new(encode_transport_frame(&frame)?));
+        self.deliver(Arc::new(super::encode_frame(&frame)?));
         Ok(())
     }
     fn terminal(&mut self, frame: Value) -> Result<()> {
         if let Some(subscriber) = &self.subscriber {
-            let (tx, rx) = mpsc::channel();
+            let (tx, rx) = mpsc::unbounded();
             if subscriber
                 .tx
-                .try_send((Arc::new(encode_transport_frame(&frame)?), Some(tx)))
+                .try_send((Arc::new(super::encode_frame(&frame)?), Some(tx)))
                 .is_ok()
             {
                 let _ = rx.recv_timeout(Duration::from_secs(2));
@@ -390,7 +404,7 @@ impl Actor {
     fn publish(&mut self, mut frame: Value) -> Result<()> {
         self.sequence += 1;
         frame["__omp_gui"] = json!({"epoch":self.epoch,"sequence":self.sequence});
-        let bytes = Arc::new(encode_transport_frame(&frame)?);
+        let bytes = Arc::new(super::encode_frame(&frame)?);
         self.bytes += bytes.len();
         self.ring.push_back((self.sequence, bytes.clone()));
         while self.bytes > 64 * 1024 * 1024 || self.ring.len() > 8192 {

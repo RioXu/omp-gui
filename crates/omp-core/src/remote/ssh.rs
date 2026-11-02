@@ -124,7 +124,7 @@ impl RemoteHost {
             arguments.extend(["--profile", profile]);
         }
         let command = ssh_command(&self.host, &self.helper, &arguments)?;
-        crate::infrastructure::omp::Client::from_command(command)
+        crate::infrastructure::omp::Client::from_binary_command(command)
     }
 
     pub fn call<T: DeserializeOwned>(&self, operation: Operation) -> Result<T> {
@@ -216,7 +216,17 @@ impl ProjectFiles for RemoteHost {
         self.call(Operation::GitBranch { root: root.clone() })
     }
     fn lists(&self, root: &HostPath) -> Result<(Vec<PathBuf>, Vec<ChangedFile>)> {
-        self.call(Operation::Lists { root: root.clone() })
+        self.refresh_lists(root, true)
+    }
+    fn refresh_lists(
+        &self,
+        root: &HostPath,
+        refresh_files: bool,
+    ) -> Result<(Vec<PathBuf>, Vec<ChangedFile>)> {
+        self.call(Operation::Lists {
+            root: root.clone(),
+            refresh_files,
+        })
     }
     fn document(
         &self,

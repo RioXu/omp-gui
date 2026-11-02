@@ -4,7 +4,7 @@ use omp_core::remote::{
     operations,
     protocol::{MAX_MESSAGE, Request, Response, VERSION},
 };
-use std::io::{BufRead, Read, Write};
+use std::io::Read;
 #[cfg(unix)]
 mod daemon;
 
@@ -52,19 +52,10 @@ fn run() -> Result<()> {
     let mut input = std::io::stdin().lock();
     let mut output = std::io::stdout().lock();
     loop {
-        let mut line = Vec::new();
-        let count = input
-            .by_ref()
-            .take((MAX_MESSAGE + 1) as u64)
-            .read_until(b'\n', &mut line)?;
-        if count == 0 {
+        let Some(request): Option<Request> = omp_core::remote::wire::read(&mut input, MAX_MESSAGE)?
+        else {
             break;
-        }
-        ensure!(
-            count <= MAX_MESSAGE && line.ends_with(b"\n"),
-            "远端请求超过限制或未完整传输"
-        );
-        let request: Request = serde_json::from_slice(&line).context("无效远端请求")?;
+        };
         let id = request.id.clone();
         let result = operations::dispatch(request).map_err(|error| format!("{error:#}"));
         let response = Response {
@@ -108,14 +99,12 @@ fn watch(args: &[String]) -> Result<()> {
         if events.is_empty() {
             continue;
         }
-        let links_changed = events.into_iter().try_fold(false, |links, event| {
-            event
-                .map(|event| links || event.links_changed)
-                .map_err(anyhow::Error::msg)
-        })?;
-        serde_json::to_writer(&mut output, &omp_core::host::FileChange { links_changed })?;
-        output.write_all(b"\n")?;
-        output.flush()?;
+        let mut change = omp_core::host::FileChange::default();
+        for event in events {
+            let event = event.map_err(anyhow::Error::msg)?;
+            change.merge(event);
+        }
+        omp_core::remote::wire::write(&mut output, &change, MAX_MESSAGE)?;
     }
     Ok(())
 }

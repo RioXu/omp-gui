@@ -7,3 +7,5 @@ pub mod response;
 pub mod session;
 pub mod ssh;
 pub use ssh::RemoteHost;
+
+pub mod wire;

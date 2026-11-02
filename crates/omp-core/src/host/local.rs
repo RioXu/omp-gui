@@ -53,6 +53,17 @@ impl ProjectFiles for LocalHost {
         Ok((project_files::list(root)?, changes::list(root)?))
     }
 
+    fn refresh_lists(
+        &self,
+        root: &HostPath,
+        refresh_files: bool,
+    ) -> Result<(Vec<PathBuf>, Vec<ChangedFile>)> {
+        let root = root.local()?;
+        Ok((
+            project_files::list_cached(root, refresh_files)?,
+            changes::list(root)?,
+        ))
+    }
     fn document(
         &self,
         root: &HostPath,
