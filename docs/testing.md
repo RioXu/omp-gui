@@ -6,7 +6,7 @@
 
 Windows 默认测试 133 项通过（共享核心 86、桌面 47），另有需显式启用的集成测试和基准保持忽略；格式检查、全 workspace／全功能 Clippy 和本地构建通过。新增验证覆盖身份开关保存／回读及字段保留、Git 新仓库／中文分支／子目录／独立工作树／分离 HEAD、标题栏与窄窗口布局、切换会话隔离及非 Git 目录隐藏。协议 4 的 SSH 查询已接入，尚未在远端实机验证。
 
-本地隔离目录中的安装、覆盖升级、文件完整性和卸载验证已通过，发布工作流会对正式产物再次执行。本地打包验证使用历史 Linux 服务样本检查安装内容，不将该样本作为 v0.8.3 发布服务；实际发布服务由 Linux 工作流重新构建。
+本地隔离目录中的安装、覆盖升级、文件完整性和卸载验证已通过。本次 v0.8.3 已启动的云端发布继续完成；后续使用本地发布脚本，由本机 WSL 构建 Linux 服务并在上传前验证安装流程。安装验证使用临时应用 ID，避免覆盖已有安装。
 
 ## v0.8.2 验证基线（历史）
 
@@ -114,7 +114,7 @@ cargo build --locked
 
 发布优化构建使用 `cargo build --locked --release`，产物在 `target/release/omp-gui.exe`；普通构建在 `target/debug/omp-gui.exe`。
 
-[CI](../.github/workflows/check.yml) 在 Windows 检查 workspace，并在 Linux x86_64 检查共享核心和服务、构建远端 release 产物。检查工作流保存独立的 Linux artifact；另有 [Release 工作流](../.github/workflows/release.yml) 为版本标签构建 Windows 优化程序与 Linux x86_64 服务，全部检查通过后组装便携 ZIP、生成 SHA-256 并发布，见[发布说明](releasing.md)。修改文档时检查引用、链接及命令示例，不必重复执行真实模型任务。
+[CI](../.github/workflows/check.yml) 在 Windows 检查 workspace，在 Linux x86_64 检查共享核心和服务，不构建或上传发布产物。[本地发布脚本](../scripts/publish-release.ps1) 负责两端正式构建、安装包验证和上传，见[发布说明](releasing.md)。修改文档时检查引用、链接及命令示例，不必重复执行真实模型任务。
 
 在 Linux 单独验证远端组件：
 

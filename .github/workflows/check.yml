@@ -26,8 +26,3 @@ jobs:
       - run: cargo clippy --locked -p omp-core -p omp-gui-remote --all-targets -- -D warnings
       # Isolate native process leases from concurrent child-process tests.
       - run: cargo test --locked -p omp-core -p omp-gui-remote -- --test-threads=1
-      - run: cargo build --locked --release -p omp-gui-remote
-      - uses: actions/upload-artifact@v4
-        with:
-          name: remote-${{ runner.arch }}
-          path: target/release/omp-gui-remote

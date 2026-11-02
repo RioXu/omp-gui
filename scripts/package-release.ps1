@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory)][string]$Binary,
     [Parameter(Mandatory)][string]$RemoteRoot,
     [string]$OutputDirectory = 'artifacts/release',
-    [string]$InnoCompiler = 'ISCC.exe'
+    [string]$InnoCompiler = 'ISCC.exe',
+    [switch]$PassThru
 )
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot -Parent
@@ -16,7 +17,7 @@ $packageName = "omp-gui-$version-windows-x86_64"
 $installer = Join-Path $destination "$packageName-setup.exe"
 if (Test-Path -LiteralPath $installer) { throw "Installer already exists: $installer" }
 # Use a fresh staging directory; never delete a caller-supplied path.
-$stage = Join-Path $destination "$packageName-$([guid]::NewGuid().ToString('N'))"
+$stage = Join-Path ([IO.Path]::GetTempPath()) "omp-payload-$([guid]::NewGuid().ToString('N').Substring(0,12))"
 New-Item -ItemType Directory -Path $stage | Out-Null
 $pe = [IO.File]::ReadAllBytes($binaryPath)
 if ($pe.Length -lt 64 -or $pe[0] -ne 0x4d -or $pe[1] -ne 0x5a) { throw 'GUI is not a Windows executable' }
@@ -55,9 +56,13 @@ GUI 数据默认保存在 %LOCALAPPDATA%\OMP GUI，升级和卸载均保留原�
 远程连接：https://github.com/RioXu/omp-gui/blob/v$version/docs/remote.md
 变更记录：https://github.com/RioXu/omp-gui/blob/v$version/docs/changelog.md
 "@ | Set-Content -LiteralPath (Join-Path $stage 'README.txt') -Encoding utf8
-& $InnoCompiler "/DAppVersion=$version" "/DPayloadDir=$stage" "/DOutputDir=$destination" (Join-Path $PSScriptRoot 'installer.iss')
+& $InnoCompiler "/DAppVersion=$version" "/DPayloadDir=$stage" "/DOutputDir=$destination" (Join-Path $PSScriptRoot 'installer.iss') | Out-Host
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $installer)) { throw 'Installer compilation failed' }
 $checksum = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
 "$checksum  $packageName-setup.exe" | Set-Content -LiteralPath (Join-Path $destination 'SHA256SUMS') -Encoding ascii
-Write-Output $installer
-Write-Output "SHA256 $checksum"
+if ($PassThru) {
+    [pscustomobject]@{Installer=$installer; Payload=$stage; Checksums=(Join-Path $destination 'SHA256SUMS'); Version=$version}
+} else {
+    Write-Output $installer
+    Write-Output "SHA256 $checksum"
+}

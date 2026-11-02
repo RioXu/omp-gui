@@ -16,12 +16,22 @@ Get-FileHash .\omp-gui-0.8.3-windows-x86_64-setup.exe -Algorithm SHA256
 
 ## 维护流程
 
-1. 在 `main` 更新三个 Cargo 包及锁文件版本，准备 README、变更记录和 `docs/releases/v<版本>.md`，完成验证后提交并推送。不要覆盖已发布的标签。
-2. 修改根 `Cargo.toml` 的推送触发 [Release 工作流](../.github/workflows/release.yml)。若当前版本标签已存在，跳过发布；也可推送新版本标签或手动运行工作流。标签与三个 Cargo 包版本必须一致。
-3. Windows 执行格式检查、全功能 Clippy、默认测试和 release 构建；Linux x86_64 执行共享核心／服务检查、测试和 release 构建。两端均成功后才打包。
-4. [install-inno.ps1](../scripts/install-inno.ps1) 从官方发行页面获取固定版本编译器并校验 SHA-256 和数字签名。[package-release.ps1](../scripts/package-release.ps1) 校验 PE／ELF 架构，组装安装内容并生成安装程序及校验文件。
-5. [verify-installer.ps1](../scripts/verify-installer.ps1) 在临时目录验证安装、覆盖升级、GUI／服务文件哈希、许可文件及卸载。验证要求该应用 ID 尚未安装，避免覆盖用户的现有安装；静默验证不创建快捷方式、不启动 GUI。
-6. 工作流在经过验证的提交上创建版本标签和 Release，上传一个 `*-setup.exe` 及 `SHA256SUMS`。核对线上标签和附件。Windows 程序与安装包尚未代码签名；GitHub 自动附带的源码压缩包不是安装程序。
+1. 在 `main` 更新三个 Cargo 包及锁文件版本，准备 README、变更记录和 `docs/releases/v<版本>.md`，提交并同步到 GitHub。不要覆盖已发布的标签。
+2. 在 Windows 本机执行 [publish-release.ps1](../scripts/publish-release.ps1)。脚本要求干净的 `main`，校验三个 Cargo 版本及 GitHub 提交一致，拒绝覆盖已有标签。GitHub CLI 须先通过 `gh auth login` 登录。
+3. Windows 本机运行格式检查、全功能 Clippy、默认测试及 release 构建；Linux x86_64 服务在本机 WSL 中检查、测试并构建，复用本机缓存。WSL 需安装 Rust、Clippy、Git 和 C/C++ 构建工具；可用 `-WslDistribution` 选择发行版，默认使用系统默认 WSL。发布说明应标注所用 Linux/glibc 基线，当前 v0.8.3 正式服务仍为 Ubuntu 24.04 构建。
+4. [install-inno.ps1](../scripts/install-inno.ps1) 获取并校验官方固定版本编译器。[package-release.ps1](../scripts/package-release.ps1) 在本机校验 PE／ELF 架构并生成安装包和 SHA-256。
+5. 用相同安装内容及临时应用 ID 验证安装、覆盖升级、文件完整性和卸载，避免影响已安装的正式程序。验证不创建快捷方式、不启动 GUI。
+6. 验证后在 GitHub 创建当前提交的版本标签，上传一个 `*-setup.exe` 和 `SHA256SUMS` 至草稿 Release，全部上传成功后公开。程序与安装包尚未代码签名；GitHub 自动附带的源码压缩包不是安装程序。
+
+GitHub Actions 只保留 [Checks](../.github/workflows/check.yml)，不构建发布产物，也不打包或上传 Release。推送代码或版本号不再自动发布。
+
+```powershell
+# 本地构建、验证并上传
+./scripts/publish-release.ps1 -WslDistribution Ubuntu22.04
+
+# 只在本地准备安装包，不创建标签或上传
+./scripts/publish-release.ps1 -WslDistribution Ubuntu22.04 -PrepareOnly
+```
 
 ## 本地打包
 
