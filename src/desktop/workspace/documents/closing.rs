@@ -51,7 +51,7 @@ impl Workspace {
         let session = self.session().map(|s| s.id.clone());
         let key = key.to_owned();
         let weak = cx.entity().downgrade();
-        window.open_dialog(cx, move |dialog, _, cx| {
+        crate::desktop::dialogs::open(window, cx, move |dialog, _, cx| {
             let error = weak.upgrade().and_then(|view| {
                 view.read(cx)
                     .document_state
@@ -158,7 +158,7 @@ impl Workspace {
         self.document_state.prompt = Some(token.clone());
         let session = self.session().map(|s| s.id.clone());
         let weak = cx.entity().downgrade();
-        window.open_dialog(cx, move |dialog, _, _| {
+        crate::desktop::dialogs::open(window, cx, move |dialog, _, _| {
             let confirm = weak.clone();
             let confirm_token = token.clone();
             let confirm_session = session.clone();

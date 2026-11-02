@@ -6,6 +6,7 @@ use gpui_kit::{
         input::{Input, InputEvent, InputState},
         list::ListItem,
     },
+    prelude::FluentBuilder,
     *,
 };
 use omp_core::{
@@ -215,22 +216,34 @@ impl Render for ProjectPicker {
                 )
                 .child(recent);
         }
-        if let Some(error) = &self.error {
-            body = body.child(
-                div()
-                    .text_sm()
-                    .text_color(theme.danger)
-                    .child(error.clone()),
-            );
-        }
-        if self.busy {
-            body = body.child(
-                div()
-                    .text_sm()
-                    .text_color(theme.muted_foreground)
-                    .child("正在读取目录…"),
-            );
-        }
+        // Reserve feedback space so a fast directory result cannot move the
+        // list and dialog footer while the entrance is still running.
+        body = body.child(
+            div()
+                .id("project-directory-feedback")
+                .debug_selector(|| "project-directory-feedback".into())
+                .h_5()
+                .w_full()
+                .text_sm()
+                .text_color(if self.error.is_some() {
+                    theme.danger
+                } else {
+                    theme.muted_foreground
+                })
+                .truncate()
+                .when_some(self.error.clone(), |feedback, error| {
+                    feedback.tooltip(move |window, cx| {
+                        gpui_kit::component::tooltip::Tooltip::new(error.clone()).build(window, cx)
+                    })
+                })
+                .child(self.error.clone().unwrap_or_else(|| {
+                    if self.busy {
+                        "正在读取目录…".into()
+                    } else {
+                        String::new()
+                    }
+                })),
+        );
         let count = self.directory.as_ref().map_or(0, |d| d.entries.len());
         body.child(
             uniform_list(
@@ -250,6 +263,7 @@ impl Render for ProjectPicker {
                         .collect()
                 }),
             )
+            .debug_selector(|| "project-directory-list".into())
             .h(px(300.))
             .w_full(),
         )

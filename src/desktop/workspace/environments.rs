@@ -511,7 +511,7 @@ impl Workspace {
                 )
         });
         let weak = cx.entity().downgrade();
-        window.open_dialog(cx, move |dialog, _, _| {
+        crate::desktop::dialogs::open(window, cx, move |dialog, _, _| {
             let name = name.clone();
             let host = host.clone();
             let omp = omp.clone();

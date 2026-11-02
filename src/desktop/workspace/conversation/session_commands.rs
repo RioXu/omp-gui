@@ -229,7 +229,7 @@ impl Workspace {
             )
         });
         let weak = cx.entity().downgrade();
-        window.open_dialog(cx, move |dialog, _, _| {
+        crate::desktop::dialogs::open(window, cx, move |dialog, _, _| {
             let selected = picker.clone();
             let weak = weak.clone();
             let environment = environment.clone();
@@ -536,8 +536,9 @@ impl Workspace {
             dialog::{DialogAction, DialogClose, DialogFooter},
         };
         let weak = cx.entity().downgrade();
-        w.open_dialog(cx,move|d,_,_|{
-            let weak=weak.clone();let sid=sid.clone();
+        crate::desktop::dialogs::open(w, cx, move |d, _, _| {
+            let weak = weak.clone();
+            let sid = sid.clone();
             d.title("删除会话？").child("将同步删除 OMP 原生会话及其附件，并移除 GUI 中的消息、评论和历史快照。项目文件不会删除；终端中也将无法再找到此会话。")
                 .footer(DialogFooter::new().child(DialogClose::new().trigger(|b|b.label("取消")))
                     .child(DialogAction::new().child(Button::new("confirm-delete-session").danger().label("删除会话"))))
