@@ -26,3 +26,16 @@ jobs:
       - run: cargo clippy --locked -p omp-core -p omp-gui-remote --all-targets -- -D warnings
       # Isolate native process leases from concurrent child-process tests.
       - run: cargo test --locked -p omp-core -p omp-gui-remote -- --test-threads=1
+      - run: cargo build --locked --release -p omp-gui-remote
+      - name: Stage Linux service and source metadata
+        run: |
+          mkdir -p artifacts/linux-server
+          cp target/release/omp-gui-remote artifacts/linux-server/
+          printf '%s\n' "$GITHUB_SHA" > artifacts/linux-server/commit.txt
+          target/release/omp-gui-remote --version > artifacts/linux-server/version.txt
+          ldd --version > artifacts/linux-server/platform.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-server-x86_64
+          path: artifacts/linux-server/
+          if-no-files-found: error

@@ -1,5 +1,4 @@
 param(
-    [string]$WslDistribution,
     [string]$Repository = 'RioXu/omp-gui',
     [switch]$PrepareOnly
 )
@@ -10,9 +9,6 @@ try {
     function Invoke-Checked([string]$Command, [string[]]$Arguments) {
         & $Command @Arguments | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "$Command failed ($LASTEXITCODE)" }
-    }
-    function Quote-Sh([string]$Value) {
-        "'" + $Value.Replace("'", ("'" + [char]34 + "'" + [char]34 + "'")) + "'"
     }
     function Assert-Source {
         if ((git branch --show-current) -ne 'main') { throw 'Release from main only' }
@@ -30,44 +26,45 @@ try {
     $tag = "v$version"
     $notes = Join-Path $repoRoot "docs/releases/$tag.md"
     if (-not (Test-Path -LiteralPath $notes)) { throw "Missing release notes: $notes" }
+    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { throw 'Install GitHub CLI and run gh auth login to download Linux artifacts and publish' }
+    Invoke-Checked gh @('auth', 'status')
+    $remoteHead = & gh api "repos/$Repository/git/ref/heads/main" --jq '.object.sha'
+    if ($LASTEXITCODE -ne 0 -or $remoteHead -ne $head) { throw 'Publish the source commit to GitHub main first' }
     if (-not $PrepareOnly) {
-        if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { throw 'Install GitHub CLI and run gh auth login before publishing' }
-        Invoke-Checked gh @('auth', 'status')
-        $remoteHead = & gh api "repos/$Repository/git/ref/heads/main" --jq '.object.sha'
-        if ($LASTEXITCODE -ne 0 -or $remoteHead -ne $head) { throw 'Publish the source commit to GitHub main first' }
         $tags = & gh api "repos/$Repository/git/matching-refs/tags/$tag" --jq '.[].ref'
         if ($LASTEXITCODE -ne 0) { throw 'Cannot check release tags' }
         if ($tags -contains "refs/tags/$tag") { throw 'Release tag already exists; do not overwrite published versions' }
     }
-    $wsl = @()
-    if ($WslDistribution) { $wsl = @('--distribution', $WslDistribution) }
-    if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) { throw 'A local WSL Linux environment with Rust and Git is required' }
-    $linuxRoot = (& wsl.exe @wsl --exec wslpath -a $repoRoot).Trim()
-    if ($LASTEXITCODE -ne 0 -or -not $linuxRoot) { throw 'Cannot resolve the source directory in WSL' }
-    Invoke-Checked wsl.exe ($wsl + @('--exec', 'bash', '-lc', 'if [ -f "$HOME/.cargo/env" ]; then . "$HOME/.cargo/env"; fi; command -v cargo && command -v git && test "$(uname -m)" = x86_64'))
     $output = Join-Path $repoRoot "artifacts/local-release/$version-$([guid]::NewGuid().ToString('N').Substring(0,8))"
     $remoteRoot = Join-Path $output 'remote'
     New-Item -ItemType Directory -Path (Join-Path $remoteRoot 'linux-x86_64') -Force | Out-Null
-    $linuxOutput = (& wsl.exe @wsl --exec wslpath -a $remoteRoot).Trim()
-    if ($LASTEXITCODE -ne 0 -or -not $linuxOutput) { throw 'Cannot resolve the output directory in WSL' }
     Invoke-Checked cargo @('fmt', '--all', '--check')
     Invoke-Checked cargo @('clippy', '--workspace', '--locked', '--all-targets', '--all-features', '--', '-D', 'warnings')
     Invoke-Checked cargo @('test', '--workspace', '--locked')
     Invoke-Checked cargo @('build', '--locked', '--release', '-p', 'omp-gui')
-    $linuxScript = @'
-set -eu
-if [ -f "$HOME/.cargo/env" ]; then . "$HOME/.cargo/env"; fi
-test "$(uname -m)" = x86_64
-cd -- SOURCE_ROOT
-export CARGO_TARGET_DIR="$HOME/.cache/omp-gui/release-target"
-cargo clippy --locked -p omp-core -p omp-gui-remote --all-targets -- -D warnings
-cargo test --locked -p omp-core -p omp-gui-remote -- --test-threads=1
-cargo build --locked --release -p omp-gui-remote
-"$CARGO_TARGET_DIR/release/omp-gui-remote" --version
-cp -- "$CARGO_TARGET_DIR/release/omp-gui-remote" REMOTE_OUTPUT/linux-x86_64/omp-gui-remote
-'@
-    $linuxScript = $linuxScript.Replace('SOURCE_ROOT', (Quote-Sh $linuxRoot)).Replace('REMOTE_OUTPUT', (Quote-Sh $linuxOutput))
-    Invoke-Checked wsl.exe ($wsl + @('--exec', 'bash', '-lc', $linuxScript.Replace("`r`n", "`n")))
+    $deadline = [DateTime]::UtcNow.AddMinutes(10)
+    while ($true) {
+        $runId = & gh run list --repo $Repository --workflow check.yml --commit $head --branch main --limit 1 --json databaseId --jq '.[0].databaseId'
+        if ($LASTEXITCODE -ne 0) { throw 'Cannot find the Linux build workflow' }
+        $artifactId = $null
+        if ($runId -match '^\d+$') {
+            $artifactId = & gh api "repos/$Repository/actions/runs/$runId/artifacts" --jq '.artifacts[] | select(.name == "linux-server-x86_64" and .expired == false) | .id'
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect Linux build artifacts' }
+        }
+        if ($artifactId) { break }
+        if ($runId -match '^\d+$') {
+            $linuxConclusion = & gh run view $runId --repo $Repository --json jobs --jq '.jobs[] | select(.name | startswith("linux")) | .conclusion'
+            if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect Linux build status' }
+            if ($linuxConclusion -in @('failure', 'cancelled', 'skipped', 'timed_out')) { throw "Linux build did not succeed: $linuxConclusion" }
+        }
+        if ([DateTime]::UtcNow -ge $deadline) { throw 'Timed out waiting for this commit Linux build; inspect GitHub Checks and retry' }
+        Start-Sleep -Seconds 5
+    }
+    $linuxDirectory = Join-Path $remoteRoot 'linux-x86_64'
+    Invoke-Checked gh @('run', 'download', $runId, '--repo', $Repository, '--name', 'linux-server-x86_64', '--dir', $linuxDirectory)
+    if ((Get-Content -LiteralPath (Join-Path $linuxDirectory 'commit.txt') -Raw).Trim() -ne $head) { throw 'Linux service was built from another commit' }
+    $protocol = [regex]::Match((Get-Content crates/omp-core/src/remote/protocol.rs -Raw), 'pub const VERSION:\s*u32\s*=\s*(\d+)').Groups[1].Value
+    if (-not $protocol -or (Get-Content -LiteralPath (Join-Path $linuxDirectory 'version.txt') -Raw).Trim() -ne "omp-gui-remote/$version protocol/$protocol") { throw 'Linux service version or protocol mismatch' }
     $compiler = & (Join-Path $PSScriptRoot 'install-inno.ps1')
     $binary = Join-Path $repoRoot 'target/release/omp-gui.exe'
     $package = & (Join-Path $PSScriptRoot 'package-release.ps1') -Binary $binary -RemoteRoot $remoteRoot -OutputDirectory $output -InnoCompiler $compiler -PassThru

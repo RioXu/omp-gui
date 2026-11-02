@@ -7,7 +7,7 @@
 - 发布改为单个 Windows x64 安装程序，包含同版本 Linux 服务、说明和许可文件，支持快捷方式、升级及卸载，保留用户数据；检测 Windows 版本及架构，不附带 runtime DLL。
 - 使用 gpui-kit TitleBar，并在推理强度右侧显示当前会话实际工作目录的 Git 分支，只读展示；支持中文分支、子目录、独立工作树及分离 HEAD。
 - 增加模型服务的 Claude Code 身份注入开关，保留未知兼容字段及模型配置；管理协议升级为 4，新增远端 Git 分支只读查询。
-- 后续发布改为本机 Windows／WSL 构建、安装包验证及 GitHub CLI 上传，使用临时应用 ID 验证以保留已有安装；GitHub Actions 仅保留代码检查，不再自动发布。已有版本标签不会被覆盖。
+- 发布改为本地构建 Windows、打包并通过 GitHub CLI 上传；轻量 Linux 服务继续由 GitHub Actions 构建，下载时校验两端提交、版本和协议。使用临时应用 ID 验证以保留已有安装；不再由 Actions 自动发布 Windows 安装包。已有版本标签不会被覆盖。
 
 ## v0.8.2（2026-11-02）
 
