@@ -2,7 +2,7 @@
 
 [返回 README](../README.md) · [验证说明](testing.md) · [变更记录](changelog.md)
 
-当前版本为 v0.8.2。发布产物在 [GitHub Releases](https://github.com/RioXu/omp-gui/releases)，Windows x64 便携包完整解压后运行 `omp-gui.exe`，无需安装 Rust。本地模式仍需 OMP 和 Git。
+当前版本为 v0.8.2。发布产物在 [GitHub Releases](https://github.com/RioXu/omp-gui/releases)，Windows x64 便携包完整解压后运行 `omp-gui.exe`，无需安装 Rust。本地模式仍需 OMP 和 Git。Windows 程序依赖 Microsoft Visual C++ v14 x64 运行库；若系统提示缺少 `VCRUNTIME140.dll`，从[微软官方入口](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)安装最新受支持的 x64 运行库。
 
 ZIP 包包含程序、`remote/linux-x86_64/omp-gui-remote`、快速使用说明及许可文件。远端服务与 GUI 使用同一版本，首次连接会上传适用的预编译服务；保留整个 `remote` 目录。预编译 Linux 服务在 Ubuntu 24.04 构建，较旧 glibc 系统可使用自编译服务覆盖或源码回退。GUI 与 OMP 的依赖、配置和数据目录见使用说明。
 

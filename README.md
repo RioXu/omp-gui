@@ -12,7 +12,7 @@
 
 桌面端需要 Windows。本地模式需要本机 OMP 和 Git；远程模式使用 OpenSSH 连接 Linux，在远端运行 OMP 和 Git。源码构建另需 Rust MSVC 工具链、Visual Studio C++ Build Tools 和 Windows SDK。本次发布仅包含 Windows x64 和 Linux x86_64，ARM64 未经实机验证，不提供发布包。
 
-可从 [Releases](https://github.com/RioXu/omp-gui/releases) 下载 Windows x64 便携 ZIP，完整解压后运行 `omp-gui.exe`。保留旁边的 `remote` 目录，首次 SSH 部署会使用其中的 Linux x86_64 预编译服务；使用便携包不需要本机 Rust。校验、打包及发布流程见[发布说明](docs/releasing.md)。
+可从 [Releases](https://github.com/RioXu/omp-gui/releases) 下载 Windows x64 便携 ZIP，完整解压后运行 `omp-gui.exe`。保留旁边的 `remote` 目录，首次 SSH 部署会使用其中的 Linux x86_64 预编译服务；使用便携包不需要本机 Rust；系统需有 [Microsoft Visual C++ v14 x64 运行库](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)，缺少 `VCRUNTIME140.dll` 时请先安装官方运行库。校验、打包及发布流程见[发布说明](docs/releasing.md)。
 
 ```powershell
 cargo build --locked

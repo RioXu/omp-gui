@@ -40,6 +40,8 @@ foreach ($license in @('OMP-LICENSE.txt', 'KaTeX-OFL.txt')) {
 OMP GUI v$version - Windows x64 portable
 
 完整解压后运行 omp-gui.exe，无需安装 Rust。
+Windows 需 Microsoft Visual C++ v14 x64 运行库；缺少 VCRUNTIME140.dll 时从微软官方安装：
+https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist
 本地模式需要 OMP 和 Git。远程模式需要 Windows OpenSSH、远端 OMP 和 Git。
 保留 remote 目录，GUI 自动部署随包提供的 Linux x86_64 服务。
 本版仅附带 Linux x86_64 服务，不提供未经实机验证的 ARM64 版本。
