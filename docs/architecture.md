@@ -156,3 +156,5 @@ python scripts/update_service_catalog.py D:\src\oh-my-pi
 输入必须是包含 `packages/catalog/src/models.json`、兼容规则和 `packages/coding-agent/package.json` 的 OMP 源码目录。脚本仅提取公开字段，不读取认证凭据；不要手工维护服务枚举。更新后核对来源版本、授权与目录测试，重新验证与本机可用模型的合并。
 
 输入框和配置表单的可用模型及推理档位来自所属环境的 OMP，不以附带目录判定账户可用性。服务注册界面则合并附带目录与该环境的目录，帮助注册尚未配置的服务；新的尚未注册内置服务可能需要随 GUI 更新元数据，也可通过自定义入口配置。
+
+数学排版通过原生 Markdown 扩展接入 [RaTeX](https://github.com/erweixin/RaTeX)，在解析阶段生成带字体轮廓的 SVG，再由 GPUI 绘制；缓存上限为 128 项／4 MiB。内嵌 KaTeX 字体的许可见 [OFL](../resources/KaTeX-OFL.txt)。公式节点保留原始 LaTeX 与源区间，皮肤切换复用几何数据并采用当前文字颜色。

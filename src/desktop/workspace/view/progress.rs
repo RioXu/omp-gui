@@ -89,10 +89,13 @@ impl Workspace {
         let mut detail = div().flex().flex_col().gap_2().min_w_0();
         if expanded {
             if block.kind == ProcessKind::Thinking {
-                detail = detail.child(crate::desktop::markdown::view(
-                    SharedString::from(format!("thinking-{key}")),
-                    &block.text,
-                ));
+                detail = detail.child(
+                    crate::desktop::markdown::view(
+                        SharedString::from(format!("thinking-{key}")),
+                        &block.text,
+                    )
+                    .text_color(crate::desktop::theme::thinking_color(cx)),
+                );
             } else if block.is_edit() {
                 if let Some(diff) = self.runtime.tool_diffs.get(&key) {
                     detail = detail.child(

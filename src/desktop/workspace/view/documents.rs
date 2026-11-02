@@ -253,7 +253,10 @@ impl Workspace {
                     .flex_1()
                     .min_h_0()
                     .p_4()
-                    .child(TextView::new(&entry.state))
+                    .child(
+                        TextView::new(&entry.state)
+                            .markdown_extensions(crate::desktop::markdown::extensions()),
+                    )
                     .overflow_y_scrollbar(),
             )
         } else {

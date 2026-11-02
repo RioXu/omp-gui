@@ -5,8 +5,7 @@ use gpui_kit::component::{
     ActiveTheme,
     link::Link,
     text::{
-        MarkdownExtensions, MarkdownNode, MarkdownParseContext, MarkdownPlugin, RenderedText,
-        TextView, markdown_ast,
+        MarkdownNode, MarkdownParseContext, MarkdownPlugin, RenderedText, TextView, markdown_ast,
     },
 };
 
@@ -130,7 +129,7 @@ impl Workspace {
             return view;
         };
         view.markdown_extensions(
-            MarkdownExtensions::default()
+            crate::desktop::markdown::extensions()
                 .parser_revision(self.document_state.file_link_revision)
                 .plugin(FileLinks {
                     root: session.cwd().to_owned(),

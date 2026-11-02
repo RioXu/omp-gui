@@ -52,6 +52,9 @@ impl Workspace {
                     .selected(self.panel_tab == label)
                     .label(label)
                     .on_click(cx.listener(move |this, _, _, cx| {
+                        if this.panel_tab == label {
+                            return;
+                        }
                         this.select_panel(label);
                         this.selected = None;
                         if label == "文件" || label == "变更" {
@@ -184,3 +187,6 @@ impl Workspace {
         panel.into_any_element()
     }
 }
+
+#[cfg(test)]
+mod tests;

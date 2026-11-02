@@ -130,6 +130,10 @@ pub(crate) fn apply(skin: Skin, window: Option<&mut Window>, cx: &mut App) {
 
 pub(crate) fn apply_accent(cx: &mut App) {
     Theme::update(cx, |t| {
+        // Short, critically damped movement keeps tab underlines responsive.
+        t.motion.spring_move = gpui_kit::base::Spring::new(std::time::Duration::from_millis(140))
+            .with_damping(1.0)
+            .with_epsilon(0.25);
         t.scrollbar_mode = gpui_kit::component::scroll::ScrollbarMode::Hover;
         let dark = t.is_dark();
         t.background = rgb(if dark { 0x101216 } else { 0xffffff }).into();
@@ -165,6 +169,17 @@ pub(crate) fn apply_accent(cx: &mut App) {
         t.tab_active = t.background;
         t.tab_active_foreground = t.foreground;
     });
+}
+
+/// A distinct, readable secondary voice for reasoning in every skin.
+pub(crate) fn thinking_color(cx: &App) -> gpui_kit::Hsla {
+    use gpui_kit::component::ActiveTheme;
+    rgb(if cx.theme().is_dark() {
+        0xa4b7cb
+    } else {
+        0x506780
+    })
+    .into()
 }
 
 #[cfg(test)]

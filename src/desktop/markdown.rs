@@ -1,12 +1,20 @@
 //! Adapt compact display-math fences to the native Markdown parser without
 //! changing persisted messages or their comment/source offsets.
 use std::{borrow::Cow, ops::Range};
+mod math;
+
+pub(crate) fn extensions() -> gpui_kit::component::text::MarkdownExtensions {
+    gpui_kit::component::text::MarkdownExtensions::default()
+        .plugin(math::MathPlugin { display: false })
+        .plugin(math::MathPlugin { display: true })
+}
 
 pub(crate) fn view(
     id: impl Into<gpui_kit::ElementId>,
     source: &str,
 ) -> gpui_kit::component::text::TextView {
     gpui_kit::component::text::TextView::markdown(id, prepare(source).0.into_owned())
+        .markdown_extensions(extensions())
 }
 
 #[derive(Clone, Default)]
@@ -121,9 +129,6 @@ pub(crate) fn prepare(source: &str) -> (Cow<'_, str>, SourceOffsets) {
         }
         let Some(close) = close else { continue };
         cursor = close + 2;
-        if !source[open..close].contains('\n') {
-            continue;
-        }
         if !source[open + 2..line_end(open)].trim().is_empty() {
             insertions.push(open + 2);
         }

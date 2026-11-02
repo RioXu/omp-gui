@@ -99,7 +99,6 @@ fn preserves_real_code_escaped_dollars_and_existing_canonical_fences() {
         "`$$A\nB.$$`\n\n## Heading",
         "\\$$A\nB.$$\n\n## Heading",
         "$$\nA\nB\n$$\n\n## Heading",
-        "$$A+B$$\n\n## Heading",
         "Cost $5, inline $G=SU(N)$, and `path.rs`.",
     ] {
         assert_eq!(prepare(source).0.as_ref(), source);
@@ -117,7 +116,7 @@ struct Fixture {
 }
 impl Render for Fixture {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div().child(TextView::new(&self.text))
+        div().child(TextView::new(&self.text).markdown_extensions(super::extensions()))
     }
 }
 
@@ -138,14 +137,23 @@ fn native_text_view_renders_following_markdown_and_retains_source_mapping(cx: &m
     let mut visual = VisualTestContext::from_window(window, cx);
     visual.run_until_parked();
     visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(
+        visual.debug_bounds("display-math").is_some(),
+        "display formulas use the native formula renderer"
+    );
     view.update(&mut visual, |fixture, cx| {
         let rendered = fixture.text.read(cx).rendered_text();
         assert!(rendered.as_str().contains("A_\\mu"));
         assert!(rendered.as_str().contains("2. 场强与作用量"));
         assert!(!rendered.as_str().contains("## 2."));
         assert!(!rendered.as_str().contains("**非线性**"));
-        let (_, offsets) = prepare(SOURCE);
-        for quote in ["A_\\mu", "D_\\mu", "协变导数", "场强与作用量"] {
+        let (display, offsets) = prepare(SOURCE);
+        let start = SOURCE.find("$").unwrap();
+        let end = start + 2 + SOURCE[start + 2..].find("$").unwrap() + 2;
+        let formula = offsets.display_range(start..end);
+        let rendered_formula = rendered.range_for_source(formula.clone()).unwrap();
+        assert_eq!(&rendered.as_str()[rendered_formula], &display[formula]);
+        for quote in ["协变导数", "场强与作用量"] {
             let start = SOURCE.find(quote).unwrap();
             let range = rendered
                 .range_for_source(offsets.display_range(start..start + quote.len()))
@@ -153,4 +161,24 @@ fn native_text_view_renders_following_markdown_and_retains_source_mapping(cx: &m
             assert_eq!(&rendered.as_str()[range], quote);
         }
     });
+}
+
+#[test]
+fn single_line_display_formulas_are_normalized_without_changing_source_offsets() {
+    let source = "前文\n\n$$F_{\\mu\\nu}=\\partial_\\mu A_\\nu$$\n\n后文";
+    let (display, offsets) = prepare(source);
+    let ast = native_ast(&display);
+    assert!(
+        ast.children()
+            .unwrap()
+            .iter()
+            .any(|node| matches!(node, Node::Math(_)))
+    );
+    assert!(offsets.matches(&display, source));
+    let start = source.find("$$").unwrap();
+    let end = source.rfind("$$").unwrap() + 2;
+    assert_eq!(
+        offsets.original_range(offsets.display_range(start..end)),
+        start..end
+    );
 }

@@ -59,9 +59,9 @@ impl Workspace {
                     .text_color(theme.muted_foreground)
                     .child(format!("{} · {}", c.anchor.label(), &cid[..8])),
             )
-            .child(TextView::markdown(
+            .child(crate::desktop::markdown::view(
                 SharedString::from(format!("quote-{cid}")),
-                format!("> {}", c.anchor.quote.replace('\n', "\n> ")),
+                &format!("> {}", c.anchor.quote.replace('\n', "\n> ")),
             ))
             .child(c.text.clone())
             .child(actions)
