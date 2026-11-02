@@ -10,7 +10,9 @@
 
 显式 Linux 进程集成测试 binary_management_watch_and_supervised_release 使用真实 OMP 和全新临时 profile／项目，验证管理握手、原始附件字节上传、会话索引、二进制文件通知、竞争 owner 被拒、桥断开后重附着、状态查询、空闲释放及原生锁可用。仅配置虚拟模型身份供 OMP 启动，不发模型请求。此测试直接启动 helper 进程，覆盖 stdio／Unix socket／原生 OMP 协议边界，不能代替真实跨主机 SSH 应用协议回归；源码上传和远端构建本身通过已有 SSH 主机完成。
 
-本轮 Windows 格式检查通过；测试、Clippy 和 GUI 构建未完成：当前机器只有 coreutils 的 link.exe，移除该冲突目录后提示找不到 MSVC linker，既有 Visual Studio 目录为空。未安装或更改系统工具链，也未关闭用户窗口。恢复 MSVC C++ Build Tools 后执行下方标准 Windows 检查和真实 SSH 回归，再打包发布。
+Windows 补验使用用户提供的本地 target/build-local.ps1，加载 target/debug/msvc 中的便携 MSVC 库与本机 Windows SDK，并显式选择 Rust 工具链自带 rust-lld。此前根据常规 Visual Studio 目录判断工具链缺失并不完整；实际工具位于 target，未安装或更改系统工具链。本次构建进程还优先使用现有 Git 2.53，避免 PATH 前部的 Git 2.18 不支持测试中的 initial-branch 参数。
+
+Windows 默认测试 136 项（core 89、desktop 47）、全 workspace／全目标／全功能 Clippy、格式检查及 GUI 开发构建均已通过，产物为 target/debug/omp-gui.exe。真实跨主机 SSH（Windows 客户端 → Linux 0.8.4／协议5）已通过四项：文件／配置／冲突及持久确认、中文／空格／符号链接／反斜线与 profile 隔离、空闲释放及运行任务／独立终端保护、实际中断 SSH 后任务继续与提示词不重复。测试使用新建的专用 QA 项目，产生的原生日志已清理；未替换默认远端服务或发布。
 
 ### rkyv 合成基准
 
