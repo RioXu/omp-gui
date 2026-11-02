@@ -120,7 +120,7 @@ fn remote_delete_active_session_survives_periodic_sync(cx: &mut TestAppContext) 
             view.update(cx, |this, _| {
                 this.demo = false;
                 this.save_disabled = false;
-                this.db.sessions = sessions.clone();
+                this.db.sessions = sessions.clone().into();
                 this.db.active_environment = "deletion-qa".into();
                 this.db.environments.push(Environment {
                     id: "deletion-qa".into(),

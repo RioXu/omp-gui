@@ -72,7 +72,7 @@ mod tests {
         let mut draft = Session::new("project".into());
         draft.draft = "unsent text".into();
         let mut db = Database {
-            sessions: vec![blank, draft],
+            sessions: vec![blank, draft].into(),
             ..Database::default()
         };
         db.discard_blank_sessions(None);

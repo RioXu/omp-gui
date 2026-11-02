@@ -357,7 +357,6 @@ impl Workspace {
                 self.persist();
             }
             "message_start" | "message_update" | "message_end" => {
-                self.runtime.text_update_pending = true;
                 let m = &f["message"];
                 if m["role"] == "user" {
                     self.queue_delivered(&crate::infrastructure::omp::message_text(m));
@@ -379,8 +378,11 @@ impl Workspace {
                             .or_insert_with(id)
                             .clone();
                         message.id = mid.clone();
+                        let index = self.message_index(&mid);
+                        self.runtime.text_updates.insert(index);
+                        self.runtime.message_indices.insert(mid.clone(), index);
                         if let Some(s) = self.session_mut() {
-                            if let Some(existing) = s.messages.iter_mut().find(|m| m.id == mid) {
+                            if let Some(existing) = s.messages.get_mut(index) {
                                 existing.text = message.text;
                                 existing.label = message.label;
                                 existing.details = message.details;
@@ -408,9 +410,12 @@ impl Workspace {
                     .entry(rid)
                     .or_insert_with(id)
                     .clone();
+                let index = self.message_index(&mid);
+                self.runtime.text_updates.insert(index);
+                self.runtime.message_indices.insert(mid.clone(), index);
                 let linked = self.runtime.in_flight_comments.clone();
                 if let Some(s) = self.session_mut() {
-                    if let Some(existing) = s.messages.iter_mut().find(|m| m.id == mid) {
+                    if let Some(existing) = s.messages.get_mut(index) {
                         existing.text = text;
                         for block in &mut process {
                             block.patch = existing
@@ -457,7 +462,19 @@ impl Workspace {
                 if let Some(s) = self.session_mut() {
                     s.start_tool(&call_id, name, &f["args"], start);
                 }
-                self.runtime.text_update_pending = true;
+                if let Some(s) = self.session() {
+                    let index = s
+                        .messages
+                        .iter()
+                        .enumerate()
+                        .skip(start)
+                        .rev()
+                        .find(|(_, m)| m.role == "assistant")
+                        .map(|(ix, _)| ix);
+                    if let Some(index) = index {
+                        self.runtime.text_updates.insert(index);
+                    }
+                }
             }
             "tool_execution_end" => {
                 let call_id = f["toolCallId"].as_str().unwrap_or_default();

@@ -111,9 +111,11 @@ impl Workspace {
                 }
             }
         }
-        if self.runtime.text_update_pending {
+        if !self.polling_background && self.runtime.text_update_pending {
             self.sync_texts(cx);
             self.runtime.text_update_pending = false;
+        } else if !self.polling_background && !self.runtime.text_updates.is_empty() {
+            self.sync_updated_texts(cx);
         }
         if self.runtime.connected
             && self.runtime.running

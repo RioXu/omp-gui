@@ -40,6 +40,7 @@ pub(in crate::desktop::workspace) fn fixture(
         settings_view: None,
         show_archived: false,
         collapsed_projects: Default::default(),
+        sidebar_cache: Default::default(),
         db,
         active: Some(0),
         persistence: Persistence::disconnected(),

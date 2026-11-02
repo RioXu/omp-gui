@@ -109,15 +109,16 @@ impl Client {
         thread::spawn(move || {
             let mut reader = BufReader::new(stdout);
             let mut decoder = Decoder::default();
+            let mut line = Vec::new();
             loop {
-                let mut line = Vec::new();
+                line.clear();
                 let result = reader
                     .by_ref()
                     .take((MAX_FRAME + 1) as u64)
                     .read_until(b'\n', &mut line);
                 match result {
                     Ok(0) => break,
-                    Ok(_) => match decoder.decode(&line) {
+                    Ok(_) => match decoder.decode(&mut line) {
                         Ok(Some(frame)) => {
                             if read_tx.send(Event::Frame(frame)).is_err() {
                                 return;

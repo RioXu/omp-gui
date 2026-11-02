@@ -1,11 +1,11 @@
-use super::Session;
+use super::SessionList;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Database {
     pub version: u32,
-    pub sessions: Vec<Session>,
+    pub sessions: SessionList,
     #[serde(default)]
     pub projects: Vec<PathBuf>,
     pub active: Option<String>,
@@ -26,7 +26,7 @@ impl Default for Database {
     fn default() -> Self {
         Self {
             version: Self::VERSION,
-            sessions: vec![],
+            sessions: Default::default(),
             projects: vec![],
             active: None,
             omp_path: "omp".into(),

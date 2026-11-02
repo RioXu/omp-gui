@@ -86,7 +86,7 @@ mod tests {
         a.title = "first".into();
         let mut b = Session::new(db.projects[1].clone());
         b.title = "second".into();
-        db.sessions = vec![a, b];
+        db.sessions = vec![a, b].into();
         normalize_workspace(&mut db);
         assert_eq!(db.projects.len(), 1);
         assert_eq!(db.sessions.len(), 2);

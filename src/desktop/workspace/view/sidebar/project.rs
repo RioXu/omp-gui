@@ -7,7 +7,6 @@ use gpui_kit::component::Collapsible;
 pub(super) struct ProjectNavigation {
     pub(super) path: omp_core::environment::ProjectLocation,
     pub(super) label: SharedString,
-    pub(super) sessions: Vec<(SharedString, SidebarMenuItem)>,
     pub(super) workspace: WeakEntity<Workspace>,
     pub(super) archived: bool,
     pub(super) folded: bool,
@@ -27,7 +26,7 @@ impl SidebarItem for ProjectNavigation {
     fn render(
         self,
         _: impl Into<ElementId>,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut App,
     ) -> impl IntoElement {
         let group_id = SharedString::from(format!(
@@ -46,7 +45,6 @@ impl SidebarItem for ProjectNavigation {
         );
         let weak = self.workspace;
         let path = self.path;
-        let empty = self.sessions.is_empty();
         div().id(group_id.clone()).child(
             gpui_kit::component::collapsible::Collapsible::new()
                 .open(!folded)
@@ -120,32 +118,6 @@ impl SidebarItem for ProjectNavigation {
                                     )
                                 }),
                         ),
-                )
-                .content(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .children(self.sessions.into_iter().map(|(id, item)| {
-                            div()
-                                .pl_3()
-                                .child(item.render(id, window, cx))
-                                .into_any_element()
-                        }))
-                        .when(empty, |d| {
-                            d.child(
-                                div()
-                                    .pl_8()
-                                    .py_1()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(if self.archived {
-                                        "暂无已归档会话"
-                                    } else {
-                                        "点击 + 开始会话"
-                                    }),
-                            )
-                        }),
                 ),
         )
     }

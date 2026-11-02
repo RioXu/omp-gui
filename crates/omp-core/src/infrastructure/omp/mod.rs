@@ -31,3 +31,6 @@ impl SessionConnection for Client {
         self.events.try_iter().take(limit).collect()
     }
 }
+
+#[cfg(test)]
+mod stream_json_bench;

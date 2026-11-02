@@ -2,6 +2,26 @@
 use super::*;
 
 impl SessionRuntime {
+    fn busy(&self) -> bool {
+        self.running
+            || self.reconnecting
+            || self.preparing.is_some()
+            || self.starting
+            || self.pending_send.is_some()
+            || !self.requests.is_empty()
+            || self.connection_result.is_some()
+            || self.stopping
+            || self.collaboration.loading
+    }
+    fn needs_poll(&self) -> bool {
+        self.busy() || self.engine.is_some()
+    }
+    fn cache_bytes(&self) -> usize {
+        self.texts
+            .values()
+            .map(|entry| entry.body.len().saturating_mul(4))
+            .sum()
+    }
     pub(in crate::desktop::workspace) fn release_idle_connection(&mut self) {
         if let Some(connection) = self.engine.take() {
             let (tx, rx) = mpsc::channel();
@@ -48,6 +68,7 @@ impl Workspace {
             Self::new_session_runtime(window, cx, self.demo, draft, None)
         });
         let mut previous = std::mem::replace(&mut self.runtime, next);
+        previous.cached_at = Instant::now();
         if !previous.running
             && !previous.reconnecting
             && previous.preparing.is_none()
@@ -68,7 +89,12 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let visible = self.active;
-        let ids = self.background.keys().cloned().collect::<Vec<_>>();
+        let ids = self
+            .background
+            .iter()
+            .filter(|(_, state)| state.needs_poll())
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>();
         for id in ids {
             self.dispatch_background(&id, window, cx, |this, window, cx| {
                 if this.poll_engine(window, cx) {
@@ -85,7 +111,47 @@ impl Workspace {
                 }
             });
         }
+        self.trim_session_cache();
         debug_assert_eq!(self.active, visible);
+    }
+
+    fn trim_session_cache(&mut self) {
+        // Release receipts stay alive until the native writer has exited, even
+        // under memory pressure, so fast reconnect/delete cannot race it.
+        for state in self.background.values_mut() {
+            if let Some(rx) = &state.releasing {
+                match rx.try_recv() {
+                    Ok(Ok(())) | Err(mpsc::TryRecvError::Disconnected) => state.releasing = None,
+                    Ok(Err(error)) => {
+                        state.error = Some(error);
+                        state.releasing = None;
+                    }
+                    Err(mpsc::TryRecvError::Empty) => {}
+                }
+            }
+        }
+        let mut idle = self
+            .background
+            .iter()
+            .filter(|(_, state)| {
+                !state.needs_poll()
+                    && state.releasing.is_none()
+                    && state.follow_up.is_none()
+                    && state.steering_request.is_none()
+            })
+            .map(|(id, state)| (id.clone(), state.cached_at, state.cache_bytes()))
+            .collect::<Vec<_>>();
+        idle.sort_by_key(|(_, at, _)| *at);
+        let mut bytes: usize = idle.iter().map(|(_, _, bytes)| bytes).sum();
+        let mut count = idle.len();
+        for (id, at, size) in idle {
+            if count <= 3 && bytes <= 32 * 1024 * 1024 && at.elapsed() < Duration::from_secs(120) {
+                break;
+            }
+            self.background.remove(&id);
+            count -= 1;
+            bytes = bytes.saturating_sub(size);
+        }
     }
 
     fn dispatch_background(
@@ -117,3 +183,6 @@ impl Workspace {
 
 #[cfg(test)]
 pub(in crate::desktop::workspace) mod tests;
+
+#[cfg(test)]
+mod performance_tests;

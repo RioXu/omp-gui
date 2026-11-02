@@ -1,8 +1,11 @@
 use super::*;
 use gpui_kit::component::sidebar::Sidebar;
 
+pub(in crate::desktop::workspace) mod cache;
 mod project;
+mod session;
 use project::ProjectNavigation;
+use session::{NavigationItem, SessionNavigation};
 
 impl Workspace {
     pub(in crate::desktop::workspace) fn render_sidebar(
@@ -11,82 +14,41 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let disabled = self.save_disabled;
-        let groups = self
-            .environment_projects()
-            .into_iter()
-            .map(|project| {
-                let mut sessions = self
-                    .db
-                    .sessions
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, s)| {
-                        s.project_location() == project
-                            && !s.deleted
-                            && s.archived == self.show_archived
-                    })
-                    .collect::<Vec<_>>();
-                sessions.sort_by_key(|(_, s)| std::cmp::Reverse(s.updated));
-                let sessions = sessions
-                    .into_iter()
-                    .map(|(ix, s)| {
-                        let item = SidebarMenuItem::new(s.title.clone())
-                            .active(self.active == Some(ix) && self.settings_view.is_none())
-                            .when(self.session_is_running(&s.id), |item| {
-                                item.suffix(|_, cx| {
-                                    gpui_kit::component::spinner::Spinner::new()
-                                        .xsmall()
-                                        .color(cx.theme().primary)
-                                })
-                            })
-                            .disable(disabled)
-                            .context_menu({
-                                let weak = cx.entity().downgrade();
-                                let sid = s.id.clone();
-                                let archived = s.archived;
-                                move |menu, _, _| {
-                                    let w1 = weak.clone();
-                                    let id1 = sid.clone();
-                                    let w2 = weak.clone();
-                                    let id2 = sid.clone();
-                                    menu.item(
-                                        PopupMenuItem::new(if archived {
-                                            "取消归档"
-                                        } else {
-                                            "归档会话"
-                                        })
-                                        .on_click(
-                                            move |_, w, cx| {
-                                                let _ = w1.update(cx, |this, cx| {
-                                                    this.manage_session(&id1, false, w, cx)
-                                                });
-                                            },
-                                        ),
-                                    )
-                                    .item(
-                                        PopupMenuItem::new("删除会话").on_click(move |_, w, cx| {
-                                            let _ = w2.update(cx, |this, cx| {
-                                                this.request_delete_session(id2.clone(), w, cx)
-                                            });
-                                        }),
-                                    )
-                                }
-                            })
-                            .on_click(cx.listener(move |this, _, w, cx| this.activate(ix, w, cx)));
-                        (SharedString::from(s.id.clone()), item)
-                    })
-                    .collect();
-                ProjectNavigation {
-                    path: project.clone(),
-                    label: project.label().into(),
-                    sessions,
-                    workspace: cx.entity().downgrade(),
-                    archived: self.show_archived,
-                    folded: self.collapsed_projects.contains(&project),
+        let cached = self.sidebar_cache.borrow_mut().groups(
+            &self.db,
+            self.environment_projects(),
+            self.show_archived,
+        );
+        let mut groups = Vec::new();
+        for group in cached.iter() {
+            let folded = self.collapsed_projects.contains(&group.project);
+            groups.push(NavigationItem::Project(ProjectNavigation {
+                path: group.project.clone(),
+                label: group.project.label().into(),
+                workspace: cx.entity().downgrade(),
+                archived: self.show_archived,
+                folded,
+                disabled,
+            }));
+            if folded {
+                continue;
+            }
+            if group.sessions.is_empty() {
+                groups.push(NavigationItem::Empty(self.show_archived));
+            }
+            for &ix in &group.sessions {
+                let s = &self.db.sessions[ix];
+                groups.push(NavigationItem::Session(SessionNavigation {
+                    id: s.id.clone().into(),
+                    title: s.title.clone().into(),
+                    archived: s.archived,
+                    active: self.active == Some(ix) && self.settings_view.is_none(),
+                    running: self.session_is_running(&s.id),
                     disabled,
-                }
-            })
-            .collect::<Vec<_>>();
+                    workspace: cx.entity().downgrade(),
+                }));
+            }
+        }
         Sidebar::new("project-sidebar")
             .collapsible(false)
             .w(px(self.db.sidebar_width))
@@ -280,3 +242,6 @@ impl Workspace {
             .into_any_element()
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -79,6 +79,7 @@ pub(crate) struct Workspace {
     settings_view: Option<Entity<crate::desktop::settings::SettingsView>>,
     show_archived: bool,
     collapsed_projects: std::collections::HashSet<omp_core::environment::ProjectLocation>,
+    sidebar_cache: std::cell::RefCell<view::sidebar::cache::SidebarCache>,
     db: Database,
     active: Option<usize>,
     persistence: Persistence,

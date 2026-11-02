@@ -10,7 +10,7 @@ mod requests;
 mod search;
 mod selection;
 mod shell;
-mod sidebar;
+pub(in crate::desktop::workspace) mod sidebar;
 mod transcript;
 
 use super::*;

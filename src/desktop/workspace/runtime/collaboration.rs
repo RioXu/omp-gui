@@ -39,8 +39,9 @@ impl Workspace {
     }
     pub(in crate::desktop::workspace) fn save_activity(&mut self) {
         if let Some(ix) = self.active {
-            let session = &mut self.db.sessions[ix];
+            let session = &self.db.sessions[ix];
             if session.todos != self.runtime.todos || session.agents != self.runtime.agents {
+                let session = &mut self.db.sessions[ix];
                 session.todos.clone_from(&self.runtime.todos);
                 session.agents.clone_from(&self.runtime.agents);
                 self.dirty = true;
