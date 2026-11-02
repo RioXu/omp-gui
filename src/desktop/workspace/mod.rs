@@ -23,7 +23,7 @@ use crate::{
     },
 };
 use gpui_kit::component::{
-    ActiveTheme, Theme, ThemeMode, WindowExt,
+    ActiveTheme, WindowExt,
     diff::{DiffFile, DiffLineRange, DiffSide, DiffState},
     input::{EditorState, InputEvent, InputState, TextareaState},
     text::{RangeHighlight, TextViewState},

@@ -97,3 +97,90 @@ fn missed_mouse_up_stops_on_hover_and_keeps_the_completed_selection(cx: &mut Tes
     cx.update(|w, cx| w.draw(cx).clear(cx));
     assert_eq!(cx.update(TextSelection::selected_text), extended);
 }
+
+#[gpui_kit::test]
+fn conversation_text_can_be_drag_selected_in_the_virtual_list(cx: &mut TestAppContext) {
+    use crate::{desktop::workspace::runtime::sessions::tests::fixture, domain::Message};
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::desktop::theme::apply(crate::desktop::theme::Skin::Obsidian, None, cx);
+    });
+    let (window, view) = cx.update(|cx| {
+        gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
+            cx.new(|cx| {
+                let mut workspace = fixture(window, cx);
+                workspace.db.sessions[0].messages.clear();
+                workspace.db.sessions[0].messages.push(Message::new(
+                    "assistant",
+                    format!("中文会话文本选择验证。{TEXT}\n\n").repeat(60),
+                ));
+                workspace.sync_texts(cx);
+                workspace
+            })
+        })
+        .unwrap()
+    });
+    let mut visual = VisualTestContext::from_window(window, cx);
+    visual.simulate_resize(size(px(1200.), px(850.)));
+    visual.run_until_parked();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let bounds = visual.debug_bounds("conversation-answer").unwrap();
+    let start = point(bounds.left() + px(5.), bounds.bottom() - px(12.));
+    let end = point(bounds.left() + px(160.), bounds.bottom() - px(12.));
+    visual.simulate_mouse_down(start, MouseButton::Left, Modifiers::default());
+    visual.update(|w, cx| w.draw(cx).clear(cx));
+    visual.simulate_mouse_move(end, Some(MouseButton::Left), Modifiers::default());
+    visual.update(|w, cx| w.draw(cx).clear(cx));
+    let selected = visual.update(TextSelection::selected_text);
+    visual.update(|w, cx| {
+        use gpui_kit::component::ActiveTheme;
+        let color = gpui_kit::Background::from(cx.theme().selection);
+        assert!(
+            w.painted_quads().iter().any(|q| q.background == color
+                && (q.bounds.origin.y.0 / w.scale_factor() - f32::from(start.y)).abs() < 30.),
+            "selection must be visibly painted"
+        );
+    });
+    assert!(!selected.is_empty(), "conversation drag must select text");
+    visual.simulate_mouse_up(end, MouseButton::Left, Modifiers::default());
+    visual.update(|w, cx| {
+        view.update(cx, |v, cx| v.poll(w, cx));
+        w.draw(cx).clear(cx);
+    });
+    visual.update(|w, cx| {
+        use gpui_kit::component::ActiveTheme;
+        let color = gpui_kit::Background::from(cx.theme().selection);
+        assert!(
+            w.painted_quads().iter().any(|q| q.background == color),
+            "released selection must stay visible"
+        );
+    });
+    visual.run_until_parked();
+    visual.update(|w, cx| w.draw(cx).clear(cx));
+    assert_eq!(visual.update(TextSelection::selected_text), selected);
+    visual.update(|w, cx| {
+        let state = view
+            .read(cx)
+            .runtime
+            .texts
+            .values()
+            .next()
+            .unwrap()
+            .state
+            .clone();
+        let focus = state.read(cx).focus_handle().clone();
+        focus.focus(w, cx);
+        w.dispatch_action(Box::new(gpui_kit::base::input::Copy), cx);
+    });
+    visual.run_until_parked();
+    visual.update(|_, cx| {
+        assert_eq!(
+            cx.read_from_clipboard().and_then(|c| c.text()).as_deref(),
+            Some(selected.trim())
+        )
+    });
+    assert!(
+        view.read_with(&visual, |v, _| v.selected.is_some()),
+        "selection must support comments"
+    );
+}

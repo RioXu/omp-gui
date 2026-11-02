@@ -1,5 +1,5 @@
 use super::*;
-use crate::desktop::theme::apply_accent;
+use crate::desktop::theme::{self, Skin};
 
 impl Workspace {
     pub fn answer_request(&mut self, value: Option<String>, confirmed: Option<bool>) {
@@ -103,19 +103,10 @@ impl Workspace {
         self.settings_view = Some(view);
         cx.notify();
     }
-    pub fn toggle_theme(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let dark = !cx.theme().is_dark();
-        Theme::change(
-            if dark {
-                ThemeMode::Dark
-            } else {
-                ThemeMode::Light
-            },
-            Some(window),
-            cx,
-        );
-        self.db.theme = if dark { "dark" } else { "light" }.into();
-        apply_accent(cx);
+    pub fn choose_skin(&mut self, skin: Skin, window: &mut Window, cx: &mut Context<Self>) {
+        theme::apply(skin, Some(window), cx);
+        self.db.theme = skin.id().into();
         self.persist();
+        cx.notify();
     }
 }

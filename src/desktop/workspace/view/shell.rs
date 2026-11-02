@@ -10,6 +10,8 @@ impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
         let width = window.viewport_size().width;
+        let skin = crate::desktop::theme::Skin::from_saved(&self.db.theme, theme.is_dark());
+        let skin_view = cx.entity().downgrade();
         let selection_view = cx.entity().downgrade();
         let mut root = div()
             .id("workspace")
@@ -177,14 +179,29 @@ impl Render for Workspace {
                                     cx.notify();
                                 })),
                         )
-                        .child(
+                        .content(
                             Button::new("theme")
                                 .ghost()
                                 .small()
-                                .icon(IconName::Sun)
-                                .accessibility_label("切换深浅色")
-                                .tooltip("切换深浅色")
-                                .on_click(cx.listener(|this, _, w, cx| this.toggle_theme(w, cx))),
+                                .icon(assets::IconName::Palette)
+                                .accessibility_label(format!("选择皮肤：{}", skin.label()))
+                                .tooltip(format!("皮肤 · {}", skin.label()))
+                                .dropdown_menu(move |menu, _, _| {
+                                    let mut menu = menu.label("皮肤 · 配色与字体");
+                                    for option in crate::desktop::theme::Skin::ALL {
+                                        let view = skin_view.clone();
+                                        menu = menu.item(
+                                            PopupMenuItem::new(option.label())
+                                                .checked(option == skin)
+                                                .on_click(move |_, window, cx| {
+                                                    let _ = view.update(cx, |this, cx| {
+                                                        this.choose_skin(option, window, cx)
+                                                    });
+                                                }),
+                                        );
+                                    }
+                                    menu
+                                }),
                         ),
                 ),
         );

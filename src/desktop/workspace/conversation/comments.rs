@@ -74,7 +74,12 @@ impl Workspace {
                 }
             });
             self.activate_document(None);
-            self.runtime.list.scroll_to_reveal_item(row);
+            // Row measurements were invalidated above. Anchor by row first;
+            // the text reveal then refines the position after layout.
+            self.runtime.list.scroll_to(ListOffset {
+                item_ix: row,
+                offset_in_item: px(0.),
+            });
             self.selected = None;
             cx.notify();
             return;
@@ -158,3 +163,6 @@ impl Workspace {
         self.open_document(path, false);
     }
 }
+
+#[cfg(test)]
+mod tests;

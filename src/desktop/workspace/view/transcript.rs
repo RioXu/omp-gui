@@ -1,4 +1,5 @@
 use super::*;
+use gpui_kit::base::ElementExt;
 
 impl Workspace {
     pub fn render_message(&self, row: usize, cx: &mut Context<Self>) -> AnyElement {
@@ -41,11 +42,7 @@ impl Workspace {
                     card = card.child(self.render_comment(comment, cx));
                 }
             }
-            return div()
-                .w_full()
-                .px(relative(0.1))
-                .child(card)
-                .into_any_element();
+            return transcript_row(card, row, self.runtime.list.clone());
         }
         let theme = cx.theme().clone();
         let (range, user) = match entry {
@@ -149,6 +146,7 @@ impl Workspace {
         {
             body = body.child(
                 div()
+                    .debug_selector(|| "conversation-answer".into())
                     .w_full()
                     .when(user, |d| d.bg(theme.muted).rounded_lg().px_4().py_3())
                     .child(self.message_file_link_view(TextView::new(&view.state), &last.id, cx)),
@@ -207,10 +205,49 @@ impl Workspace {
                     .child(time),
             ),
         );
-        div()
-            .w_full()
-            .px(relative(0.1))
-            .child(body)
-            .into_any_element()
+        transcript_row(body, row, self.runtime.list.clone())
     }
+}
+
+/// GPUI 0.3.10 retries List prepaint for child autoscroll, but its transaction
+/// does not roll back accessibility nodes. Consume the native reveal request
+/// after the row is laid out and adjust the scroll anchor on the next frame.
+/// This preserves native text range/highlight handling without a duplicate
+/// accessibility tree (or disabling accessibility).
+fn transcript_row(body: impl IntoElement, row: usize, list: ListState) -> AnyElement {
+    div()
+        .w_full()
+        .px(relative(0.1))
+        .child(body)
+        .on_prepaint(move |bounds, window, cx| {
+            let Some(target) = window.take_autoscroll() else {
+                return;
+            };
+            let viewport = window.content_mask().bounds;
+            let above = target.top() < viewport.top();
+            let below = target.bottom() > viewport.bottom();
+            if !above && !below {
+                return;
+            }
+            let offset = if above || target.size.height > viewport.size.height {
+                target.top() - bounds.top()
+            } else {
+                target.bottom() - bounds.top() - viewport.size.height
+            }
+            .max(px(0.));
+            window.defer(cx, move |window, _| {
+                if row >= list.item_count() {
+                    return;
+                }
+                let target = ListOffset {
+                    item_ix: row,
+                    offset_in_item: offset,
+                };
+                if list.logical_scroll_top() != target {
+                    list.scroll_to(target);
+                    window.refresh();
+                }
+            });
+        })
+        .into_any_element()
 }

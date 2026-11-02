@@ -1,6 +1,6 @@
 use super::workspace;
 use crate::infrastructure::persistence::workspace_store as storage;
-use gpui_kit::component::{Theme, ThemeMode};
+use gpui_kit::component::{ActiveTheme, Theme};
 use gpui_kit::*;
 
 pub(super) fn run() {
@@ -101,14 +101,9 @@ pub(super) fn run() {
             t.font_family = "Microsoft YaHei UI".into();
             t.font_size = px(14.);
         });
-        if let Ok(db) = storage::load() {
-            match db.theme.as_str() {
-                "dark" => Theme::change(ThemeMode::Dark, None, cx),
-                "light" => Theme::change(ThemeMode::Light, None, cx),
-                _ => {}
-            }
-        }
-        super::theme::apply_accent(cx);
+        let saved = storage::load().map(|db| db.theme).unwrap_or_default();
+        let skin = super::theme::Skin::from_saved(&saved, cx.theme().is_dark());
+        super::theme::apply(skin, None, cx);
         let bounds = Bounds::centered(None, size(px(1240.), px(850.)), cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),

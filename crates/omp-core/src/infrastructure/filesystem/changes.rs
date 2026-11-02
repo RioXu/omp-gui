@@ -20,6 +20,9 @@ pub struct ChangedFile {
 
 pub fn list(root: &Path) -> anyhow::Result<Vec<ChangedFile>> {
     let output = hidden_command("git")
+        // Status is a read-only UI refresh. Updating the index here generates
+        // watcher events which otherwise trigger another refresh and reparse.
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .args([
             "status",
             "--porcelain=v1",
@@ -161,7 +164,31 @@ mod tests {
         std::fs::remove_file(root.join("src/deleted.rs")).unwrap();
         git(&["mv", "src/old.rs", "src/renamed.rs"]);
         std::fs::write(root.join("src/新增 文件.rs"), "new\n").unwrap();
+        // Same contents, new stat data: ordinary git status would refresh the
+        // index even though this file must stay absent from the changes list.
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(root.join("src/unchanged.rs"))
+            .unwrap()
+            .set_times(
+                std::fs::FileTimes::new()
+                    .set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(5)),
+            )
+            .unwrap();
+        let index = root.join(".git/index");
+        let index_before = std::fs::read(&index).unwrap();
+        let index_modified = std::fs::metadata(&index).unwrap().modified().unwrap();
         let changes = list(&root.join("src")).unwrap();
+        assert_eq!(
+            std::fs::read(&index).unwrap(),
+            index_before,
+            "UI status must not refresh Git index entries"
+        );
+        assert_eq!(
+            std::fs::metadata(&index).unwrap().modified().unwrap(),
+            index_modified,
+            "UI status must not rewrite the watched index"
+        );
         assert_eq!(changes.len(), 4);
         for (path, kind) in [
             ("modified.rs", ChangeKind::Modified),

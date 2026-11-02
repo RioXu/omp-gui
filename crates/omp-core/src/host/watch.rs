@@ -44,6 +44,22 @@ impl Drop for RemoteWatch {
     }
 }
 
+// Git metadata changes still refresh status, but cannot change a Markdown
+// file reference. In particular, index.lock creation/removal is not a new
+// project file and must not cause the conversation to be parsed again.
+fn changes_file_links(root: &std::path::Path, event: &notify::Event) -> bool {
+    matches!(
+        event.kind,
+        EventKind::Create(_)
+            | EventKind::Remove(_)
+            | EventKind::Modify(notify::event::ModifyKind::Name(_))
+    ) && event.paths.iter().any(|path| {
+        path.strip_prefix(root).map_or(true, |relative| {
+            !relative.components().any(|part| part.as_os_str() == ".git")
+        })
+    })
+}
+
 impl ExecutionHost {
     pub fn watch(&self, root: &HostPath, external: &[HostPath]) -> Result<Box<dyn FileWatch>> {
         match self {
@@ -67,12 +83,7 @@ impl ExecutionHost {
                                     }) =>
                             {
                                 Some(Ok(FileChange {
-                                    links_changed: matches!(
-                                        event.kind,
-                                        EventKind::Create(_)
-                                            | EventKind::Remove(_)
-                                            | EventKind::Modify(notify::event::ModifyKind::Name(_))
-                                    ),
+                                    links_changed: changes_file_links(&watched_root, &event),
                                 }))
                             }
                             Err(error) => Some(Err(error.to_string())),
@@ -148,5 +159,48 @@ impl ExecutionHost {
                 }))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::changes_file_links;
+    use notify::{
+        Event, EventKind,
+        event::{CreateKind, ModifyKind, RemoveKind, RenameMode},
+    };
+    #[test]
+    fn git_metadata_does_not_reparse_conversation_file_links() {
+        let root = std::path::Path::new("project");
+        for kind in [
+            EventKind::Create(CreateKind::File),
+            EventKind::Remove(RemoveKind::File),
+            EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
+        ] {
+            for metadata in [".git/index.lock", ".git/index", ".git/refs/heads/main"] {
+                assert!(!changes_file_links(
+                    root,
+                    &Event::new(kind).add_path(root.join(metadata))
+                ));
+            }
+            assert!(changes_file_links(
+                root,
+                &Event::new(kind).add_path(root.join("src/新文件.rs"))
+            ));
+            // A real path involved in a rename still invalidates links.
+            assert!(changes_file_links(
+                root,
+                &Event::new(kind)
+                    .add_path(root.join(".git/tmp"))
+                    .add_path(root.join("src/new.rs"))
+            ));
+        }
+        assert!(!changes_file_links(
+            root,
+            &Event::new(EventKind::Modify(ModifyKind::Data(
+                notify::event::DataChange::Any
+            )))
+            .add_path(root.join("src/existing.rs"))
+        ));
     }
 }
