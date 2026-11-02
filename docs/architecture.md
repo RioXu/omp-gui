@@ -171,3 +171,5 @@ Windows 程序图标为 [omp.ico](../resources/omp.ico)，原样提取自本机 
 SessionStore 发现结果在进程内有界共享，按 cwd／OMP／profile 环境隔离并定期重查。索引通过 notify 维护变化目录集合和完整补查时限；历史缓存按源文件大小／mtime 校验。历史逐行解析，工具结果通过调用 ID 索引定位。文件通知携带合并路径，桌面保留定期完整刷新，普通事件选择性重读标签；路径匹配保留 POSIX 反斜线语义。
 
 附着流程在全局注册表锁外发现配置及验证路径，再持锁二次检查并注册唯一 actor。Client 输出事件使用有界 crossbeam channel，actor 用 select 同时等待事件、输入和退出期限，保留 owner／generation／原生 lease 保护及普通断线不终止任务的语义。
+
+通知显示通过 domain::notice::display_body 生成运行时 TextEntry 的展示副本，保留 Message.text 和原生 JSONL。LSP 优先读取 details.files，缺少结构化数据时回退解析原文；模板与诊断字符按 Markdown 字面内容转义。通知复用 gpui-kit TextView.max_lines(3)，展开状态保存在所属 SessionRuntime 的消息键中；定位评论和搜索时先展开再 reveal，底部短历史展开时显式锚定消息，避免标题被挤出视口。

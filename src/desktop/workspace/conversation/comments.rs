@@ -62,6 +62,9 @@ impl Workspace {
                     .expanded_process
                     .insert(format!("turn-{}", s.messages[range.start].id));
             }
+            if let Some(TranscriptRow::Notice(_)) = self.runtime.transcript.get(row) {
+                self.runtime.expanded_process.insert(format!("notice-{id}"));
+            }
             self.invalidate_list();
             let color = cx.theme().selection;
             state.update(cx, |s, cx| {

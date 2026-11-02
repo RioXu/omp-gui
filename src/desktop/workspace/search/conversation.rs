@@ -150,6 +150,9 @@ impl Workspace {
             return;
         };
         let row = self.row_for_message(ix);
+        if let Some(TranscriptRow::Notice(_)) = self.runtime.transcript.get(row) {
+            self.runtime.expanded_process.insert(format!("notice-{id}"));
+        }
         if let Some(TranscriptRow::Assistant(group)) = self.runtime.transcript.get(row)
             && let Some(s) = self.session()
         {

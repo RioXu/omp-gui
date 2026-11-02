@@ -10,39 +10,11 @@ impl Workspace {
             return div().into_any_element();
         };
         if let TranscriptRow::Notice(ix) = entry {
-            let message = &session.messages[*ix];
-            let mut card = div()
-                .debug_selector(|| "conversation-notice-body".into())
-                .flex()
-                .flex_col()
-                .gap_2()
-                .w_full()
-                .mx_auto()
-                .my_3()
-                .p_3()
-                .border_l_2()
-                .border_color(cx.theme().primary)
-                .bg(cx.theme().muted)
-                .rounded_md()
-                .child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(message.label.clone().unwrap_or_else(|| "会话消息".into())),
-                );
-            if let Some(view) = self.runtime.texts.get(&message.id) {
-                card = card.child(self.message_file_link_view(
-                    TextView::new(&view.state),
-                    &message.id,
-                    cx,
-                ));
-            }
-            for id in &message.comments {
-                if let Some(comment) = session.comments.iter().find(|c| &c.id == id) {
-                    card = card.child(self.render_comment(comment, cx));
-                }
-            }
-            return transcript_row(card, row, self.runtime.list.clone());
+            return transcript_row(
+                self.render_notice(&session.messages[*ix], cx),
+                row,
+                self.runtime.list.clone(),
+            );
         }
         let theme = cx.theme().clone();
         let (range, user) = match entry {

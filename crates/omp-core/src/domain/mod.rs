@@ -7,6 +7,7 @@ pub mod file_buffer;
 mod identity;
 mod messages;
 mod native_history;
+pub mod notice;
 mod progress;
 mod projects;
 mod session;

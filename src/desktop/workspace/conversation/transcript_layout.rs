@@ -142,24 +142,25 @@ impl Workspace {
             let Some(m) = messages.get(index) else {
                 continue;
             };
+            let body = omp_core::domain::notice::display_body(m);
             if let Some(entry) = self.runtime.texts.get_mut(&m.id) {
-                if entry.body != m.text {
-                    entry.body.clone_from(&m.text);
-                    let (display, offsets) = crate::desktop::markdown::prepare(&m.text);
+                if entry.body != body {
+                    entry.body = body.to_string();
+                    let (display, offsets) = crate::desktop::markdown::prepare(&body);
                     entry.offsets = offsets;
                     entry
                         .state
                         .update(cx, |s, cx| s.set_text(display.as_ref(), cx));
                 }
             } else {
-                let (display, offsets) = crate::desktop::markdown::prepare(&m.text);
+                let (display, offsets) = crate::desktop::markdown::prepare(&body);
                 let state =
                     cx.new(|cx| TextViewState::markdown(&display, cx).selectable(m.role != "user"));
                 self.runtime.texts.insert(
                     m.id.clone(),
                     TextEntry {
                         state,
-                        body: m.text.clone(),
+                        body: body.into_owned(),
                         source: Source::Message(m.id.clone()),
                         offsets,
                     },

@@ -6,6 +6,7 @@ mod conversation;
 #[cfg(test)]
 mod conversation_layout_tests;
 mod documents;
+mod notice;
 mod panel;
 mod progress;
 mod requests;
