@@ -172,4 +172,4 @@ SessionStore 发现结果在进程内有界共享，按 cwd／OMP／profile 环�
 
 附着流程在全局注册表锁外发现配置及验证路径，再持锁二次检查并注册唯一 actor。Client 输出事件使用有界 crossbeam channel，actor 用 select 同时等待事件、输入和退出期限，保留 owner／generation／原生 lease 保护及普通断线不终止任务的语义。
 
-通知显示通过 domain::notice::display_body 生成运行时 TextEntry 的展示副本，保留 Message.text 和原生 JSONL。LSP 优先读取 details.files，缺少结构化数据时回退解析原文；模板与诊断字符按 Markdown 字面内容转义。通知复用 gpui-kit TextView.max_lines(3)，展开状态保存在所属 SessionRuntime 的消息键中；定位评论和搜索时先展开再 reveal，底部短历史展开时显式锚定消息，避免标题被挤出视口。
+通知显示通过 domain::notice::display_body 生成运行时 TextEntry 的展示副本，保留 Message.text 和原生 JSONL。domain::notice::lsp 将 details.files 中的 OMP 字符串、标准 Diagnostic 对象及 publishDiagnostics 参数归一为文件／诊断／原文块；缺少结构化数据时回退解析原文。兼容数字严重等级、零基 range（显示时加一）、字符串／数字 code、多行 message、relatedInformation 和 file URI。显示副本使用 omp-lsp 围栏传递类型化块，由 view/notice/lsp.rs 的原生 MarkdownPlugin 渲染 gpui-kit Marker；块提供可搜索文本及源范围，诊断字符按字面呈现。文件路径用 gpui-kit 原生 Link 承载可换行普通文本，保留鼠标／键盘打开，元数据自然换行，状态图标和主题颜色与任务面板一致。通知复用 gpui-kit TextView.max_lines(3)，展开状态保存在所属 SessionRuntime 的消息键中；定位评论和搜索时先展开再 reveal，底部短历史展开时显式锚定消息，避免标题被挤出视口。

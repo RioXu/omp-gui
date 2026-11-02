@@ -1,4 +1,5 @@
 use super::*;
+mod lsp;
 
 impl Workspace {
     pub(super) fn render_notice(&self, message: &Message, cx: &mut Context<Self>) -> AnyElement {
@@ -6,8 +7,8 @@ impl Workspace {
         let message_id = message.id.clone();
         let expanded = self.runtime.expanded_process.contains(&key);
         let title = match message.label.as_deref() {
-            Some("lsp-late-diagnostic") => "LSP · 延迟诊断",
-            Some("lsp-diagnostic" | "lsp-diagnostics") => "LSP · 诊断",
+            Some("lsp-late-diagnostic") => "LSP 延迟诊断",
+            Some("lsp-diagnostic" | "lsp-diagnostics") => "LSP 诊断",
             Some("async-result") => "后台任务结果",
             Some(title) => title,
             None => "会话消息",
@@ -33,7 +34,7 @@ impl Workspace {
                     .small()
                     .w_full()
                     .min_w_0()
-                    .accessibility_label(format!("{title} · {action}"))
+                    .accessibility_label(format!("{title} {action}"))
                     .child(
                         div()
                             .flex()
@@ -86,11 +87,25 @@ impl Workspace {
                 div()
                     .debug_selector(|| "notice-content".into())
                     .w_full()
-                    .child(self.message_file_link_view(
-                        TextView::new(&view.state).when(!expanded, |view| view.max_lines(3)),
-                        &message.id,
-                        cx,
-                    )),
+                    .child(
+                        self.message_file_link_view(
+                            TextView::new(&view.state).when(!expanded, |view| view.max_lines(3)),
+                            &message.id,
+                            cx,
+                        )
+                        .when(
+                            omp_core::domain::notice::lsp::is_lsp(message),
+                            |view| {
+                                view.plugin(lsp::LspBlocks {
+                                    workspace: cx.entity().downgrade(),
+                                    session: self
+                                        .session()
+                                        .map(|s| s.id.clone())
+                                        .unwrap_or_default(),
+                                })
+                            },
+                        ),
+                    ),
             );
         }
         if let Some(session) = self.session() {
