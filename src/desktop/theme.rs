@@ -131,7 +131,7 @@ pub(crate) fn apply(skin: Skin, window: Option<&mut Window>, cx: &mut App) {
 pub(crate) fn apply_accent(cx: &mut App) {
     Theme::update(cx, |t| {
         // Short, critically damped movement keeps tab underlines responsive.
-        t.motion.spring_move = gpui_kit::base::Spring::new(std::time::Duration::from_millis(140))
+        t.motion.spring_move = gpui_kit::base::Spring::new(std::time::Duration::from_millis(90))
             .with_damping(1.0)
             .with_epsilon(0.25);
         t.scrollbar_mode = gpui_kit::component::scroll::ScrollbarMode::Hover;

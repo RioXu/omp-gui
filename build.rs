@@ -1,6 +1,13 @@
 fn main() {
     use std::{io::Write, path::Path};
     let root = std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    println!("cargo:rerun-if-changed=resources/omp-gui.rc");
+    println!("cargo:rerun-if-changed=resources/omp.ico");
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        embed_resource::compile_for("resources/omp-gui.rc", ["omp-gui"], embed_resource::NONE)
+            .manifest_required()
+            .expect("compile the OMP application icon");
+    }
     let out =
         std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("remote_sources.rs");
     let mut files = vec![

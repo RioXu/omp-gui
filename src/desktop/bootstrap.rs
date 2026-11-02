@@ -30,6 +30,10 @@ pub(super) fn run() {
         return;
     }
     let project = option("--project").map(std::path::PathBuf::from);
+    #[cfg(feature = "frame-profile")]
+    let frame_profile_hz = demo
+        .then(|| option("--frame-profile-hz").and_then(|hz| hz.parse::<f64>().ok()))
+        .flatten();
     application().with_assets(assets::AllAssets).run(move |cx| {
         init(cx);
         cx.bind_keys([
@@ -104,8 +108,23 @@ pub(super) fn run() {
         let saved = storage::load().map(|db| db.theme).unwrap_or_default();
         let skin = super::theme::Skin::from_saved(&saved, cx.theme().is_dark());
         super::theme::apply(skin, None, cx);
-        let bounds = Bounds::centered(None, size(px(1240.), px(850.)), cx);
+        let display_id = None;
+        #[cfg(feature = "frame-profile")]
+        let display_id = frame_profile_hz
+            .and_then(|hz| {
+                cx.displays()
+                    .into_iter()
+                    .find(|display| {
+                        display
+                            .refresh_interval()
+                            .is_some_and(|interval| (1. / interval.as_secs_f64() - hz).abs() < 1.)
+                    })
+                    .map(|display| display.id())
+            })
+            .or(display_id);
+        let bounds = Bounds::centered(display_id, size(px(1240.), px(850.)), cx);
         let options = WindowOptions {
+            display_id,
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             window_min_size: Some(size(px(860.), px(640.))),
             titlebar: Some(TitlebarOptions {

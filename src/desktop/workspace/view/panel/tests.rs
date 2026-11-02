@@ -3,8 +3,8 @@ use crate::desktop::{
     workspace::runtime::sessions::tests::fixture,
 };
 use gpui_kit::{
-    AppContext, Bounds, Pixels, TestAppContext, VisualTestContext, WindowOptions,
-    component::ActiveTheme, open_window, px, size,
+    AppContext, Bounds, Modifiers, MouseButton, Pixels, TestAppContext, VisualTestContext,
+    WindowOptions, component::ActiveTheme, open_window, px, size,
 };
 use std::time::Duration;
 fn frame(cx: &mut VisualTestContext) {
@@ -23,6 +23,16 @@ fn indicator(cx: &mut VisualTestContext) -> Bounds<Pixels> {
             .unwrap()
             .1
     })
+}
+fn click_tab(cx: &mut VisualTestContext, label: &str) {
+    let selector = match label {
+        "文件" => "work-panel-tab-文件",
+        "变更" => "work-panel-tab-变更",
+        _ => "work-panel-tab-子智能体",
+    };
+    let bounds = cx.debug_bounds(selector).unwrap();
+    cx.simulate_mouse_down(bounds.center(), MouseButton::Left, Modifiers::default());
+    cx.simulate_mouse_up(bounds.center(), MouseButton::Left, Modifiers::default());
 }
 #[gpui_kit::test]
 fn panel_underline_reaches_target_promptly_and_handles_rapid_switches(cx: &mut TestAppContext) {
@@ -64,38 +74,39 @@ fn panel_underline_reaches_target_promptly_and_handles_rapid_switches(cx: &mut T
     });
     frame(&mut v);
     frame(&mut v);
-    v.update(|_, cx| {
-        cx.set_reduce_motion(false);
-        view.update(cx, |s, cx| {
-            s.panel_tab = "子智能体";
-            cx.notify();
-        });
-    });
+    v.update(|_, cx| cx.set_reduce_motion(false));
+    let last_scan = view.read_with(&v, |s, _| s.document_state.last_scan);
+    click_tab(&mut v, "子智能体");
+    assert_eq!(view.read_with(&v, |s, _| s.panel_tab), "子智能体");
     frame(&mut v);
-    for _ in 0..13 {
+    v.background_executor
+        .advance_clock(Duration::from_millis(16));
+    frame(&mut v);
+    assert!(indicator(&mut v).left() > first.left() + (last.left() - first.left()) * 0.2);
+    for _ in 0..7 {
         v.background_executor
             .advance_clock(Duration::from_millis(16));
         frame(&mut v);
     }
     assert!((indicator(&mut v).left() - last.left()).abs() < px(1.));
-    v.update(|_, cx| {
-        view.update(cx, |s, cx| {
-            s.panel_tab = "文件";
-            cx.notify();
-        })
-    });
+    click_tab(&mut v, "文件");
+    assert_eq!(view.read_with(&v, |s, _| s.panel_tab), "文件");
+    assert_eq!(
+        view.read_with(&v, |s, _| s.document_state.last_scan),
+        last_scan
+    );
     frame(&mut v);
     v.background_executor
         .advance_clock(Duration::from_millis(32));
     frame(&mut v);
-    v.update(|_, cx| {
-        view.update(cx, |s, cx| {
-            s.panel_tab = "变更";
-            cx.notify();
-        })
-    });
+    click_tab(&mut v, "变更");
+    assert_eq!(view.read_with(&v, |s, _| s.panel_tab), "变更");
+    assert_eq!(
+        view.read_with(&v, |s, _| s.document_state.last_scan),
+        last_scan
+    );
     frame(&mut v);
-    for _ in 0..13 {
+    for _ in 0..8 {
         v.background_executor
             .advance_clock(Duration::from_millis(16));
         frame(&mut v);

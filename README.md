@@ -2,13 +2,17 @@
 
 基于 Rust / gpui-kit 0.8.1 的 Windows 原生 OMP 客户端。支持会话、代码选区评论、文件与变更标签、当前标签查找，以及 OMP 模型、服务和子智能体配置。界面不使用 WebView。
 
-本文对应当前源码，最后核对于 2026-11-01。构建版本以 Cargo.toml 为准；源码改动与历史版本记录见[变更记录](docs/changelog.md)。
+本文对应 v0.8.2，最后核对于 2026-11-02。构建版本以 Cargo.toml 为准；源码改动与历史版本记录见[变更记录](docs/changelog.md)。
 
 当前源码 0.8.2 支持明确释放 GUI 自己持有的空闲远端 OMP，再立即删除会话；其他终端和运行任务继续受占用保护。远端大项目使用轻量索引和按需历史，新建会话使用独立通道。
+
+本版还增加默认白／默认黑／曜石橙皮肤、原生公式排版、思考正文独立颜色及输入框上方的动作摘要，修复会话选区消失和定位原文崩溃，并优化流式处理、保存及动画绘制。
 
 ## 快速开始
 
 桌面端需要 Windows。本地模式需要本机 OMP 和 Git；远程模式使用 OpenSSH 连接 Linux，在远端运行 OMP 和 Git。源码构建另需 Rust MSVC 工具链、Visual Studio C++ Build Tools 和 Windows SDK。
+
+可从 [Releases](https://github.com/RioXu/omp-gui/releases) 下载 Windows x64 便携 ZIP，完整解压后运行 `omp-gui.exe`。保留旁边的 `remote` 目录，首次 SSH 部署会按远端架构使用其中的预编译服务；使用便携包不需要本机 Rust。校验、打包及发布流程见[发布说明](docs/releasing.md)。
 
 ```powershell
 cargo build --locked
@@ -38,6 +42,7 @@ cargo run -- --probe --data-dir ".\target\probe-data"
 - 会话标签固定在最左且不可关闭；文件和变更标签可分别关闭，文件支持语法高亮。工作面板的变更平铺、文件按层级展示，并自动刷新。
 - 普通文件标签可编辑，`Ctrl+S` 保存；未保存时显示圆点，关闭文件、切换会话／项目和退出前提供确认。
 - 任务按阶段展示 Marker 列表，以状态图标和颜色代替重复标签，保留完成数量、详情和备注。
+- 点击右上角调色板选择皮肤；回复支持 `$...$` 行内公式和 `$$...$$` 块级公式，展开的思考正文显示为蓝灰色。
 - 选中回复文字或代码可添加评论；历史评论绑定不可变快照，跟进以追加方式保存。
 - `/model`、`/models`、`/switch` 打开模型服务与注册；`/fast`、`/slow` 打开速度与服务等级。带参数的命令继续由 OMP 执行。
 - 子智能体和角色模型关联使用原生表单，支持模型选择、对应推理档位及继承默认；保存范围可选全局或当前项目。
@@ -52,7 +57,8 @@ cargo run -- --probe --data-dir ".\target\probe-data"
 | [组件职责与维护约定](docs/architecture.md) | 模块边界、依赖方向、状态归属和行为约定 |
 | [远程 Linux](docs/remote.md) | SSH、自动部署、环境与 profile、远端项目及断线恢复 |
 | [构建、测试与验证](docs/testing.md) | Windows／Linux 检查、离线测试、显式 OMP／SSH 测试及界面验证隔离 |
-| [变更与历史记录](docs/changelog.md) | 当前未发布改动和早期版本记录 |
+| [变更与历史记录](docs/changelog.md) | 本版改动和早期版本记录 |
+| [发布与便携包](docs/releasing.md) | 版本、发布流程、包内容和 SHA-256 校验 |
 
 ## 数据与兼容
 
@@ -60,6 +66,6 @@ GUI 数据默认位于 `%LOCALAPPDATA%\OMP GUI`，可用 `--data-dir` 或 `OMP_G
 
 原生会话共用 OMP 的项目存储，GUI 删除也会删除终端可恢复的对应记录。评论、草稿和归档状态保存在 GUI 数据目录。`--data-dir` 仅隔离 GUI 数据；测试时如需隔离原生会话，另设 `PI_CODING_AGENT_DIR`，见[界面验证隔离](docs/testing.md#界面验证隔离)。
 
-普通文件支持编辑与保存；变更、历史引用及演示快照保持只读。打开文件支持 UTF-8、单文件不超过 2 MB、最多枚举 5000 项。LaTeX 公式暂显示原文。高级服务配置、认证和未覆盖的功能仍可通过 OMP 原生入口维护，详见[使用范围](docs/usage.md#数据目录与限制)。
+普通文件支持编辑与保存；变更、历史引用及演示快照保持只读。打开文件支持 UTF-8、单文件不超过 2 MB、最多枚举 5000 项。公式支持常见 LaTeX 数学语法，无法排版时回退为文本。高级服务配置、认证和未覆盖的功能仍可通过 OMP 原生入口维护，详见[使用范围](docs/usage.md#数据目录与限制)。
 
-已验证本机 OMP 18.11.3 和远端 Linux x86_64 的 OMP 18.14.2；附带公开目录来源标注为 18.14.0，这些不是最低版本声明。协议与配置参考 [OMP 官方文档](https://github.com/can1357/oh-my-pi/tree/main/docs)，原生组件参考 [gpui-kit](https://github.com/longbridge/gpui-kit)。
+已验证本机 OMP 18.11.3／18.14.0 和远端 Linux x86_64 的 OMP 18.14.2；附带公开目录来源标注为 18.14.0，这些不是最低版本声明。协议与配置参考 [OMP 官方文档](https://github.com/can1357/oh-my-pi/tree/main/docs)，原生组件参考 [gpui-kit](https://github.com/longbridge/gpui-kit)。

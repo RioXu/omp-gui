@@ -137,11 +137,13 @@ CI 执行格式检查、所有目标的 Clippy 和默认测试，配置见 [chec
 
 ```powershell
 cargo fmt --all --check
-cargo clippy --workspace --locked --all-targets -- -D warnings
+cargo clippy --workspace --locked --all-targets --all-features -- -D warnings
 cargo test --workspace --locked
 ```
 
 本地构建额外执行 `cargo build --locked`。当前测试清单、本机集成测试的具体名称与依赖，以及 GUI 数据／OMP 配置的隔离方法统一维护在[验证说明](testing.md)，避免在多处保留过时计数和命令。
+
+开发构建对工作区代码采用 `opt-level=1`、依赖库采用 `opt-level=2`，保留增量编译与调试断言；避免未优化的 GPUI 布局、文字与场景处理阻塞动画。首次依赖构建更慢，日常增量构建复用依赖。单元测试保留 `opt-level=0`，原生动画性能以优化后的开发程序实测，不以测试的模拟时钟判定。默认不包含分析器，显式 `frame-profile` 功能可启用原生 Draw／Present 采样；隔离演示窗口的可重复验证见验证说明。
 
 ## 服务目录更新
 
@@ -158,3 +160,5 @@ python scripts/update_service_catalog.py D:\src\oh-my-pi
 输入框和配置表单的可用模型及推理档位来自所属环境的 OMP，不以附带目录判定账户可用性。服务注册界面则合并附带目录与该环境的目录，帮助注册尚未配置的服务；新的尚未注册内置服务可能需要随 GUI 更新元数据，也可通过自定义入口配置。
 
 数学排版通过原生 Markdown 扩展接入 [RaTeX](https://github.com/erweixin/RaTeX)，在解析阶段生成带字体轮廓的 SVG，再由 GPUI 绘制；缓存上限为 128 项／4 MiB。内嵌 KaTeX 字体的许可见 [OFL](../resources/KaTeX-OFL.txt)。公式节点保留原始 LaTeX 与源区间，皮肤切换复用几何数据并采用当前文字颜色。
+
+Windows 程序图标为 [omp.ico](../resources/omp.ico)，原样提取自本机 OMP 18.14.0 的 `omp.exe`（原资源组 `IDI_MYICON`，256×256、32 位），保留原始图像数据。构建脚本使用 `embed-resource` 将 [omp-gui.rc](../resources/omp-gui.rc) 仅链接到 GUI 二进制；图标资源 ID 为 1，与 GPUI 原生窗口加载规则一致。

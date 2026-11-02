@@ -10,9 +10,14 @@ members = ["crates/omp-core", "crates/omp-remote"]
 default-members = [".", "crates/omp-core"]
 resolver = "3"
 
+[features]
+frame-profile = ["dep:gpui-test-runtime"]
+
 [dependencies]
 omp-core = { path = "crates/omp-core" }
 gpui-kit = { version = "=0.8.1", features = ["syntect"] }
+# Enable the existing runtime's profiler without activating alternate backends.
+gpui-test-runtime = { package = "gpui-pre", version = "=0.3.10", optional = true, features = ["profiler"] }
 markdown = "=1.0.0"
 ratex-parser = "=0.1.15"
 ratex-layout = "=0.1.15"
@@ -34,9 +39,26 @@ omp-core = { path = "crates/omp-core", features = ["test-support"] }
 # Exercise pointer events through the same native runtime reexported by gpui-kit.
 gpui-test-runtime = { package = "gpui-pre", version = "=0.3.10", features = ["test-support"] }
 
+[build-dependencies]
+embed-resource = "=3.0.12"
+
 [profile.dev]
 debug = 0
 incremental = true
+opt-level = 1
+
+# Native layout/text/scene processing runs every animation frame. Keep the
+# development UI responsive too, rather than benchmarking unoptimized GPUI.
+[profile.dev.package."*"]
+opt-level = 2
+
+# Unit tests use a simulated frame clock; keep their compile cycle inexpensive.
+# Measure animation performance with the optimized native application instead.
+[profile.test]
+opt-level = 0
+
+[profile.test.package."*"]
+opt-level = 0
 
 [profile.release]
 strip = true

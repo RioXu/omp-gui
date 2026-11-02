@@ -165,6 +165,10 @@ impl Workspace {
         });
         this.connect_environment(cx);
         this.scan_sessions();
+        #[cfg(feature = "frame-profile")]
+        if demo {
+            Self::start_frame_profile(window, cx);
+        }
         cx.spawn_in(window, async move |view, cx| {
             loop {
                 cx.background_executor()

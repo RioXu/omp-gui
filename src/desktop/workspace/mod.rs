@@ -3,6 +3,8 @@ mod composer;
 mod conversation;
 pub(in crate::desktop::workspace) mod documents;
 mod environments;
+#[cfg(feature = "frame-profile")]
+mod frame_profile;
 mod initialization;
 mod preferences;
 pub(in crate::desktop::workspace) mod runtime;

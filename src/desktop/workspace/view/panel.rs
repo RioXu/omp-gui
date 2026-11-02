@@ -49,6 +49,7 @@ impl Workspace {
         for label in labels {
             tabs = tabs.child(
                 Tab::new()
+                    .debug_selector(move || format!("work-panel-tab-{label}"))
                     .selected(self.panel_tab == label)
                     .label(label)
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -57,9 +58,8 @@ impl Workspace {
                         }
                         this.select_panel(label);
                         this.selected = None;
-                        if label == "文件" || label == "变更" {
-                            this.refresh_files(cx);
-                        }
+                        // File watching and periodic scans keep this shared cache fresh.
+                        // Navigation must not start scans or reload open documents.
                         cx.notify();
                     })),
             );

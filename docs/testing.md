@@ -4,13 +4,14 @@
 
 ## 当前验证基线
 
-功能基线包含原生会话同步、组件式目录选择器、可移植共享核心和 SSH Linux 远程工作环境，Windows 代码验证更新于 2026-11-02；本轮增加性能与流式解析回归，Linux 实机结果仍为先前记录。0.8.2 另验证了显式空闲释放、快速删除及占用保护；以下是源码验证记录，不代表已发布安装包。
+功能基线包含原生会话同步、组件式目录选择器、可移植共享核心和 SSH Linux 远程工作环境，Windows 代码验证更新于 2026-11-02；本轮增加性能与流式解析回归，Linux 实机结果仍为先前记录。0.8.2 另验证了显式空闲释放、快速删除及占用保护；以下记录明确区分当前 Windows 验证与历史 Linux 实测；便携包的自动构建及发布流程见[发布说明](releasing.md)。
 
 | 项目 | 已有验证结果与范围 |
 | --- | --- |
 | 离线测试 | Windows 共 130 项通过（共享核心 84、桌面 46）；新增弹窗短距离过渡、中途关闭连续性、减少动态效果和目录加载／错误布局稳定性验证，以及原生动作意图投影、跨会话摘要隔离、两侧各 10% 留白的响应式布局和连续层级竖线绘制验证，保留共享快照、增量更新、协议、保存和原生同步等覆盖 |
 | Linux 共享核心与服务 | 隔离 SSH 测试目录内核心 71 项通过，服务构建及 core／remote Clippy 通过，不构建 GPUI；实际目标 Linux x86_64，OMP 18.14.2。ARM64 仅配置 CI，未实机验收 |
-| 公式与面板动效 | 真实回复隔离副本验证行内／块级公式、深色皮肤下的 SVG 字形和思考正文颜色；回归覆盖常见数学语法、缓存复用、单行公式规范化和原文范围映射。原生下划线测试验证约 200ms 内到位以及快速反向切换 |
+| 公式与面板动效 | 真实回复隔离副本验证行内／块级公式、深色皮肤下的 SVG 字形和思考正文颜色；回归覆盖常见数学语法、缓存复用、单行公式规范化和原文范围映射。原生鼠标点击测试验证切页立即生效、不触发扫描，首个 16ms 动画帧已有明显位移、约 128ms 内到位以及快速反向切换 |
+| 动画性能 | 首次未优化调试版的 render 时间戳采样约 17–21 次更新／秒；随后用原生 Draw／Present 定位为 CPU 绘制瓶颈，并验证优化开发构建满足 60FPS 帧预算。详细数据、P95 和验证边界见下方原生动画基准；16ms 模拟时钟测试不作为实际帧率证据 |
 | 原文定位 | 隔离副本复现真实回复定位导致的重复无障碍节点崩溃；修复后两种跳转入口正常，跨段落引用准确高亮。回归验证长原文重复往返定位且引用位于可见区域 |
 | 会话选区与皮肤 | 真实 Git 项目验证跨行拖选松开后持续高亮、Ctrl+C 复制；隔离副本验证相同正文和两种皮肤。回归覆盖 Git 元数据不重解析 Markdown、只读 status 不修改索引、皮肤切回后恢复配色与字体 |
 | 组件式项目选择器 | 0.8.0 隔离窗口验证浏览、中文/空格路径及 Enter；0.8.1 原生绘制测试验证图标／名称同行、32px 行高及最近路径前缀。新窗口激活失败，未宣称本轮人工视觉验收完成 |
@@ -90,7 +91,7 @@ cargo test --locked -p omp-core --release --features serde_json/preserve_order,s
 | 含嵌套任务的工具事件 | 81.117 | 71.282 | 12% |
 | 512 KiB base64 传输分片 | 218.407 | 207.242 | 5% |
 
-大帧的生产结果包含嵌套预检查，因而略慢于直接调用 sonic-rs，仍优于原解析路径。Windows 上已通过格式检查、全 workspace Clippy、117 项默认测试及本地构建；另有 20 项需显式启用的性能／本机／远端测试保持忽略，此处单独运行了上述发布模式基准。
+大帧的生产结果包含嵌套预检查，因而略慢于直接调用 sonic-rs，仍优于原解析路径。流式解析阶段当时通过格式检查、全 workspace Clippy、117 项默认测试及本地构建，另有 20 项显式测试保持忽略；这是历史阶段计数，当前默认测试为上表的 130 项。此处单独运行了上述发布模式基准。
 
 协议回归测试覆盖两条路径在 256 KiB 阈值附近切换、复用输入后旧事件仍然有效、中文与代理对及转义、64 位边界和超大整数浮点退化、非法 UTF-8／JSON／尾随数据、与旧解析器一致的容器嵌套上限、字符串中括号不计入嵌套，以及分片乱序、重组正文校验和大小限制。
 
@@ -100,22 +101,24 @@ cargo test --locked -p omp-core --release --features serde_json/preserve_order,s
 
 ```powershell
 cargo fmt --all --check
-cargo clippy --workspace --locked --all-targets -- -D warnings
+cargo clippy --workspace --locked --all-targets --all-features -- -D warnings
 cargo test --workspace --locked
 cargo build --locked
 ```
 
 发布优化构建使用 `cargo build --locked --release`，产物在 `target/release/omp-gui.exe`；普通构建在 `target/debug/omp-gui.exe`。
 
-[CI](../.github/workflows/check.yml) 在 Windows 检查 workspace，并在 Linux x86_64／ARM64 检查共享核心和服务、构建远端 release 产物。Linux 产物是独立 artifact，当前工作流不组装 Windows 安装包。修改文档时检查引用、链接及命令示例，不必重复执行真实模型任务。
+[CI](../.github/workflows/check.yml) 在 Windows 检查 workspace，并在 Linux x86_64／ARM64 检查共享核心和服务、构建远端 release 产物。检查工作流保存独立的 Linux artifact；另有 [Release 工作流](../.github/workflows/release.yml) 为版本标签构建 Windows 优化程序与两种 Linux 服务，全部检查通过后组装便携 ZIP、生成 SHA-256 并发布，见[发布说明](releasing.md)。修改文档时检查引用、链接及命令示例，不必重复执行真实模型任务。
 
 在 Linux 单独验证远端组件：
 
 ```sh
 cargo clippy --locked -p omp-core -p omp-gui-remote --all-targets -- -D warnings
-cargo test --locked -p omp-core -p omp-gui-remote
+cargo test --locked -p omp-core -p omp-gui-remote -- --test-threads=1
 cargo build --locked --release -p omp-gui-remote
 ```
+
+Linux 测试涉及原生进程级会话锁，采用串行执行以避免与并行子进程场景相互干扰；保留所有占用保护断言，不跳过锁测试。
 
 ### Windows 常见构建问题
 
@@ -224,4 +227,29 @@ cargo run -- --data-dir "$testRoot/data" --project "$testRoot/project"
 
 ## 已知验证边界
 
-尚未逐一连接真实 LSP/MCP 服务，也未在本轮安装或卸载用户插件。当前没有宣称完整屏幕阅读器认证。LaTeX 公式没有排版控件，因此没有公式视觉渲染的通过记录。
+尚未逐一连接真实 LSP/MCP 服务，也未在本轮安装或卸载用户插件。当前没有宣称完整屏幕阅读器认证。
+
+## 原生动画帧率基准
+
+2026-11-02，相同公式长回复隔离副本、前台窗口、每组 48 次动作，原生 Draw／Present 实测如下。全部组的 `active_switches` 均为 48；高刷组屏幕刷新率为 165Hz。表中 FPS 指连续动画帧的提交频率，60Hz 显示器的物理显示仍最多为 60 FPS。
+
+| 场景 | 平均绘制 | 平均动画提交频率 | P95 提交间隔 |
+| --- | --- | --- | --- |
+| 未优化开发构建，165Hz 标签 | 42.30ms | 22.6 FPS | 48.45ms |
+| 优化开发构建，165Hz 标签 | 7.50ms | 91.3 FPS | 19.18ms |
+| 优化开发构建，165Hz 弹窗 | 6.99ms | 73.8 FPS | 25.30ms |
+| 优化开发构建，60Hz 标签 | 6.11ms | 113.6 次／秒 | 15.06ms |
+| 优化开发构建，60Hz 弹窗 | 6.48ms | 113.7 次／秒 | 14.63ms |
+
+60Hz 两组分别包含 658／1000 个连续动画提交间隔；P95 均低于 16.67ms。仍存在少量约 19ms 的长帧，不承诺系统任意负载下零掉帧。原始本地报告为 `artifacts/native-frame-baseline.json`、`native-frame-optimized-{tabs,dialogs}.json`、`native-frame-60-{tabs,dialogs}.json`（均不提交）。
+
+使用含长回复与公式的隔离演示数据，保持窗口处于前台、关闭其他测试负载。以下命令只在 `--demo` 和显式 `--data-dir` 同时存在时启用自动切页，不发送模型请求；普通构建不包含分析器。
+
+```powershell
+cargo build --locked --features frame-profile
+target/debug/omp-gui.exe --demo --data-dir artifacts/math-qa/data --frame-profile-output artifacts/native-frame-tabs.json
+```
+
+预热 3 秒后，每 220ms 切换一次原生页签，共 48 次；约 14 秒生成 JSON。关闭该隔离窗口后，可在同一命令追加 `--frame-profile-dialogs`，另指定输出文件，验证 24 次弹窗打开／关闭。原始样本包含 GPUI 的布局、预绘制、绘制和平台提交时间，以及连续动画帧的实际提交间隔。`active_switches` 必须为 48，否则前台采样无效；空闲不绘制的间隔不计入 FPS。`summary` 汇总平均 FPS 与 P95 帧间隔。提交间隔是原生运行时指标，不等同于显示器物理扫描输出。
+
+多显示器验证可追加 `--frame-profile-hz 60`，由 GPUI 选择刷新率匹配的显示器；必须再检查报告内的 `refresh_ms`，匹配失败会使用默认屏幕。该参数仅在启用分析功能的演示构建中生效，不修改系统显示设置。
