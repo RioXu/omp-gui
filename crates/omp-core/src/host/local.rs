@@ -45,6 +45,9 @@ impl DirectoryBrowser for LocalHost {
 }
 
 impl ProjectFiles for LocalHost {
+    fn git_branch(&self, root: &HostPath) -> Result<Option<String>> {
+        changes::branch(root.local()?)
+    }
     fn lists(&self, root: &HostPath) -> Result<(Vec<PathBuf>, Vec<ChangedFile>)> {
         let root = root.local()?;
         Ok((project_files::list(root)?, changes::list(root)?))

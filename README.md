@@ -2,9 +2,9 @@
 
 基于 Rust / gpui-kit 0.8.1 的 Windows 原生 OMP 客户端。支持会话、代码选区评论、文件与变更标签、当前标签查找，以及 OMP 模型、服务和子智能体配置。界面不使用 WebView。
 
-本文对应 v0.8.2，最后核对于 2026-11-02。构建版本以 Cargo.toml 为准；源码改动与历史版本记录见[变更记录](docs/changelog.md)。
+本文对应 v0.8.3，最后核对于 2026-11-02。构建版本以 Cargo.toml 为准；源码改动与历史版本记录见[变更记录](docs/changelog.md)。
 
-当前源码 0.8.2 支持明确释放 GUI 自己持有的空闲远端 OMP，再立即删除会话；其他终端和运行任务继续受占用保护。远端大项目使用轻量索引和按需历史，新建会话使用独立通道。
+当前源码 0.8.3 使用 gpui-kit 标题栏，显示当前 Git 分支，并提供 Claude Code 身份注入开关。支持明确释放 GUI 自己持有的空闲远端 OMP，再立即删除会话；其他终端和运行任务继续受占用保护。远端大项目使用轻量索引和按需历史，新建会话使用独立通道。
 
 本版还增加默认白／默认黑／曜石橙皮肤、原生公式排版、思考正文独立颜色及输入框上方的动作摘要，修复会话选区消失和定位原文崩溃，并优化流式处理、保存及动画绘制。
 
@@ -12,7 +12,7 @@
 
 桌面端需要 Windows。本地模式需要本机 OMP 和 Git；远程模式使用 OpenSSH 连接 Linux，在远端运行 OMP 和 Git。源码构建另需 Rust MSVC 工具链、Visual Studio C++ Build Tools 和 Windows SDK。本次发布仅包含 Windows x64 和 Linux x86_64，ARM64 未经实机验证，不提供发布包。
 
-可从 [Releases](https://github.com/RioXu/omp-gui/releases) 下载 Windows x64 便携 ZIP，完整解压后运行 `omp-gui.exe`。保留旁边的 `remote` 目录，首次 SSH 部署会使用其中的 Linux x86_64 预编译服务；使用便携包不需要本机 Rust；系统需有 [Microsoft Visual C++ v14 x64 运行库](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)，缺少 `VCRUNTIME140.dll` 时请先安装官方运行库。校验、打包及发布流程见[发布说明](docs/releasing.md)。
+可从 [Releases](https://github.com/RioXu/omp-gui/releases) 下载单个 Windows x64 `*-setup.exe` 安装包，安装后从开始菜单启动。支持 Windows 10 1809 或更新版本及 Windows 11 x64；内含 Linux x86_64 服务，首次 SSH 连接自动部署，不需要本机 Rust。安装程序不附带 runtime DLL；缺少 `VCRUNTIME140.dll` 时需安装[微软官方 x64 运行库](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)。升级和卸载保留会话数据。校验、打包及发布流程见[发布说明](docs/releasing.md)。
 
 ```powershell
 cargo build --locked
@@ -58,7 +58,7 @@ cargo run -- --probe --data-dir ".\target\probe-data"
 | [远程 Linux](docs/remote.md) | SSH、自动部署、环境与 profile、远端项目及断线恢复 |
 | [构建、测试与验证](docs/testing.md) | Windows／Linux 检查、离线测试、显式 OMP／SSH 测试及界面验证隔离 |
 | [变更与历史记录](docs/changelog.md) | 本版改动和早期版本记录 |
-| [发布与便携包](docs/releasing.md) | 版本、发布流程、包内容和 SHA-256 校验 |
+| [发布与安装包](docs/releasing.md) | 版本、发布流程、安装与卸载和 SHA-256 校验 |
 
 ## 数据与兼容
 

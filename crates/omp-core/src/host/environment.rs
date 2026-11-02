@@ -96,6 +96,12 @@ impl DirectoryBrowser for ExecutionHost {
 }
 
 impl ProjectFiles for ExecutionHost {
+    fn git_branch(&self, root: &HostPath) -> Result<Option<String>> {
+        match self {
+            Self::Local => LocalHost.git_branch(root),
+            Self::Remote(host) => host.git_branch(root),
+        }
+    }
     fn lists(&self, root: &HostPath) -> Result<(Vec<PathBuf>, Vec<ChangedFile>)> {
         match self {
             Self::Local => LocalHost.lists(root),

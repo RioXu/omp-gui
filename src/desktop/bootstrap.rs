@@ -1,6 +1,6 @@
 use super::workspace;
 use crate::infrastructure::persistence::workspace_store as storage;
-use gpui_kit::component::{ActiveTheme, Theme};
+use gpui_kit::component::{ActiveTheme, Theme, TitleBar};
 use gpui_kit::*;
 
 pub(super) fn run() {
@@ -129,9 +129,9 @@ pub(super) fn run() {
             window_min_size: Some(size(px(860.), px(640.))),
             titlebar: Some(TitlebarOptions {
                 title: Some(if demo { "OMP · 演示" } else { "OMP" }.into()),
-                ..Default::default()
+                ..TitleBar::title_bar_options()
             }),
-            ..Default::default()
+            ..TitleBar::window_options()
         };
         open_window(options, cx, move |window, cx| {
             cx.new(|cx| workspace::Workspace::new(window, cx, demo, project.clone()))

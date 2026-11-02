@@ -123,6 +123,7 @@ impl Workspace {
                 file_link_revision: 0,
                 references: Default::default(),
                 changes: vec![],
+                git_branch: None,
                 tx: file_tx,
                 rx: file_rx,
                 snapshot: None,

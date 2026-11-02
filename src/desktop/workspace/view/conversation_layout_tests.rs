@@ -6,6 +6,85 @@ use gpui_kit::{
 };
 
 #[gpui_kit::test]
+fn titlebar_and_readonly_branch_follow_the_active_session(cx: &mut TestAppContext) {
+    use crate::desktop::workspace::documents::FileEvent;
+    cx.update(gpui_kit::init);
+    let (window, view) = cx.update(|cx| {
+        open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds::new(
+                    point(px(0.), px(0.)),
+                    size(px(860.), px(640.)),
+                ))),
+                ..gpui_kit::component::TitleBar::window_options()
+            },
+            cx,
+            |window, cx| {
+                cx.new(|cx| {
+                    let mut this = fixture(window, cx);
+                    this.document_state.git_branch = Some((
+                        this.db.sessions[0].id.clone(),
+                        "feature/很长的只读分支名称".repeat(20),
+                    ));
+                    this
+                })
+            },
+        )
+        .unwrap()
+    });
+    let mut visual = VisualTestContext::from_window(window, cx);
+    for width in [860., 1240.] {
+        visual.simulate_resize(size(px(width), px(640.)));
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let title = visual.debug_bounds("workspace-title").unwrap();
+        let branch = visual.debug_bounds("composer-git-branch").unwrap();
+        let card = visual.debug_bounds("composer-input-card").unwrap();
+        assert!(title.bottom() < card.top());
+        assert!(branch.left() >= card.left() && branch.right() <= card.right());
+        assert!(branch.size.height <= px(24.));
+    }
+    visual.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.active = Some(1);
+            this.on_file(
+                FileEvent::Lists {
+                    session: this.db.sessions[0].id.clone(),
+                    git_branch: Some("stale-branch".into()),
+                    result: Ok((vec![], vec![])),
+                },
+                window,
+                cx,
+            );
+            cx.notify();
+        })
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(visual.debug_bounds("composer-git-branch").is_none());
+    for branch in [Some("current-branch".to_string()), None] {
+        visual.update(|window, cx| {
+            view.update(cx, |this, cx| {
+                this.on_file(
+                    FileEvent::Lists {
+                        session: this.db.sessions[1].id.clone(),
+                        git_branch: branch.clone(),
+                        result: Ok((vec![], vec![])),
+                    },
+                    window,
+                    cx,
+                );
+                cx.notify();
+            })
+        });
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        assert_eq!(
+            visual.debug_bounds("composer-git-branch").is_some(),
+            branch.is_some()
+        );
+    }
+}
+
+#[gpui_kit::test]
 fn responsive_conversation_and_composer_expand_together_with_ten_percent_side_margins(
     cx: &mut TestAppContext,
 ) {

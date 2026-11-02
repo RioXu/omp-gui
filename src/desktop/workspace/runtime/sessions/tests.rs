@@ -88,6 +88,7 @@ pub(in crate::desktop::workspace) fn fixture(
             file_link_revision: 0,
             references: Default::default(),
             changes: vec![],
+            git_branch: None,
             tx,
             rx,
             snapshot: None,

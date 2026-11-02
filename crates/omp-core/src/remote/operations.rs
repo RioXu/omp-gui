@@ -187,6 +187,9 @@ pub fn execute(operation: Operation) -> Result<Value> {
             Ok(serde_json::to_value(directory)?)
         }
         Operation::Lists { root } => Ok(serde_json::to_value(LocalHost.lists(&local(&root)?)?)?),
+        Operation::GitBranch { root } => {
+            Ok(serde_json::to_value(LocalHost.git_branch(&local(&root)?)?)?)
+        }
         Operation::Document {
             root,
             path,

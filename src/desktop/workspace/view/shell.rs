@@ -1,4 +1,23 @@
 use super::*;
+use gpui_kit::component::TitleBar;
+
+impl Workspace {
+    fn window_frame(&self, content: impl IntoElement) -> Div {
+        div()
+            .flex()
+            .flex_col()
+            .size_full()
+            .child(
+                TitleBar::new().child(
+                    div()
+                        .debug_selector(|| "workspace-title".into())
+                        .text_sm()
+                        .child(if self.demo { "OMP · 演示" } else { "OMP" }),
+                ),
+            )
+            .child(content)
+    }
+}
 
 impl Render for ResizeSide {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
@@ -18,7 +37,9 @@ impl Render for Workspace {
             .key_context("Workspace")
             .track_focus(&self.focus)
             .flex()
-            .size_full()
+            .flex_1()
+            .min_h_0()
+            .w_full()
             .items_stretch()
             .bg(theme.background)
             .text_color(theme.foreground)
@@ -97,35 +118,37 @@ impl Render for Workspace {
             );
         }
         if let Some(settings) = &self.settings_view {
-            return root.child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_w_0()
-                    .h_full()
-                    .child(
-                        Toolbar::new("settings-toolbar")
-                            .xsmall()
-                            .h(px(PANE_HEADER_HEIGHT))
-                            .px_3()
-                            .border_b_1()
-                            .border_color(theme.border)
-                            .content(div().flex_1().text_sm().child("设置"))
-                            .child(
-                                Button::new("close-settings")
-                                    .ghost()
-                                    .small()
-                                    .icon(IconName::Close)
-                                    .accessibility_label("返回会话")
-                                    .tooltip("返回会话")
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.settings_view = None;
-                                        cx.notify();
-                                    })),
-                            ),
-                    )
-                    .child(div().flex_1().min_h_0().child(settings.clone())),
+            return self.window_frame(
+                root.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_w_0()
+                        .h_full()
+                        .child(
+                            Toolbar::new("settings-toolbar")
+                                .xsmall()
+                                .h(px(PANE_HEADER_HEIGHT))
+                                .px_3()
+                                .border_b_1()
+                                .border_color(theme.border)
+                                .content(div().flex_1().text_sm().child("设置"))
+                                .child(
+                                    Button::new("close-settings")
+                                        .ghost()
+                                        .small()
+                                        .icon(IconName::Close)
+                                        .accessibility_label("返回会话")
+                                        .tooltip("返回会话")
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.settings_view = None;
+                                            cx.notify();
+                                        })),
+                                ),
+                        )
+                        .child(div().flex_1().min_h_0().child(settings.clone())),
+                ),
             );
         }
         let mut center = div().flex().flex_col().h_full().flex_1().min_w_0().child(
@@ -314,7 +337,9 @@ impl Render for Workspace {
                 .x
                 .min((width - px(370.)).max(px(8.)))
                 .max(px(8.));
-            let y = (self.selection_point.y - px(36.)).max(px(50.));
+            // Pointer coordinates include the title bar; this overlay is inside the content.
+            let y = (self.selection_point.y - px(36.)).max(px(50.))
+                - gpui_kit::component::TITLE_BAR_HEIGHT;
             root = root.child(
                 div().absolute().left(x).top(y).child(
                     Popover::new("selection-comment-popover")
@@ -348,6 +373,6 @@ impl Render for Workspace {
                 ),
             );
         }
-        root
+        self.window_frame(root)
     }
 }

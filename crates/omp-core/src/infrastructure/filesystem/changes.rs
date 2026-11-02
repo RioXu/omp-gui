@@ -18,6 +18,29 @@ pub struct ChangedFile {
     pub kind: ChangeKind,
 }
 
+/// Read HEAD without changing the index, including unborn branches and linked worktrees.
+pub fn branch(root: &Path) -> anyhow::Result<Option<String>> {
+    let output = hidden_command("git")
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .args(["symbolic-ref", "--quiet", "--short", "HEAD"])
+        .current_dir(root)
+        .output()?;
+    if output.status.success() {
+        let name = std::str::from_utf8(&output.stdout)?.trim_end();
+        return Ok((!name.is_empty()).then(|| name.to_owned()));
+    }
+    let output = hidden_command("git")
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .args(["rev-parse", "--short", "HEAD"])
+        .current_dir(root)
+        .output()?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let commit = std::str::from_utf8(&output.stdout)?.trim_end();
+    Ok((!commit.is_empty()).then(|| format!("HEAD · {commit}")))
+}
+
 pub fn list(root: &Path) -> anyhow::Result<Vec<ChangedFile>> {
     let output = hidden_command("git")
         // Status is a read-only UI refresh. Updating the index here generates
@@ -88,6 +111,64 @@ fn parse(bytes: &[u8], prefix: &str) -> anyhow::Result<Vec<ChangedFile>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn branch_follows_head_in_unborn_nested_detached_and_linked_worktrees() {
+        let root = std::env::temp_dir().join(format!("omp-gui-branch-{}", crate::domain::id()));
+        let repo = root.join("repo");
+        std::fs::create_dir_all(repo.join("nested")).unwrap();
+        assert_eq!(branch(&repo).unwrap(), None);
+        let git = |cwd: &Path, args: &[&str]| {
+            let output = hidden_command("git")
+                .current_dir(cwd)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        git(&repo, &["init", "--initial-branch=main"]);
+        assert_eq!(branch(&repo).unwrap().as_deref(), Some("main"));
+        git(&repo, &["branch", "-m", "feature/中文分支"]);
+        assert_eq!(
+            branch(&repo.join("nested")).unwrap().as_deref(),
+            Some("feature/中文分支")
+        );
+        git(
+            &repo,
+            &[
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "fixture",
+            ],
+        );
+        let linked = root.join("linked");
+        git(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "linked-branch",
+                linked.to_str().unwrap(),
+            ],
+        );
+        assert_eq!(branch(&linked).unwrap().as_deref(), Some("linked-branch"));
+        git(&repo, &["checkout", "--detach"]);
+        assert!(branch(&repo).unwrap().unwrap().starts_with("HEAD · "));
+        git(&repo, &["worktree", "remove", linked.to_str().unwrap()]);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
 
     #[test]
     fn statuses_keep_unicode_spaces_and_rename_destinations() {

@@ -164,11 +164,13 @@ impl Workspace {
         let tx = self.document_state.tx.clone();
         self.document_state.loading = true;
         std::thread::spawn(move || {
+            let git_branch = host.git_branch(&project).unwrap_or(None);
             let result = host
                 .lists(&project)
                 .map_err(|e: anyhow::Error| format!("{e:#}"));
             let _ = tx.send(FileEvent::Lists {
                 session: sid,
+                git_branch,
                 result,
             });
         });
@@ -231,8 +233,13 @@ impl Workspace {
                     .refresh_pending
                     .get_or_insert_with(Instant::now);
             }
-            FileEvent::Lists { session, result } if session == sid => {
+            FileEvent::Lists {
+                session,
+                git_branch,
+                result,
+            } if session == sid => {
                 self.document_state.loading = false;
+                self.document_state.git_branch = git_branch.map(|branch| (session, branch));
                 match result {
                     Ok((files, changed)) => {
                         if self.document_state.files != files {

@@ -34,6 +34,7 @@ pub trait DirectoryBrowser: Send + Sync {
 
 /// Project-relative paths in results are display coordinates; the adapter owns resolution.
 pub trait ProjectFiles: Send + Sync {
+    fn git_branch(&self, root: &HostPath) -> Result<Option<String>>;
     fn lists(&self, root: &HostPath) -> Result<(Vec<PathBuf>, Vec<ChangedFile>)>;
     fn document(
         &self,

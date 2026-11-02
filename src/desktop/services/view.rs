@@ -101,6 +101,29 @@ impl Render for RegistryView {
                     .child(field().label("API 格式").child(Select::new(&self.api)))
                     .child(
                         field()
+                            .label("注入 Claude Code 身份")
+                            .description(
+                                "仅在 Anthropic 兼容接口的 OAuth 请求模式下生效。本地 GLM 等非 Claude 模型可关闭；模型单独配置时优先。",
+                            )
+                            .child(
+                                div().w_full().flex().justify_end().child(
+                                    Switch::new("inject-claude-code-instruction")
+                                        .accessibility_label("注入 Claude Code 身份")
+                                        .checked(
+                                            self.draft["compat"]["injectClaudeCodeInstruction"]
+                                                .as_bool()
+                                                .unwrap_or(true),
+                                        )
+                                        .on_click(cx.listener(|this, enabled: &bool, _, cx| {
+                                            this.draft["compat"]["injectClaudeCodeInstruction"] =
+                                                json!(*enabled);
+                                            cx.notify();
+                                        })),
+                                ),
+                            ),
+                    )
+                    .child(
+                        field()
                             .label("API 密钥或环境变量名称")
                             .description(
                                 if self.draft.get("apiKey").is_some()

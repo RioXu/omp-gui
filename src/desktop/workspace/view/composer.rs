@@ -349,6 +349,43 @@ impl Workspace {
                             .gap_2()
                             .child(model)
                             .child(thinking)
+                            .when_some(
+                                self.document_state
+                                    .git_branch
+                                    .as_ref()
+                                    .filter(|(session, _)| {
+                                        self.session().is_some_and(|s| &s.id == session)
+                                    }),
+                                |row, (_, branch)| {
+                                    let branch = branch.clone();
+                                    let label = branch.clone();
+                                    row.child(
+                                        div()
+                                            .id("composer-git-branch")
+                                            .debug_selector(|| "composer-git-branch".into())
+                                            .flex()
+                                            .items_center()
+                                            .min_w_0()
+                                            .max_w(rems(12.))
+                                            .ml_1()
+                                            .gap_1()
+                                            .text_xs()
+                                            .text_color(theme.muted_foreground)
+                                            .tooltip(move |w, cx| {
+                                                gpui_kit::component::tooltip::Tooltip::new(format!(
+                                                    "当前 Git 分支：{branch}"
+                                                ))
+                                                .build(w, cx)
+                                            })
+                                            .child(
+                                                Icon::new(assets::IconName::GitBranch)
+                                                    .size_4()
+                                                    .flex_shrink_0(),
+                                            )
+                                            .child(div().truncate().child(label)),
+                                    )
+                                },
+                            )
                             .child(div().flex_1())
                             .when(self.runtime.running, |row| {
                                 row.child(

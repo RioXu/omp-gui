@@ -19,6 +19,8 @@ Windows 上保留原生 GUI，OMP、原生会话、项目文件、Git 和配置�
 
 服务安装到 `~/.local/share/omp-gui/remote/<GUI版本>/omp-gui-remote`。连接时校验服务版本和协议；不匹配时安装当前版本。安装文件先暂存，校验 SHA-256 后原子替换，权限设为仅当前用户可执行。
 
+当前管理协议为 4，新增只读 Git 分支查询；使用旧服务时需更新为与桌面端匹配的服务。
+
 本版发布并验证 Linux x86_64 服务，优先使用 GUI 旁的 `remote/linux-x86_64/omp-gui-remote`；ARM64 未实机验证，不提供对应发布产物。也可通过本机 `OMP_GUI_REMOTE_BINARY` 指定受信任的服务文件。缺少预编译文件时，GUI 上传内置共享核心／服务源码和锁文件，在远端以 Cargo 构建。该回退需要远端 Rust、Cargo、tar、sha256sum，以及首次获取依赖的网络或已有 Cargo 缓存；不上传 GUI 工作区、聊天数据或本机凭据。构建缓存位于 `~/.cache/omp-gui/`。
 
 手动部署可在 Linux 上执行：

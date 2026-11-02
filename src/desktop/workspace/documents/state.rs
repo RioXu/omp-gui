@@ -28,6 +28,7 @@ pub(in crate::desktop::workspace) struct DocumentState {
     pub(in crate::desktop::workspace) file_link_revision: u64,
     pub(in crate::desktop::workspace) references: super::file_links::ReferenceState,
     pub(in crate::desktop::workspace) changes: Vec<ChangedFile>,
+    pub(in crate::desktop::workspace) git_branch: Option<(String, String)>,
     pub(in crate::desktop::workspace) tx: mpsc::Sender<FileEvent>,
     pub(in crate::desktop::workspace) rx: mpsc::Receiver<FileEvent>,
     pub(in crate::desktop::workspace) snapshot: Option<String>,
@@ -61,6 +62,7 @@ pub(in crate::desktop::workspace) enum FileEvent {
     },
     Lists {
         session: String,
+        git_branch: Option<String>,
         result: Result<(Vec<PathBuf>, Vec<ChangedFile>), String>,
     },
     Snapshot {

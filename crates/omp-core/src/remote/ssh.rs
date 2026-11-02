@@ -212,6 +212,9 @@ impl DirectoryBrowser for RemoteHost {
 }
 
 impl ProjectFiles for RemoteHost {
+    fn git_branch(&self, root: &HostPath) -> Result<Option<String>> {
+        self.call(Operation::GitBranch { root: root.clone() })
+    }
     fn lists(&self, root: &HostPath) -> Result<(Vec<PathBuf>, Vec<ChangedFile>)> {
         self.call(Operation::Lists { root: root.clone() })
     }

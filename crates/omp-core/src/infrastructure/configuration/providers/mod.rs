@@ -188,6 +188,48 @@ mod tests {
         assert!(loaded.save("stale", Some(&json!({}))).is_err());
     }
     #[test]
+    fn provider_identity_switch_round_trips_without_replacing_other_configuration() {
+        let root = std::env::temp_dir().join(format!("omp-gui-identity-{}", crate::domain::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let original = json!({
+            "api": "anthropic-messages",
+            "baseUrl": "http://localhost:8000",
+            "auth": "apiKey",
+            "compat": {"replayUnsignedThinking": true, "futureParameter": 42},
+            "models": [{"id": "GLM-5.2", "compat": {"futureModelParameter": true}}]
+        });
+        Providers::load(&root)
+            .unwrap()
+            .save("local", Some(&original))
+            .unwrap();
+        let draft = ProviderDraft::default();
+        for enabled in [None, Some(false), Some(true)] {
+            let store = Providers::load(&root).unwrap();
+            let mut value = store.values["local"].clone();
+            if let Some(enabled) = enabled {
+                value["compat"]["injectClaudeCodeInstruction"] = json!(enabled);
+            }
+            let value = draft.value(
+                &value,
+                value["models"].as_array().unwrap(),
+                "http://localhost:8000",
+                "anthropic-messages",
+            );
+            store.save("local", Some(&value)).unwrap();
+            let saved = Providers::load(&root).unwrap();
+            let saved = &saved.values["local"];
+            assert_eq!(
+                saved["compat"]["injectClaudeCodeInstruction"].as_bool(),
+                enabled
+            );
+            assert_eq!(saved["compat"]["replayUnsignedThinking"], true);
+            assert_eq!(saved["compat"]["futureParameter"], 42);
+            assert_eq!(saved["auth"], "apiKey");
+            assert_eq!(saved["models"], original["models"]);
+        }
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+    #[test]
     fn discovers_models_without_executing_a_prompt() {
         use std::{io::Read, net::TcpListener};
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
