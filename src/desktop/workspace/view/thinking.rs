@@ -1,6 +1,6 @@
 use super::*;
 
-const PREVIEW_HEIGHT: f32 = 120.;
+const PREVIEW_HEIGHT: f32 = 105.;
 
 impl Workspace {
     pub(super) fn render_thinking(
@@ -12,6 +12,7 @@ impl Workspace {
         let key = format!("process-{message_id}-{}", block.id);
         let text_id = SharedString::from(format!("thinking-text-{message_id}-{}", block.id));
         let expanded = self.runtime.expanded_process.contains(&key);
+        let preview = block.streaming || self.runtime.thinking_previews.contains(&key);
         let message_id = message_id.to_owned();
         let title = if block.streaming {
             "正在思考…"
@@ -26,6 +27,12 @@ impl Workspace {
             .flex_col()
             .gap_1()
             .min_w_0()
+            .when(expanded || preview, |card| {
+                card.border_1()
+                    .border_color(crate::desktop::theme::thinking_color(cx))
+                    .rounded_md()
+                    .p_2()
+            })
             .child(
                 div().flex().items_start().child(
                     Button::new(SharedString::from(key.clone()))
@@ -42,6 +49,7 @@ impl Workspace {
                         .accessibility_label(format!("{action}思考过程"))
                         .text_color(cx.theme().muted_foreground)
                         .on_click(cx.listener(move |this, _, _, cx| {
+                            this.runtime.thinking_previews.remove(&key);
                             if !this.runtime.expanded_process.remove(&key) {
                                 this.runtime.expanded_process.insert(key.clone());
                             }
@@ -60,7 +68,7 @@ impl Workspace {
                         })),
                 ),
             );
-        if expanded || block.streaming {
+        if expanded || preview {
             // Preview and full mode share Markdown parsing and the same width.
             let content = div()
                 .debug_selector(|| "thinking-preview-text".into())
@@ -68,6 +76,7 @@ impl Workspace {
                 .flex_shrink_0()
                 .child(
                     crate::desktop::markdown::view(text_id, &block.text)
+                        .text_sm()
                         .text_color(crate::desktop::theme::thinking_color(cx)),
                 );
             card = card.child(div().pl_3().w_full().child(if expanded {

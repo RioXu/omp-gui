@@ -1,26 +1,47 @@
 use super::*;
 
 impl Workspace {
+    /// A backend transition must not collapse the process the user is reading.
+    pub(in crate::desktop::workspace) fn retain_process_display(&mut self) {
+        if !self.runtime.running {
+            return;
+        }
+        let Some(TranscriptRow::Assistant(range)) = self.runtime.transcript.last() else {
+            return;
+        };
+        let Some(session) = self.session() else {
+            return;
+        };
+        let Some(messages) = session
+            .messages
+            .get(range.clone())
+            .filter(|m| !m.is_empty())
+        else {
+            return;
+        };
+        if !messages.iter().any(|m| !m.process.is_empty()) {
+            return;
+        }
+        let key = format!("turn-{}", messages[0].id);
+        let previews: Vec<_> = messages
+            .iter()
+            .flat_map(|m| {
+                m.process
+                    .iter()
+                    .filter(|b| b.kind == ProcessKind::Thinking && b.streaming)
+                    .map(|b| format!("process-{}-{}", m.id, b.id))
+            })
+            .collect();
+        self.runtime.expanded_process.insert(key);
+        self.runtime.thinking_previews.extend(previews);
+    }
+
     /// Layout changes must not clear the reader's scroll anchor.
     pub fn invalidate_list(&self) {
         invalidate_preserving_scroll(&self.runtime.list);
     }
     pub(in crate::desktop::workspace) fn refresh_transcript(&self) {
-        if self.selected.is_some() {
-            freeze_reading_anchor(&self.runtime.list);
-        }
-        let follow = (self.runtime.list.is_following_tail() && self.selected.is_none())
-            || self.runtime.list.item_count() == 0;
-        let offset = self.runtime.list.logical_scroll_top();
-        self.runtime.list.splice(
-            0..self.runtime.list.item_count(),
-            self.runtime.transcript.len(),
-        );
-        if follow {
-            self.runtime.list.scroll_to_end();
-        } else {
-            self.runtime.list.scroll_to(offset);
-        }
+        update_list_preserving_scroll(&self.runtime.list, 0, self.runtime.transcript.len());
     }
     pub fn row_for_message(&self, ix: usize) -> usize {
         let row = self.runtime.transcript.partition_point(|row| match row {
@@ -57,10 +78,19 @@ impl Workspace {
     }
 }
 fn invalidate_preserving_scroll(list: &ListState) {
-    let offset = list.logical_scroll_top();
-    let count = list.item_count();
-    list.splice(0..count, count);
-    list.scroll_to(offset);
+    list.remeasure_items(0..list.item_count());
+}
+
+fn update_list_preserving_scroll(list: &ListState, first: usize, count: usize) {
+    freeze_reading_anchor(list);
+    let old_count = list.item_count();
+    let common = old_count.min(count);
+    // Existing rows keep their size hints and absolute reading anchors while
+    // Markdown is being parsed. Splice only genuinely added/removed rows.
+    list.remeasure_items(first.min(common)..common);
+    if old_count != count {
+        list.splice(common..old_count, count - common);
+    }
 }
 
 // Bottom-aligned GPUI lists represent the end as item_count, not a concrete
@@ -156,6 +186,9 @@ impl Workspace {
         let Some(&first) = updates.first() else {
             return;
         };
+        // Reading does not require a selection. Materialize the measured end
+        // anchor before any model-driven update can grow or shrink its row.
+        freeze_reading_anchor(&self.runtime.list);
         let messages = &self.db.sessions[ix].messages;
         for index in updates {
             let Some(m) = messages.get(index) else {
@@ -192,28 +225,7 @@ impl Workspace {
             update_transcript_tail(&mut self.runtime.transcript, messages, first)
         };
         self.runtime.transcript_message_count = messages.len();
-        let list = &self.runtime.list;
-        let reading_selection = self.selected.is_some()
-            || self
-                .runtime
-                .texts
-                .values()
-                .any(|entry| entry.state.read(cx).is_selecting());
-        if reading_selection {
-            freeze_reading_anchor(list);
-        }
-        let follow = (list.is_following_tail() && !reading_selection) || list.item_count() == 0;
-        let offset = list.logical_scroll_top();
-        let start = row.min(list.item_count());
-        list.splice(
-            start..list.item_count(),
-            self.runtime.transcript.len() - start,
-        );
-        if follow {
-            list.scroll_to_end();
-        } else {
-            list.scroll_to(offset);
-        }
+        update_list_preserving_scroll(&self.runtime.list, row, self.runtime.transcript.len());
         if self.search_state.open && !self.polling_background {
             self.update_search(false, cx);
         }

@@ -38,7 +38,7 @@ fn thinking_follows_the_last_five_wrapped_lines_and_can_collapse_while_streaming
     visual.update(|window, cx| window.draw(cx).clear(cx));
     let preview = visual.debug_bounds("thinking-preview").unwrap();
     let text = visual.debug_bounds("thinking-preview-text").unwrap();
-    assert!(preview.size.height <= px(120.) && preview.size.height >= px(96.));
+    assert!(preview.size.height <= px(105.) && preview.size.height >= px(84.));
     assert!(text.size.height > preview.size.height);
     assert!(
         (text.bottom() - preview.bottom()).abs() < px(1.),
@@ -47,7 +47,11 @@ fn thinking_follows_the_last_five_wrapped_lines_and_can_collapse_while_streaming
     let original_preview_height = preview.size.height;
     let button = visual.debug_bounds("thinking-toggle").unwrap();
     let card = visual.debug_bounds("thinking-card").unwrap();
-    assert!((button.left() - card.left()).abs() < px(1.));
+    assert!(
+        button.left() > card.left(),
+        "toggle sits inside the border padding"
+    );
+    assert!(text.left() > card.left() && text.right() < card.right());
     assert!(button.size.width < card.size.width / 2.);
     visual.update(|_, cx| {
         view.update(cx, |this, cx| {
@@ -83,7 +87,7 @@ fn thinking_follows_the_last_five_wrapped_lines_and_can_collapse_while_streaming
     let button = visual.debug_bounds("thinking-toggle").unwrap();
     visual.simulate_click(button.center(), Modifiers::default());
     visual.update(|window, cx| window.draw(cx).clear(cx));
-    assert!(visual.debug_bounds("thinking-preview").unwrap().size.height <= px(120.));
+    assert!(visual.debug_bounds("thinking-preview").unwrap().size.height <= px(105.));
     assert!(view.read_with(&visual, |this, _| {
         this.db.sessions[0].messages[0].process[0].streaming
     }));

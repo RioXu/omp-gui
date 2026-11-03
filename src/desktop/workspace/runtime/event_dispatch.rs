@@ -2,6 +2,7 @@ use super::*;
 
 impl Workspace {
     pub fn on_frame(&mut self, f: Value, window: &mut Window, cx: &mut Context<Self>) {
+        self.retain_process_display();
         let local = !self.demo
             && self
                 .session()

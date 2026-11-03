@@ -4,6 +4,151 @@ use core::prelude::v1::test;
 use gpui_kit::TestAppContext;
 
 #[gpui_kit::test]
+fn body_stream_and_completion_keep_the_painted_reading_position(cx: &mut TestAppContext) {
+    use gpui_kit::{VisualTestContext, size};
+    cx.update(gpui_kit::init);
+    let initial = "A paragraph of model output to read.\n\n".repeat(80);
+    let (handle, view) = cx.update(|cx| {
+        open_window(WindowOptions::default(), cx, |window, cx| {
+            cx.new(|cx| {
+                let mut this = fixture(window, cx);
+                this.panel_open = false;
+                this.db.sessions[0].messages = vec![Message::new("assistant", initial.clone())];
+                this.sync_texts(cx);
+                let id = this.db.sessions[0].messages[0].id.clone();
+                this.runtime.rpc_messages.insert("live".into(), id);
+                this.runtime.running = true;
+                this
+            })
+        })
+        .unwrap()
+    });
+    let mut visual = VisualTestContext::from_window(handle, cx);
+    visual.simulate_resize(size(px(1100.), px(850.)));
+    visual.run_until_parked();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    // No selection is required to read. Starting at the measured bottom must
+    // not leave an implicit end anchor that moves on every model token.
+    let (mut position, focus, session) = visual.update(|window, cx| {
+        let focus = view.read(cx).runtime.composer_state.input.focus_handle(cx);
+        focus.focus(window, cx);
+        let this = view.read(cx);
+        (
+            this.runtime.list.scroll_px_offset_for_scrollbar(),
+            window.focused(cx),
+            this.active,
+        )
+    });
+    for frame in [
+        json!({"type":"message_update","messageId":"live","message":{"role":"assistant","content":[{"type":"text","text":format!("{initial}{}", "More streamed output.\n\n".repeat(30))}]}}),
+        json!({"type":"message_end","messageId":"live","message":{"role":"assistant","content":[{"type":"text","text":format!("{initial}{}", "More streamed output.\n\n".repeat(60))}]}}),
+        json!({"type":"agent_end"}),
+        json!({"type":"session_settled"}),
+    ] {
+        visual.update(|window, cx| {
+            view.update(cx, |this, cx| {
+                this.on_frame(frame.clone(), window, cx);
+                this.poll_engine(window, cx);
+                cx.notify();
+            })
+        });
+        // Assert after asynchronous Markdown parsing and list layout, not just
+        // immediately after event dispatch.
+        visual.run_until_parked();
+        visual.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            let this = view.read(cx);
+            assert_eq!(
+                this.runtime.list.scroll_px_offset_for_scrollbar(),
+                position,
+                "{} moved the reader",
+                frame["type"]
+            );
+            assert_eq!(window.focused(cx), focus);
+            assert_eq!(this.active, session);
+        });
+        if frame["type"] == "message_update" {
+            // The remaining end/settled events must also respect a reader who
+            // scrolls upward without selecting text.
+            visual.update(|_, cx| {
+                view.update(cx, |this, cx| {
+                    this.runtime.list.scroll_by(px(-400.));
+                    cx.notify();
+                })
+            });
+            visual.run_until_parked();
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            position = view.read_with(&visual, |this, _| {
+                this.runtime.list.scroll_px_offset_for_scrollbar()
+            });
+        }
+    }
+}
+
+#[gpui_kit::test]
+fn settling_does_not_collapse_the_process_being_read(cx: &mut TestAppContext) {
+    use gpui_kit::{VisualTestContext, size};
+    cx.update(gpui_kit::init);
+    let (handle, view) = cx.update(|cx| {
+        open_window(WindowOptions::default(), cx, |window, cx| {
+            cx.new(|cx| {
+                let mut this = fixture(window, cx);
+                let mut message = Message::new("assistant", "The answer.\n\n".repeat(10));
+                let content: Vec<_> = (0..24).map(|i| json!({"type":"toolCall","id":format!("tool-{i}"),"name":"hub","arguments":{}}))
+                    .chain(std::iter::once(json!({"type":"thinking","thinking":"Thinking about the next step.\n\n".repeat(30)})))
+                    .collect();
+                message.process = process_blocks(&json!({"content":content}), "message_update", "thinking_delta");
+                this.db.sessions[0].messages = vec![message];
+                this.runtime.running = true;
+                this.panel_open = false;
+                this.sync_texts(cx);
+                this
+            })
+        }).unwrap()
+    });
+    let mut visual = VisualTestContext::from_window(handle, cx);
+    visual.simulate_resize(size(px(1100.), px(850.)));
+    visual.run_until_parked();
+    visual.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.runtime.list.scroll_to(ListOffset {
+                item_ix: 0,
+                offset_in_item: px(600.),
+            });
+            cx.notify();
+        });
+        window.draw(cx).clear(cx);
+    });
+    visual.run_until_parked();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    let before = visual.debug_bounds("thinking-preview").unwrap();
+    let offset = view.read_with(&visual, |this, _| {
+        this.runtime.list.scroll_px_offset_for_scrollbar()
+    });
+    visual.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.on_frame(json!({"type":"session_settled"}), window, cx);
+            this.poll_engine(window, cx);
+            cx.notify();
+        })
+    });
+    visual.run_until_parked();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert_eq!(
+        visual.debug_bounds("thinking-preview"),
+        Some(before),
+        "completion must not remove the visible process"
+    );
+    assert_eq!(
+        view.read_with(&visual, |this, _| this
+            .runtime
+            .list
+            .scroll_px_offset_for_scrollbar()),
+        offset
+    );
+}
+
+#[gpui_kit::test]
 fn first_streamed_search_match_keeps_keyboard_focus_and_reading_position(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let (handle, view) = cx.update(|cx| {

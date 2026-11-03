@@ -65,6 +65,7 @@ impl Workspace {
                     self.runtime.error = Some(e);
                 }
                 Event::Closed => {
+                    self.retain_process_display();
                     self.runtime.computer_overlay.clear();
                     self.runtime.working_intent = None;
                     self.runtime.engine = None;
