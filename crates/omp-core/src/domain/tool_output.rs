@@ -59,6 +59,10 @@ impl ProcessBlock {
     }
     pub fn set_result(&mut self, text: String, details: &Value) {
         self.result = Some(text);
+        if let Some(operations) = super::computer_operations::project(details) {
+            // Updates carry cumulative snapshots, not additional actions.
+            self.computer_operations = operations;
+        }
         if self.is_edit() {
             self.patch = edit_patch(details, &self.path());
         }

@@ -2,6 +2,28 @@
 
 [返回 README](../README.md) · [使用说明](usage.md) · [组件架构](architecture.md)
 
+## v0.9.0 思考、任务浮层与阅读位置复验（2026-11-03）
+
+Windows 本机 `cargo test --workspace --locked -- --test-threads=1` 为 155 项默认测试通过（core 100、GUI 55）；显式集成测试和手工基准仍默认忽略。Fast 后端桌面测试另有 55 项通过。全 workspace／全目标／全功能 Clippy 严格检查通过。
+
+原生绘制回归覆盖完成思考默认完全收起、标题左对齐、流式预览最新五行、预览与全文 Markdown 布局尺寸一致，以及窄窗口长段落折行。任务浮层宽度最多 360 px，深浅主题和 850／1500 px 窗口下验证开合前后输入框完整边界不变、浮层覆盖会话、更新不抢焦点、与动作摘要不重叠及会话间状态隔离。搜索首次收到流式匹配时保留查找框焦点和阅读锚点；真实鼠标拖选后追加新轮次及流式正文，验证原生选区、复制内容、焦点和滚动像素偏移均不变。
+
+隔离演示窗口人工核对完成思考标题、展开 Markdown 软换行、浮层位置及 Esc 关闭。另通过已配置的 deepseek/deepseek-flash 向专用 QA 项目发送两次真实请求：原生 todo 清单完成两阶段六项（6/6），第二次生成较长文字回复；输入框焦点保持，未发送草稿保留。模型只演示清单及生成文字测试方法，不把其自述计作界面验证；未操作真实项目文件。滚动五行、首个搜索命中及拖选期间精确滚动保持由上述原生回归断言覆盖。
+
+## 思考预览与输入区任务初验（2026-11-03）
+
+`cargo test --locked -p omp-gui --lib -- --test-threads=1` 为 54 项通过、4 项显式测试忽略。新增原生绘制测试覆盖最新五行的底部对齐、无换行长段落在窄窗口折行后仍限高、流式输出时展开／收起；任务按钮与长动作摘要不重叠、上下文圆环与模型选择器的相对位置、深浅主题和 850／1500 px 窗口、长任务列表限高、实际按钮展开／收起不改变会话宽度、会话间展开状态隔离。工作面板回归确认任务标签已移除；既有通知、选区、公式和面板切换测试继续通过。Clippy 全目标严格检查、全仓库格式检查和差异空白检查通过，未发送模型请求。
+
+## 本机屏幕操作提示与分支状态（2026-11-03）
+
+分支名使用始终禁用的 gpui-kit Button，原生绘制回归覆盖开始输出、流式更新、agent_end、session_settled 后的点击／拖动不产生文本选择，以及窄／宽布局和会话切换。屏幕操作提示的状态回归覆盖本机／远端隔离、确认暂停与恢复、累计快照不提前恢复提示、结束后的迟到事件不重新激活、断线清理，以及普通输入内容不出现在按键提示中。
+
+`cargo test --locked -p omp-core -p omp-gui --lib -- --test-threads=1`：core 100 项、GUI 52 项通过，7 项显式测试／基准默认忽略。`cargo clippy --locked -p omp-gui --all-targets -- -D warnings`、变更文件格式及差异空白检查通过。另显式运行 `native_overlay_is_nonactivating_clickthrough_and_capture_excluded`，直接创建真实 Win32 提示层，验证边框已绘制、置顶／鼠标穿透／不激活、截图排除标记、多个所有者及最后释放后的窗口撤销。该测试只显示测试提示，不向其他程序发送键鼠输入，未使用模型实际操作应用；后台窗口消息输入不承诺逐点反馈，旧 Windows 不显示无法排除截图的提示层。
+
+## Computer use 文字记录（2026-11-03）
+
+依据 OMP 18.14.0 的 Eval `statusEvents` 格式投影电脑操作，不保存原始 details 或工具返回的图片。`cargo check --locked -p omp-gui` 通过；`cargo test --locked -p omp-core -- --test-threads=1` 为 100 项通过、3 项手工基准忽略。新增回归覆盖累计快照替换、顶层／分单元日志去重、失败记录、文字参数不误识别为方法、Unicode 与日志容量限制、旧工作区兼容，以及含图片的原生历史仅恢复文字操作。未调用模型或实际执行截图、键鼠操作，尚未完成真实桌面操作验证。
+
 ## v0.8.4 开发验证（2026-11-02）
 
 本轮直接在 main 实现五项远端性能优化和 rkyv 协议 5 迁移，作为 v0.8.4 交付；没有直接替换用户主机上的默认服务。Linux x86_64 的 core／remote 全目标 Clippy、95 项默认测试及 release 服务构建通过，另有 3 项手工基准和 1 项进程集成测试默认忽略。本轮 Linux 未优化测试中的原有 JSON 深度用例需要设置 RUST_MIN_STACK=8388608，默认线程栈首轮曾溢出；不把加大测试线程栈描述为修复生产解析器。
@@ -274,7 +296,40 @@ cargo run -- --data-dir "$testRoot/data" --project "$testRoot/project"
 
 尚未逐一连接真实 LSP/MCP 服务，也未在本轮安装或卸载用户插件。当前没有宣称完整屏幕阅读器认证。
 
-## 原生动画帧率基准
+## GPUI Fast 后端对比
+
+2026-11-03，Windows x86_64，i7-11800H／RTX 3060 Laptop，使用当前 v0.8.4 代码比较 `gpui-pre 0.3.10` 与 `gpui-fast 0.1.12`。两组采用相同优化开发配置（应用 opt-level=1、依赖 opt-level=2）、相同锁文件、1240×850 窗口、曜石橙皮肤及 60Hz 显示器；报告中的 refresh_ms 均为 16.666667。共同的合成会话含 32 段中文／英文、公式与 Rust 代码，助手正文 6487 字符；使用隔离项目，不连接原生会话、不发模型请求。
+
+构建全部结束后再采样，后端交替运行。每个后端／场景重复 3 次，每次预热 3 秒、执行 48 次动作；12 组 active_switches 均为 48。表中绘制耗时为“每轮平均值”的中位数，P95 为“每轮提交间隔 P95”的中位数，不混同于一次合并分布的 P95。
+
+| 场景 | pre 平均绘制 | Fast 平均绘制 | 绘制耗时变化 | pre P95 提交间隔 | Fast P95 提交间隔 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 工作面板页签切换 | 11.83ms | 9.58ms | −19.0% | 18.32ms | 19.21ms |
+| 弹窗打开／关闭 | 12.64ms | 10.41ms | −17.7% | 18.66ms | 19.37ms |
+
+页签单轮平均绘制范围：pre 11.79–11.89ms、Fast 9.56–10.06ms；弹窗：pre 12.63–12.77ms、Fast 10.15–10.51ms。主要收益来自预绘制（页签 7.59→5.87ms，弹窗 8.05→6.26ms），布局阶段没有改善。两组共记录 7290 个 Draw 样本；Fast 实际提交／绘制次数也略多，不能把每帧降幅直接解释为进程总 CPU 占用降幅。
+
+结论：Fast 能稳定减少这两个场景的每帧绘制开销，但 P95 提交间隔略差，两组均超过 60FPS 的 16.67ms 预算。当前保留 pre 为默认，Fast 作为显式可选实验后端；没有宣称解决长帧，也没有将上游 Linux 基准当作本应用收益。未测 release 配置、真实模型流式输出和大型工程滚动，不外推这些场景。
+
+复现时先准备同一份隔离演示数据，再分别构建并保存程序；保持两组数据副本初始内容一致，采样期间关闭编译等额外负载：
+
+```powershell
+cargo build --locked --features frame-profile
+Copy-Item target/debug/omp-gui.exe artifacts/gpui-pre-ab.exe
+cargo build --locked --features frame-profile,gpui-fast
+Copy-Item target/debug/omp-gui.exe artifacts/gpui-fast-ab.exe
+
+artifacts/gpui-pre-ab.exe --demo --data-dir artifacts/gpui-ab/pre-tabs-1 --frame-profile-hz 60 --frame-profile-output artifacts/gpui-ab/pre-tabs-1/report.json --frame-profile-exit
+artifacts/gpui-fast-ab.exe --demo --data-dir artifacts/gpui-ab/fast-tabs-1 --frame-profile-hz 60 --frame-profile-output artifacts/gpui-ab/fast-tabs-1/report.json --frame-profile-exit
+```
+
+弹窗组追加 `--frame-profile-dialogs`；每轮使用新的相同数据副本并指定独立报告路径。`--frame-profile-exit` 在报告写完后关闭本次演示程序；分析器会先等待窗口激活，再开始预热。普通试用可执行 `cargo run --locked --features gpui-fast -- --demo --data-dir artifacts/fast-demo`，省略分析参数即可正常交互。
+
+本地原始数据位于 `artifacts/gpui-ab/{pre,fast}-{tabs,dialogs}-{1,2,3}/report.json`，合成初始数据为 `seed.json`，汇总为 `summary.json`（均不提交）。两个后端共用 gpui-kit 的分析／测试接口；Windows CI 分别运行默认测试与 Fast 桌面测试。
+
+默认 workspace 测试 145 项（core 95、desktop 50）及 Fast 桌面测试 50 项通过，全 workspace／全目标／全功能 Clippy、格式检查也通过；包括文本拖选松手保持、回复后原文定位、流式实体复用、公式绘制和页签快速切换。隔离的 Fast 原生窗口另验证了正文／公式显示、鼠标拖选后持续高亮、长回复滚动和面板切页；没有运行真实模型流式性能测试。
+
+## 原生动画帧率基准（v0.8.2 历史）
 
 2026-11-02，相同公式长回复隔离副本、前台窗口、每组 48 次动作，原生 Draw／Present 实测如下。全部组的 `active_switches` 均为 48；高刷组屏幕刷新率为 165Hz。表中 FPS 指连续动画帧的提交频率，60Hz 显示器的物理显示仍最多为 60 FPS。
 

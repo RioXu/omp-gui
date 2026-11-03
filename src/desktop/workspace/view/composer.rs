@@ -112,6 +112,7 @@ impl Workspace {
         };
         let weak = cx.entity().downgrade();
         let model = Button::new("model-picker")
+            .debug_selector(|| "composer-model-picker".into())
             .ghost()
             .small()
             .label(model_label)
@@ -300,7 +301,21 @@ impl Workspace {
         }
         inner = inner
             .child(self.render_completions(window, cx))
-            .child(self.render_working_intent(cx))
+            .child(
+                div()
+                    .debug_selector(|| "composer-status-row".into())
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .min_w_0()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(self.render_working_intent(cx)),
+                    )
+                    .child(self.render_task_toggle(window, cx)),
+            )
             .child(
                 div()
                     .flex()
@@ -309,7 +324,8 @@ impl Workspace {
                     .p_3()
                     .debug_selector(|| "composer-input-card".into())
                     .rounded_xl()
-                    .bg(theme.muted)
+                    .bg(crate::desktop::theme::surface_sheen(cx))
+                    .shadow_sm()
                     .border_1()
                     .border_color(theme.border)
                     .drag_over::<ExternalPaths>(|style, _, _, cx| {
@@ -347,6 +363,11 @@ impl Workspace {
                             .flex()
                             .items_center()
                             .gap_2()
+                            .flex_wrap()
+                            .pt_2()
+                            .border_t_1()
+                            .border_color(theme.border.opacity(0.6))
+                            .child(self.render_context_usage(cx))
                             .child(model)
                             .child(thinking)
                             .when_some(
@@ -368,9 +389,6 @@ impl Workspace {
                                             .min_w_0()
                                             .max_w(rems(12.))
                                             .ml_1()
-                                            .gap_1()
-                                            .text_xs()
-                                            .text_color(theme.muted_foreground)
                                             .tooltip(move |w, cx| {
                                                 gpui_kit::component::tooltip::Tooltip::new(format!(
                                                     "当前 Git 分支：{branch}"
@@ -378,11 +396,15 @@ impl Workspace {
                                                 .build(w, cx)
                                             })
                                             .child(
-                                                Icon::new(assets::IconName::GitBranch)
-                                                    .size_4()
-                                                    .flex_shrink_0(),
-                                            )
-                                            .child(div().truncate().child(label)),
+                                                Button::new("readonly-git-branch")
+                                                    .ghost()
+                                                    .xsmall()
+                                                    .max_w(rems(12.))
+                                                    .icon(assets::IconName::GitBranch)
+                                                    .label(label)
+                                                    .disabled(true)
+                                                    .text_color(theme.muted_foreground),
+                                            ),
                                     )
                                 },
                             )
@@ -464,52 +486,40 @@ impl Workspace {
                     } else {
                         div().child(self.runtime.status.clone()).into_any_element()
                     })
-                    .child(div().flex_1())
-                    .child(
-                        Button::new("todo-shortcut")
-                            .ghost()
-                            .xsmall()
-                            .label("任务")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.select_panel("任务");
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        div()
-                            .id("context-usage")
-                            .tooltip({
-                                let label = context_label(
-                                    self.runtime.context_used,
-                                    self.runtime.context_limit,
-                                );
-                                move |w, cx| {
-                                    gpui_kit::component::tooltip::Tooltip::new(label.clone())
-                                        .build(w, cx)
-                                }
-                            })
-                            .child(
-                                ProgressCircle::new("context-circle")
-                                    .with_size(px(18.))
-                                    .value(if self.runtime.context_percent.is_finite() {
-                                        self.runtime.context_percent as f32
-                                    } else {
-                                        0.
-                                    })
-                                    .color(if self.runtime.context_percent >= 90. {
-                                        theme.danger
-                                    } else {
-                                        theme.primary
-                                    })
-                                    .accessibility_label(context_label(
-                                        self.runtime.context_used,
-                                        self.runtime.context_limit,
-                                    )),
-                            ),
-                    ),
+                    .child(div().flex_1()),
             );
         area = area.child(inner);
         area.into_any_element()
+    }
+
+    fn render_context_usage(&self, cx: &mut Context<Self>) -> AnyElement {
+        let label = context_label(self.runtime.context_used, self.runtime.context_limit);
+        let tooltip = label.clone();
+        div()
+            .id("context-usage")
+            .debug_selector(|| "context-usage".into())
+            .flex()
+            .items_center()
+            .flex_shrink_0()
+            .tooltip(move |w, cx| {
+                gpui_kit::component::tooltip::Tooltip::new(tooltip.clone()).build(w, cx)
+            })
+            .child(
+                ProgressCircle::new("context-circle")
+                    .with_size(px(18.))
+                    .value(if self.runtime.context_percent.is_finite() {
+                        self.runtime.context_percent as f32
+                    } else {
+                        0.
+                    })
+                    .color(if self.runtime.context_percent >= 90. {
+                        cx.theme().danger
+                    } else {
+                        cx.theme().primary
+                    })
+                    .accessibility_label(label),
+            )
+            .into_any_element()
     }
 }
 

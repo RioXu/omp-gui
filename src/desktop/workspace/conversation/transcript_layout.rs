@@ -6,7 +6,11 @@ impl Workspace {
         invalidate_preserving_scroll(&self.runtime.list);
     }
     pub(in crate::desktop::workspace) fn refresh_transcript(&self) {
-        let follow = self.runtime.list.is_following_tail() || self.runtime.list.item_count() == 0;
+        if self.selected.is_some() {
+            freeze_reading_anchor(&self.runtime.list);
+        }
+        let follow = (self.runtime.list.is_following_tail() && self.selected.is_none())
+            || self.runtime.list.item_count() == 0;
         let offset = self.runtime.list.logical_scroll_top();
         self.runtime.list.splice(
             0..self.runtime.list.item_count(),
@@ -57,6 +61,21 @@ fn invalidate_preserving_scroll(list: &ListState) {
     let count = list.item_count();
     list.splice(0..count, count);
     list.scroll_to(offset);
+}
+
+// Bottom-aligned GPUI lists represent the end as item_count, not a concrete
+// reading position. Preserve its measured pixel offset before adding rows;
+// otherwise splice/scroll_to can silently reinterpret it as the new end.
+fn freeze_reading_anchor(list: &ListState) {
+    if list.item_count() > 0 && list.logical_scroll_top().item_ix >= list.item_count() {
+        let pixels = -list.scroll_px_offset_for_scrollbar().y;
+        list.scroll_to(ListOffset {
+            item_ix: 0,
+            offset_in_item: px(0.),
+        });
+        list.scroll_by(pixels);
+        list.pause_following_tail();
+    }
 }
 
 // Rebuild the affected turn and following rows; preceding history keeps its
@@ -174,7 +193,16 @@ impl Workspace {
         };
         self.runtime.transcript_message_count = messages.len();
         let list = &self.runtime.list;
-        let follow = list.is_following_tail() || list.item_count() == 0;
+        let reading_selection = self.selected.is_some()
+            || self
+                .runtime
+                .texts
+                .values()
+                .any(|entry| entry.state.read(cx).is_selecting());
+        if reading_selection {
+            freeze_reading_anchor(list);
+        }
+        let follow = (list.is_following_tail() && !reading_selection) || list.item_count() == 0;
         let offset = list.logical_scroll_top();
         let start = row.min(list.item_count());
         list.splice(

@@ -290,6 +290,38 @@ fn native_creation_discovery_deletion_and_profile_boundaries() {
     );
 }
 #[test]
+fn computer_history_retains_operations_without_gui_image_copies() {
+    let f = Fixture::new();
+    let native = f.store.create(&f.project, "computer history").unwrap();
+    let image_data = "screenshot-payload".repeat(10_000);
+    append(
+        &native.path,
+        &[
+            json!({"type":"message","id":"a","parentId":null,"message":{"role":"assistant","content":[{"type":"toolCall","id":"eval","name":"eval","arguments":{"code":"await computer.screenshot()"}}]}}),
+            json!({"type":"message","id":"t","parentId":"a","message":{"role":"toolResult","toolCallId":"eval","content":[{"type":"text","text":"Captured screenshot"},{"type":"image","mimeType":"image/png","data":image_data}],"details":{"images":[{"data":image_data}],"statusEvents":[{"op":"computer","detail":"desktop.screenshot()"},{"op":"computer","detail":"desktop.click(30, 50)"}]}}}),
+        ],
+    );
+    let parsed = history::read(&native.path).unwrap();
+    let block = &parsed.messages[0].process[0];
+    assert_eq!(block.result.as_deref(), Some("Captured screenshot"));
+    assert_eq!(
+        block.computer_operations,
+        [
+            "截图 · desktop.screenshot()",
+            "点击 · desktop.click(30, 50)"
+        ]
+    );
+    let saved = serde_json::to_string(&parsed.messages).unwrap();
+    assert!(!saved.contains("screenshot-payload"));
+    assert!(saved.len() < 2048);
+    assert!(
+        fs::read_to_string(&native.path)
+            .unwrap()
+            .contains("screenshot-payload")
+    );
+}
+
+#[test]
 fn native_branch_history_title_slot_tools_and_partial_writes() {
     let f = Fixture::new();
     let native = f.store.create(&f.project, "header title").unwrap();

@@ -2,7 +2,7 @@
 
 [返回 README](../README.md) · [验证说明](testing.md) · [变更记录](changelog.md)
 
-当前版本为 v0.8.4。[GitHub Releases](https://github.com/RioXu/omp-gui/releases) 提供单个 Windows x64 安装程序 `omp-gui-0.8.4-windows-x86_64-setup.exe` 和 `SHA256SUMS`。支持 Windows 10 1809 或更新版本及 Windows 11 的 x64 系统；不发布 ARM64 安装包。
+当前版本为 v0.9.0。[GitHub Releases](https://github.com/RioXu/omp-gui/releases) 提供单个 Windows x64 安装程序 `omp-gui-0.9.0-windows-x86_64-setup.exe` 和 `SHA256SUMS`。支持 Windows 10 1809 或更新版本及 Windows 11 的 x64 系统；不发布 ARM64 安装包。
 
 安装程序使用 Inno Setup，默认安装到 `%LOCALAPPDATA%\Programs\OMP GUI`，创建开始菜单快捷方式，可选择桌面快捷方式；支持覆盖升级和系统“已安装的应用”中的卸载。会话及配置仍保存在 `%LOCALAPPDATA%\OMP GUI`，升级和卸载均保留。安装程序不安装 OMP、Git 或 Rust，不附带 runtime DLL；缺少 `VCRUNTIME140.dll` 时，需安装[微软官方 x64 运行库](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)。
 
@@ -11,7 +11,7 @@
 下载后用以下命令，与 `SHA256SUMS` 中的摘要比较：
 
 ```powershell
-Get-FileHash .\omp-gui-0.8.4-windows-x86_64-setup.exe -Algorithm SHA256
+Get-FileHash .\omp-gui-0.9.0-windows-x86_64-setup.exe -Algorithm SHA256
 ```
 
 ## 维护流程

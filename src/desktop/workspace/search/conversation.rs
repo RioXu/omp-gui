@@ -48,7 +48,6 @@ impl Workspace {
             return;
         }
         let previous = self.search_state.hits.get(self.search_state.index).cloned();
-        let first_match = previous.is_none();
         self.search_state.hits.clear();
         self.search_state.rendered_text = self
             .runtime
@@ -92,7 +91,8 @@ impl Workspace {
             .index
             .min(self.search_state.hits.len().saturating_sub(1));
         self.paint_search(cx);
-        if reveal || (first_match && !self.search_state.hits.is_empty()) {
+        // A new match from streaming output must not move the reader's viewport.
+        if reveal {
             self.reveal_search(cx);
         }
         cx.notify();

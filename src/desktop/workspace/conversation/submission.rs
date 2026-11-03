@@ -36,6 +36,7 @@ impl Workspace {
             return;
         }
         self.runtime.stopping = true;
+        self.runtime.computer_overlay.stop();
         self.runtime.interrupted_run = true;
         self.command(json!({"type":"abort_and_restore_queue","id":id()}));
         self.runtime.status = "正在停止…".into();

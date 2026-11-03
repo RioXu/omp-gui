@@ -2,6 +2,7 @@
 use super::*;
 
 pub(in crate::desktop::workspace) struct SessionRuntime {
+    pub computer_overlay: crate::desktop::computer_overlay::Activity,
     pub model_controls: ModelControlState,
     pub answer_input: Entity<InputState>,
     pub composer_state: ComposerState,
@@ -106,6 +107,7 @@ impl Workspace {
         });
         let input_observation = cx.observe(&input, |_, _, cx| cx.notify());
         SessionRuntime {
+            computer_overlay: Default::default(),
             model_controls: ModelControlState {
                 available: vec![],
                 current: Value::Null,

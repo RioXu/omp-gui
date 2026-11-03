@@ -103,7 +103,11 @@ impl SidebarItem for NavigationItem {
                     .ml_3p5()
                     .pl_2p5()
                     .border_l_1()
-                    .border_color(cx.theme().sidebar_border)
+                    .border_color(if session.active {
+                        cx.theme().primary
+                    } else {
+                        cx.theme().sidebar_border
+                    })
                     .child(item.render(session.id, window, cx))
                     .into_any_element()
             }

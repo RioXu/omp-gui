@@ -17,6 +17,9 @@ impl Workspace {
                 f["cancelled"] = json!(true);
             }
             self.command(f);
+            if self.runtime.requests.is_empty() {
+                self.runtime.computer_overlay.resume();
+            }
         }
     }
     pub fn settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {

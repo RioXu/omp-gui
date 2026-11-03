@@ -2,6 +2,7 @@ mod activity;
 mod attachments;
 mod comment_editor;
 mod composer;
+mod composer_tasks;
 mod conversation;
 #[cfg(test)]
 mod conversation_layout_tests;
@@ -14,6 +15,7 @@ mod search;
 mod selection;
 mod shell;
 pub(in crate::desktop::workspace) mod sidebar;
+mod thinking;
 mod transcript;
 mod working_intent;
 

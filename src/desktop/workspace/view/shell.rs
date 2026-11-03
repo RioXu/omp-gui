@@ -277,16 +277,36 @@ impl Render for Workspace {
                         .vertical_scrollbar(&self.runtime.list),
                 );
             } else {
-                center =
-                    center.child(
-                        div()
-                            .flex_1()
-                            .flex()
-                            .flex_col()
-                            .items_center()
-                            .justify_center()
-                            .gap_3()
-                            .child(div().text_2xl().child(if self.session().is_some() {
+                center = center.child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .justify_center()
+                        .gap_3()
+                        .px_6()
+                        .text_center()
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .w_16()
+                                .h_16()
+                                .mb_3()
+                                .rounded_2xl()
+                                .bg(crate::desktop::theme::surface_sheen(cx))
+                                .border_1()
+                                .border_color(theme.border)
+                                .shadow_sm()
+                                .text_color(theme.primary)
+                                .text_xl()
+                                .font_weight(FontWeight::BOLD)
+                                .child("OMP"),
+                        )
+                        .child(div().text_2xl().font_weight(FontWeight::SEMIBOLD).child(
+                            if self.session().is_some() {
                                 "描述你想完成的工作。"
                             } else {
                                 if self.show_archived {
@@ -294,24 +314,57 @@ impl Render for Workspace {
                                 } else {
                                     "从这里开始。"
                                 }
-                            }))
-                            .child(div().text_color(theme.muted_foreground).child(
-                                if self.session().is_some() {
-                                    "任务将在本会话的项目目录中执行。"
+                            },
+                        ))
+                        .child(div().text_sm().text_color(theme.muted_foreground).child(
+                            if self.session().is_some() {
+                                "任务将在本会话的项目目录中执行。"
+                            } else {
+                                if self.show_archived {
+                                    "从左侧查看或恢复已归档会话。"
                                 } else {
-                                    if self.show_archived {
-                                        "从左侧查看或恢复已归档会话。"
-                                    } else {
-                                        "添加项目，再点击项目右侧 + 创建会话。"
-                                    }
-                                },
-                            ))
-                            .when(!self.show_archived, |d| {
-                                d.child(Button::new("empty-open").label("打开项目…").on_click(
-                                    cx.listener(|this, _, w, cx| this.open_project(w, cx)),
-                                ))
-                            }),
-                    );
+                                    "添加项目，再点击项目右侧 + 创建会话。"
+                                }
+                            },
+                        ))
+                        .when(!self.show_archived && self.session().is_none(), |d| {
+                            d.child(
+                                Button::new("empty-open")
+                                    .primary()
+                                    .label("打开项目…")
+                                    .on_click(
+                                        cx.listener(|this, _, w, cx| this.open_project(w, cx)),
+                                    ),
+                            )
+                        })
+                        .child(
+                            div()
+                                .flex()
+                                .flex_wrap()
+                                .justify_center()
+                                .gap_3()
+                                .mt_3()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .children(
+                                    [
+                                        "Ctrl + O  打开项目",
+                                        "Ctrl + N  新建会话",
+                                        "Ctrl + Enter  发送",
+                                    ]
+                                    .map(|label| {
+                                        div()
+                                            .px_3()
+                                            .py_1()
+                                            .rounded_md()
+                                            .border_1()
+                                            .border_color(theme.border)
+                                            .bg(theme.sidebar)
+                                            .child(label)
+                                    }),
+                                ),
+                        ),
+                );
             }
             center = center
                 .child(self.render_requests(cx))

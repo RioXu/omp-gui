@@ -20,6 +20,9 @@ pub struct ProcessBlock {
     pub result: Option<String>,
     #[serde(default)]
     pub patch: Option<String>,
+    /// Text-only projection of OMP computer status events; never image payloads.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub computer_operations: Vec<String>,
 }
 
 pub fn process_blocks(message: &Value, event: &str, delta: &str) -> Vec<ProcessBlock> {
@@ -40,6 +43,7 @@ pub fn process_blocks(message: &Value, event: &str, delta: &str) -> Vec<ProcessB
                     && ix + 1 == content.len(),
                 result: None,
                 patch: None,
+                computer_operations: Vec::new(),
             }),
             "toolCall" => Some(ProcessBlock {
                 id: block["id"].as_str().unwrap_or_default().into(),
@@ -49,6 +53,7 @@ pub fn process_blocks(message: &Value, event: &str, delta: &str) -> Vec<ProcessB
                 streaming: false,
                 result: None,
                 patch: None,
+                computer_operations: Vec::new(),
             }),
             _ => None,
         })

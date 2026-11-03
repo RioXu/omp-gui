@@ -43,6 +43,37 @@ fn titlebar_and_readonly_branch_follow_the_active_session(cx: &mut TestAppContex
         assert!(title.bottom() < card.top());
         assert!(branch.left() >= card.left() && branch.right() <= card.right());
         assert!(branch.size.height <= px(24.));
+        // Exercise the same redraws as streaming, then attempt a selection on
+        // the readonly branch. It must never become a text-selection surface.
+        for frame in [
+            serde_json::json!({"type":"agent_start"}),
+            serde_json::json!({"type":"message_update","message":{"role":"assistant","content":[{"type":"text","text":"streaming output"}]}}),
+            serde_json::json!({"type":"agent_end"}),
+            serde_json::json!({"type":"session_settled"}),
+        ] {
+            visual
+                .update(|window, cx| view.update(cx, |this, cx| this.on_frame(frame, window, cx)));
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            let branch = visual.debug_bounds("composer-git-branch").unwrap();
+            let start = point(branch.left() + px(10.), branch.center().y);
+            visual.simulate_mouse_down(start, gpui_kit::MouseButton::Left, Default::default());
+            visual.simulate_mouse_move(
+                branch.center(),
+                Some(gpui_kit::MouseButton::Left),
+                Default::default(),
+            );
+            visual.simulate_mouse_up(
+                branch.center(),
+                gpui_kit::MouseButton::Left,
+                Default::default(),
+            );
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            assert!(
+                visual
+                    .update(gpui_kit::base::TextSelection::selected_text)
+                    .is_empty()
+            );
+        }
     }
     visual.update(|window, cx| {
         view.update(cx, |this, cx| {

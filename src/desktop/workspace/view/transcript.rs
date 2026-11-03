@@ -120,7 +120,14 @@ impl Workspace {
                 div()
                     .debug_selector(|| "conversation-answer".into())
                     .w_full()
-                    .when(user, |d| d.bg(theme.muted).rounded_lg().px_4().py_3())
+                    .when(user, |d| {
+                        d.bg(crate::desktop::theme::surface_sheen(cx))
+                            .rounded_xl()
+                            .border_1()
+                            .border_color(theme.border)
+                            .px_4()
+                            .py_3()
+                    })
                     .child(self.message_file_link_view(TextView::new(&view.state), &last.id, cx)),
             );
         }

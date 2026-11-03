@@ -17,7 +17,20 @@ impl Workspace {
             return;
         }
         let dialogs = args.iter().any(|a| a == "--frame-profile-dialogs");
+        let exit = args.iter().any(|a| a == "--frame-profile-exit");
         cx.spawn_in(window, async move |view, cx| {
+            // Wait for activation before warmup; active_switches validates the run.
+            loop {
+                match view.update_in(cx, |_, window, _| window.is_window_active()) {
+                    Ok(true) => break,
+                    Ok(false) => {
+                        cx.background_executor()
+                            .timer(Duration::from_millis(100))
+                            .await
+                    }
+                    Err(_) => return,
+                }
+            }
             cx.background_executor().timer(Duration::from_secs(3)).await;
             profiler::set_trace_enabled(true);
             let mut collector = FrameTimingCollector::new();
@@ -76,18 +89,24 @@ impl Workspace {
                 .then(|| intervals.iter().sum::<f64>() / intervals.len() as f64);
             let p95 = intervals.get(intervals.len() * 95 / 100).copied();
             let report = serde_json::json!({ "active_switches": active_switches,
+                "backend": if cfg!(feature = "gpui-fast") {"gpui-fast"} else {"gpui-pre"},
                 "switches": 48, "debug": cfg!(debug_assertions),
                 "workload": if dialogs {"dialogs"} else {"tabs"},
                 "summary": {"animation_intervals": intervals.len(), "mean_interval_ms": mean,
                     "p95_interval_ms": p95, "mean_fps": mean.map(|ms| 1000. / ms),
                     "foreground_valid": active_switches == 48}, "samples": samples });
-            std::thread::spawn(move || {
-                if let Err(error) =
-                    std::fs::write(output, serde_json::to_vec_pretty(&report).unwrap())
-                {
-                    eprintln!("Frame profile: {error}");
-                }
-            });
+            cx.background_executor()
+                .spawn(async move {
+                    if let Err(error) =
+                        std::fs::write(output, serde_json::to_vec_pretty(&report).unwrap())
+                    {
+                        eprintln!("Frame profile: {error}");
+                    }
+                })
+                .await;
+            if exit {
+                let _ = view.update_in(cx, |_, _, cx| cx.quit());
+            }
         })
         .detach();
     }

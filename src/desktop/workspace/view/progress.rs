@@ -48,6 +48,9 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme();
+        if block.kind == ProcessKind::Thinking {
+            return self.render_thinking(message_id, block, cx);
+        }
         if block.is_read() {
             let executing = self.runtime.active_tools.contains_key(&block.id);
             return div()
@@ -74,29 +77,25 @@ impl Workspace {
                 .into_any_element();
         }
         let key = format!("process-{message_id}-{}", block.id);
-        let label = if block.kind == ProcessKind::Thinking {
-            if block.streaming {
-                "正在思考…".into()
-            } else {
-                "思考过程".into()
-            }
-        } else if block.is_edit() {
+        let label = if block.is_edit() {
             format!("编辑 {}", block.path())
+        } else if !block.computer_operations.is_empty() {
+            "电脑操作".into()
         } else {
             block.label.clone()
         };
         let expanded = block.streaming || self.runtime.expanded_process.contains(&key);
         let mut detail = div().flex().flex_col().gap_2().min_w_0();
         if expanded {
-            if block.kind == ProcessKind::Thinking {
+            for operation in &block.computer_operations {
                 detail = detail.child(
-                    crate::desktop::markdown::view(
-                        SharedString::from(format!("thinking-{key}")),
-                        &block.text,
-                    )
-                    .text_color(crate::desktop::theme::thinking_color(cx)),
+                    div()
+                        .text_sm()
+                        .text_color(theme.muted_foreground)
+                        .child(operation.clone()),
                 );
-            } else if block.is_edit() {
+            }
+            if block.is_edit() {
                 if let Some(diff) = self.runtime.tool_diffs.get(&key) {
                     detail = detail.child(
                         div()

@@ -4,6 +4,9 @@ use serde_json::{Map, Value};
 use std::{collections::BTreeSet, path::PathBuf};
 
 pub fn role_names(effective: &Value) -> Vec<String> {
+    // OMP's config catalog exposes configured assignments, not unassigned
+    // built-ins. Keep this fallback aligned with OMP v18.14.0 MODEL_ROLES:
+    // packages/coding-agent/src/config/model-roles.ts.
     let mut names = [
         "default",
         "smol",
@@ -19,6 +22,8 @@ pub fn role_names(effective: &Value) -> Vec<String> {
         "judge",
         "tiny",
         "memory",
+        "task",
+        "widget",
     ]
     .into_iter()
     .map(str::to_owned)
@@ -71,6 +76,44 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn unassigned_builtin_roles_and_custom_assignments_remain_selectable() {
+        let builtins = [
+            "advisor",
+            "commit",
+            "default",
+            "dictation",
+            "image",
+            "judge",
+            "memory",
+            "plan",
+            "slow",
+            "smol",
+            "speech",
+            "task",
+            "tiny",
+            "vision",
+            "web",
+            "widget",
+        ];
+        // A new configuration must expose every built-in without requiring
+        // users to first create an assignment by hand in YAML.
+        for effective in [Value::Null, json!({})] {
+            assert_eq!(role_names(&effective), builtins);
+        }
+        let configured = role_names(&json!({
+            "task": "provider/task-model",
+            "widget": ["provider/widget-model", "provider/fallback"],
+            "custom_worker": "provider/custom-model",
+        }));
+        assert_eq!(configured.len(), builtins.len() + 1);
+        assert!(configured.contains(&"custom_worker".to_owned()));
+        assert!(configured.windows(2).all(|pair| pair[0] < pair[1]));
+        for name in builtins {
+            assert!(configured.iter().any(|role| role == name));
+        }
+    }
+
+    #[test]
     fn scoped_role_form_preserves_other_roles_priorities_and_configuration() {
         let root = std::env::temp_dir().join(format!("omp-gui-role-form-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
@@ -85,6 +128,8 @@ mod tests {
         .unwrap();
         let mut values = draft.values.clone();
         values.insert("default".into(), json!("deepseek/flash:max"));
+        values.insert("task".into(), json!("provider/worker:high"));
+        values.insert("widget".into(), json!("provider/widget"));
         draft.save(values).unwrap();
         let saved = std::fs::read_to_string(&project).unwrap();
         let parsed: Value = serde_yaml_ng::from_str(&saved).unwrap();
@@ -96,6 +141,8 @@ mod tests {
             json!(["provider/first:high", "provider/second"])
         );
         assert_eq!(parsed["modelRoles"]["default"], "deepseek/flash:max");
+        assert_eq!(parsed["modelRoles"]["task"], "provider/worker:high");
+        assert_eq!(parsed["modelRoles"]["widget"], "provider/widget");
         assert_eq!(
             std::fs::read_to_string(global).unwrap(),
             "modelRoles: {default: provider/global}\n"

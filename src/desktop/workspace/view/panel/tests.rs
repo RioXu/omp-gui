@@ -55,6 +55,7 @@ fn panel_underline_reaches_target_promptly_and_handles_rapid_switches(cx: &mut T
     v.simulate_resize(size(px(1240.), px(850.)));
     frame(&mut v);
     frame(&mut v);
+    assert!(v.debug_bounds("work-panel-tab-任务").is_none());
     let first = indicator(&mut v);
     v.update(|_, cx| {
         view.update(cx, |s, cx| {

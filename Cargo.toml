@@ -1,6 +1,6 @@
 [package]
 name = "omp-gui"
-version = "0.8.4"
+version = "0.9.0"
 edition = "2024"
 description = "A native Windows workspace for Oh My Pi"
 license = "MIT"
@@ -11,13 +11,13 @@ default-members = [".", "crates/omp-core"]
 resolver = "3"
 
 [features]
-frame-profile = ["dep:gpui-test-runtime"]
+frame-profile = ["gpui-kit/profiler"]
+# Experimental backend, opt in explicitly for native A/B measurements.
+gpui-fast = ["gpui-kit/gpui-fast"]
 
 [dependencies]
 omp-core = { path = "crates/omp-core" }
 gpui-kit = { version = "=0.8.1", features = ["syntect"] }
-# Enable the existing runtime's profiler without activating alternate backends.
-gpui-test-runtime = { package = "gpui-pre", version = "=0.3.10", optional = true, features = ["profiler"] }
 markdown = "=1.0.0"
 ratex-parser = "=0.1.15"
 ratex-layout = "=0.1.15"
@@ -34,10 +34,13 @@ tar = "0.4"
 chrono = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
+
 [dev-dependencies]
 omp-core = { path = "crates/omp-core", features = ["test-support"] }
-# Exercise pointer events through the same native runtime reexported by gpui-kit.
-gpui-test-runtime = { package = "gpui-pre", version = "=0.3.10", features = ["test-support"] }
+# Keep pointer-event tests on whichever backend the Kit facade selects.
+gpui-kit = { version = "=0.8.1", features = ["test-support"] }
 
 [build-dependencies]
 embed-resource = "=3.0.12"

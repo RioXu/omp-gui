@@ -34,7 +34,7 @@ impl Workspace {
                             })),
                     ),
             );
-        let labels = ["变更", "文件", "任务", "子智能体"];
+        let labels = ["变更", "文件", "子智能体"];
         let mut tabs = TabBar::new("work-panel-tabs")
             .underline()
             .with_size(gpui_kit::component::Size::Medium)
@@ -78,9 +78,6 @@ impl Workspace {
             .flex_col()
             .gap_2();
         match self.panel_tab {
-            "任务" => {
-                body = body.child(self.render_todos(cx));
-            }
             "子智能体" => {
                 body = body.child(self.render_subagents(cx));
             }

@@ -2,6 +2,11 @@ use super::*;
 
 impl Workspace {
     pub fn on_frame(&mut self, f: Value, window: &mut Window, cx: &mut Context<Self>) {
+        let local = !self.demo
+            && self
+                .session()
+                .is_some_and(|s| s.environment_id() == "local");
+        self.runtime.computer_overlay.on_frame(&f, local);
         self.update_working_intent(&f);
         let kind = f["type"].as_str().unwrap_or("");
         if matches!(

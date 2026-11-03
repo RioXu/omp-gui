@@ -1,5 +1,6 @@
 //! Native desktop composition and feature-owned workspace presentation.
 mod bootstrap;
+pub(crate) mod computer_overlay;
 mod dialogs;
 pub(crate) mod markdown;
 pub(crate) mod project_picker;

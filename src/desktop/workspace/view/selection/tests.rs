@@ -183,4 +183,32 @@ fn conversation_text_can_be_drag_selected_in_the_virtual_list(cx: &mut TestAppCo
         view.read_with(&visual, |v, _| v.selected.is_some()),
         "selection must support comments"
     );
+    let (focus, offset) = visual.update(|window, cx| {
+        (
+            window.focused(cx),
+            view.read(cx).runtime.list.scroll_px_offset_for_scrollbar(),
+        )
+    });
+    visual.update(|window, cx| view.update(cx, |this, cx| {
+        this.db.sessions[0].messages.push(Message::new("user", "A new test turn".into()));
+        this.sync_texts(cx);
+        this.on_frame(serde_json::json!({"type":"agent_start"}), window, cx);
+        this.on_frame(serde_json::json!({"type":"message_update","messageId":"selection-stream","message":{"role":"assistant","content":[{"type":"text","text":"new streamed output"}]}}), window, cx);
+        this.poll_engine(window, cx);
+        cx.notify();
+    }));
+    visual.run_until_parked();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert_eq!(
+        visual.update(TextSelection::selected_text),
+        selected,
+        "streaming must preserve the reader's selection"
+    );
+    visual.update(|window, cx| {
+        assert_eq!(window.focused(cx), focus);
+        assert_eq!(
+            view.read(cx).runtime.list.scroll_px_offset_for_scrollbar(),
+            offset
+        );
+    });
 }

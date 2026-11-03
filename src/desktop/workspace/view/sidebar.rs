@@ -82,21 +82,18 @@ impl Workspace {
                                 )
                                 .when(!self.show_archived, |bar| {
                                     bar.content(
-                                        div()
-                                            .invisible()
-                                            .group_hover("projects-heading", |d| d.visible())
-                                            .child(
-                                                Button::new("add-project")
-                                                    .ghost()
-                                                    .xsmall()
-                                                    .icon(IconName::Plus)
-                                                    .accessibility_label("添加项目")
-                                                    .tooltip("将目录添加为项目")
-                                                    .disabled(disabled)
-                                                    .on_click(cx.listener(|this, _, w, cx| {
-                                                        this.open_project(w, cx)
-                                                    })),
-                                            ),
+                                        div().child(
+                                            Button::new("add-project")
+                                                .ghost()
+                                                .xsmall()
+                                                .icon(IconName::Plus)
+                                                .accessibility_label("添加项目")
+                                                .tooltip("将目录添加为项目")
+                                                .disabled(disabled)
+                                                .on_click(cx.listener(|this, _, w, cx| {
+                                                    this.open_project(w, cx)
+                                                })),
+                                        ),
                                     )
                                 }),
                         ),

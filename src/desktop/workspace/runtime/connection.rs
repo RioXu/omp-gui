@@ -23,6 +23,7 @@ impl Workspace {
             return;
         }
         self.runtime.engine = None;
+        self.runtime.computer_overlay.clear();
         self.runtime.connected = false;
         self.runtime.reconnecting = false;
         self.runtime.resync_needed = false;

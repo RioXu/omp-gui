@@ -30,6 +30,7 @@ fn locate_original_after_reply_keeps_workspace_alive(cx: &mut TestAppContext) {
                         streaming: false,
                         result: None,
                         patch: None,
+                        computer_operations: Vec::new(),
                     });
                 session.comments[0].anchor = crate::domain::Anchor::new(
                     crate::domain::Source::Message(session.messages[1].id.clone()),

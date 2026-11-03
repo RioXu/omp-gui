@@ -4,6 +4,36 @@ use core::prelude::v1::test;
 use gpui_kit::TestAppContext;
 
 #[gpui_kit::test]
+fn first_streamed_search_match_keeps_keyboard_focus_and_reading_position(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let (handle, view) = cx.update(|cx| {
+        open_window(WindowOptions::default(), cx, |window, cx| {
+            cx.new(|cx| fixture(window, cx))
+        })
+        .unwrap()
+    });
+    handle.update(cx, |_, window, cx| view.update(cx, |this,cx| {
+        for _ in 0..30 { this.db.sessions[0].messages.push(Message::new("user", "earlier history".into())); }
+        this.sync_texts(cx);
+        this.search_state.open = true;
+        this.search_state.input.update(cx, |input,cx| input.set_value("NEW_MATCH", window,cx));
+        this.update_search(true,cx);
+        assert!(this.search_state.hits.is_empty());
+        this.runtime.list.scroll_to(ListOffset { item_ix: 10, offset_in_item: px(7.) });
+        let focus = this.search_state.input.focus_handle(cx);
+        focus.focus(window,cx);
+        let draft = this.runtime.composer_state.input.read(cx).value();
+        this.on_frame(json!({"type":"message_update","messageId":"live","message":{"role":"assistant","content":[{"type":"text","text":"NEW_MATCH in newly generated output"}]}}), window,cx);
+        this.poll_engine(window,cx);
+        this.update_search(false,cx);
+        assert!(!this.search_state.hits.is_empty(), "the stream must actually introduce a first search match");
+        assert_eq!(this.runtime.list.logical_scroll_top(), ListOffset { item_ix: 10, offset_in_item: px(7.) });
+        assert_eq!(window.focused(cx), Some(focus));
+        assert_eq!(this.runtime.composer_state.input.read(cx).value(), draft);
+    })).unwrap();
+}
+
+#[gpui_kit::test]
 fn stream_updates_reuse_history_entities_and_keep_the_scroll_anchor(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let (handle, view) = cx.update(|cx| {

@@ -3,6 +3,8 @@ pub mod activity;
 pub mod attachments;
 pub use attachments::Attachment;
 mod comments;
+mod computer_operations;
+pub use computer_operations::operation_label as computer_operation_label;
 pub mod file_buffer;
 mod identity;
 mod messages;
