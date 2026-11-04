@@ -6,6 +6,61 @@ use gpui_kit::{
 };
 
 #[gpui_kit::test]
+fn removing_project_clears_active_runtime_and_keeps_other_session_identity(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_kit::init);
+    let (window, view) = cx.update(|cx| {
+        open_window(WindowOptions::default(), cx, |window, cx| {
+            cx.new(|cx| {
+                let mut this = fixture(window, cx);
+                this.save_disabled = false;
+                this.db.projects = vec!["fixture".into(), "other".into()];
+                this.db.sessions[1].project = "other".into();
+                this.db.sessions[0].archived = true;
+                this
+            })
+        })
+        .unwrap()
+    });
+    let mut visual = VisualTestContext::from_window(window, cx);
+    visual.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            let project = this.db.sessions[1].project_location();
+            let active = this.db.active.clone();
+            this.remove_project(&project, window, cx);
+            assert_eq!(this.active, Some(0));
+            assert_eq!(this.db.active, active);
+            assert_eq!(this.db.sessions.len(), 1);
+
+            let project = this.db.sessions[0].project_location();
+            this.runtime.running = true;
+            this.remove_project(&project, window, cx);
+            assert_eq!(
+                this.db.sessions.len(),
+                1,
+                "running sessions must be preserved"
+            );
+            this.runtime.running = false;
+            this.remove_project(&project, window, cx);
+            assert!(this.db.sessions.is_empty());
+            assert!(this.db.projects.is_empty());
+            assert_eq!(this.active, None);
+            assert_eq!(this.db.active, None);
+            assert!(this.runtime.transcript.is_empty());
+            assert!(
+                this.runtime
+                    .composer_state
+                    .input
+                    .read(cx)
+                    .value()
+                    .is_empty()
+            );
+        })
+    });
+}
+
+#[gpui_kit::test]
 fn large_sidebar_draws_visible_sessions_and_collapsing_hides_them(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let (window, view) = cx.update(|cx| {

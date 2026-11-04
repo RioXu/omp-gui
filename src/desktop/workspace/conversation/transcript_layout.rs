@@ -179,6 +179,7 @@ impl Workspace {
         } else {
             self.sync_updated_texts(cx);
         }
+        self.reveal_pending_tail();
     }
     pub(in crate::desktop::workspace) fn sync_updated_texts(&mut self, cx: &mut Context<Self>) {
         let Some(ix) = self.active else { return };

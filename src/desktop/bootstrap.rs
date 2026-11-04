@@ -35,6 +35,7 @@ pub(super) fn run() {
         .then(|| option("--frame-profile-hz").and_then(|hz| hz.parse::<f64>().ok()))
         .flatten();
     application().with_assets(assets::AllAssets).run(move |cx| {
+        cx.set_app_identity("RioXu.OMP.GUI", "OMP GUI");
         init(cx);
         cx.bind_keys([
             KeyBinding::new(

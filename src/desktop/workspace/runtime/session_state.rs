@@ -30,6 +30,8 @@ pub(in crate::desktop::workspace) struct SessionRuntime {
     pub reconnecting: bool,
     pub resync_needed: bool,
     pub running: bool,
+    pub completion_pending: bool,
+    pub reveal_tail: bool,
     pub starting: bool,
     pub status: String,
     pub working_intent: Option<String>,
@@ -149,6 +151,8 @@ impl Workspace {
             reconnecting: false,
             resync_needed: false,
             running: false,
+            completion_pending: false,
+            reveal_tail: false,
             starting: false,
             status: if demo {
                 "演示模式 · 不调用模型".into()

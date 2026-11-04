@@ -2,7 +2,7 @@
 use super::*;
 
 impl SessionRuntime {
-    fn busy(&self) -> bool {
+    pub(in crate::desktop::workspace) fn busy(&self) -> bool {
         self.running
             || self.reconnecting
             || self.preparing.is_some()
@@ -184,6 +184,8 @@ impl Workspace {
 #[cfg(test)]
 pub(in crate::desktop::workspace) mod tests;
 
+#[cfg(test)]
+mod attention_tests;
 #[cfg(test)]
 mod intent_tests;
 #[cfg(test)]

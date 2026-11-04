@@ -1,5 +1,6 @@
 use super::*;
 use gpui_kit::component::Collapsible;
+use gpui_kit::component::menu::ContextMenuExt;
 
 // SidebarGroup only accepts a text heading. Keep the hover action and stable
 // session identities here; Sidebar still owns scrolling and menu presentation.
@@ -45,9 +46,39 @@ impl SidebarItem for ProjectNavigation {
         );
         let weak = self.workspace;
         let path = self.path;
+        let remove = weak.clone();
+        let remove_path = path.clone();
         div()
             .debug_selector(|| "sidebar-project-row".into())
             .id(group_id.clone())
+            .context_menu(move |menu, _, _| {
+                let create = remove.clone();
+                let create_path = remove_path.clone();
+                let remove = remove.clone();
+                let path = remove_path.clone();
+                menu.when(!self.archived, |menu| {
+                    menu.item(
+                        PopupMenuItem::new("新建会话")
+                            .icon(IconName::Plus)
+                            .disabled(self.disabled)
+                            .on_click(move |_, window, cx| {
+                                let _ = create.update(cx, |this, cx| {
+                                    this.new_session_at(create_path.clone(), window, cx);
+                                });
+                            }),
+                    )
+                    .separator()
+                })
+                .item(
+                    PopupMenuItem::new("从 GUI 中移除项目")
+                        .disabled(self.disabled)
+                        .on_click(move |_, window, cx| {
+                            let _ = remove.update(cx, |this, cx| {
+                                this.remove_project(&path, window, cx);
+                            });
+                        }),
+                )
+            })
             .child(
                 gpui_kit::component::collapsible::Collapsible::new()
                     .open(!folded)

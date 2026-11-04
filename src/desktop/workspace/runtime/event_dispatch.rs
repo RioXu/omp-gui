@@ -161,6 +161,7 @@ impl Workspace {
                         self.runtime.starting = false;
                         if d["isSettled"].is_boolean() && self.runtime.pending_send.is_none() {
                             self.runtime.running = d["isSettled"] == false;
+                            self.runtime.completion_pending |= self.runtime.running;
                         }
                         self.runtime.queued_inputs = ["followUp"]
                             .into_iter()
@@ -303,6 +304,7 @@ impl Workspace {
             }
             "agent_start" => {
                 self.runtime.running = true;
+                self.runtime.completion_pending = true;
                 self.runtime.status = "OMP 正在处理…".into();
             }
             "session_info_update" => {
@@ -314,6 +316,7 @@ impl Workspace {
                 }
             }
             "agent_end" => {
+                self.runtime.reveal_tail = true;
                 self.request_state();
                 self.refresh_files(cx);
             }
@@ -325,6 +328,8 @@ impl Workspace {
                 }
                 self.runtime.queued_inputs.clear();
                 self.runtime.steered_inputs.clear();
+                let completed =
+                    std::mem::take(&mut self.runtime.completion_pending) || self.runtime.running;
                 self.runtime.running = false;
                 self.runtime.active_tools.clear();
                 self.runtime.interrupted_run |= f["status"] == "aborted";
@@ -357,6 +362,15 @@ impl Workspace {
                     self.runtime.status = "本轮已停止".into();
                     if let Some(e) = f["error"].as_str() {
                         self.runtime.error = Some(e.into());
+                    }
+                }
+                if completed {
+                    self.runtime.reveal_tail = true;
+                    if !self.runtime.interrupted_run
+                        && f["status"] != "error"
+                        && self.runtime.requests.is_empty()
+                    {
+                        self.notify_session_attention(false, window, cx);
                     }
                 }
                 self.request_state();
@@ -547,6 +561,8 @@ impl Workspace {
                             .any(|request| request["id"] == f["id"])
                         {
                             self.runtime.requests.push_back(f);
+                            self.runtime.reveal_tail = true;
+                            self.notify_session_attention(true, window, cx);
                         }
                     }
                 }

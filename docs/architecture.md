@@ -77,7 +77,7 @@ Linux `daemon` 按用户／profile／协议／版本建立私有 Unix socket，�
 
 `view/thinking.rs` 的预览与全文共用 Markdown 渲染，思考字号小于正文并带边框；预览限制为最新五行。历史思考默认折叠，本次运行中展示过的预览和过程在完成后保留，用户可手动收起。`SessionRuntime::expanded_process` 和 `thinking_previews` 记录每会话的展示状态，不改写原文或原生历史。
 
-`conversation/transcript_layout.rs` 在模型更新前将隐式末尾锚点转为已测量的具体阅读位置；已有行用 `ListState::remeasure_items` 保留高度提示及绝对锚点，仅对新增／移除行使用 `splice`。正文流式更新、工具结束和会话完成不以选区存在为前提，也不主动滚到末尾。阅读位置验证须等待 Markdown 解析与绘制完成，不能只比较事件处理后的逻辑下标。
+`conversation/transcript_layout.rs` 在模型更新前将隐式末尾锚点转为已测量的具体阅读位置；已有行用 `ListState::remeasure_items` 保留高度提示及绝对锚点，仅对新增／移除行使用 `splice`。正文流式更新及工具活动不主动滚到末尾。`runtime/attention.rs` 在模型输出结束及交互请求处标记会话末尾跳转，待正文同步后执行；后台会话保留标记至激活，不改变当前会话。窗口未聚焦时复用 gpui-kit 的系统通知，按会话去重并支持点击定位；启动时设置应用身份。阅读位置验证须等待 Markdown 解析与绘制完成，不能只比较事件处理后的逻辑下标。
 
 `view/composer_tasks.rs` 复用 `render_todos`，通过 gpui-kit Popover 在按钮上方显示覆盖式任务浮层，按会话控制展开状态；浮层不参与主布局，不挤动会话、输入框和动作摘要。上下文圆环位于模型选择器左侧。流式搜索刷新仅更新高亮，显式搜索动作才定位。
 
@@ -171,7 +171,7 @@ python scripts/update_service_catalog.py D:\src\oh-my-pi
 
 数学排版通过原生 Markdown 扩展接入 [RaTeX](https://github.com/erweixin/RaTeX)，在解析阶段生成带字体轮廓的 SVG，再由 GPUI 绘制；缓存上限为 128 项／4 MiB。内嵌 KaTeX 字体的许可见 [OFL](../resources/KaTeX-OFL.txt)。公式节点保留原始 LaTeX 与源区间，皮肤切换复用几何数据并采用当前文字颜色。
 
-Windows 程序图标为 [omp.ico](../resources/omp.ico)，原样提取自本机 OMP 18.14.0 的 `omp.exe`（原资源组 `IDI_MYICON`，256×256、32 位），保留原始图像数据。构建脚本使用 `embed-resource` 将 [omp-gui.rc](../resources/omp-gui.rc) 仅链接到 GUI 二进制；图标资源 ID 为 1，与 GPUI 原生窗口加载规则一致。
+Windows 程序图标采用黄色（`#FFD43B`）倾斜的 π 与感叹号，代表 Oh My Pi。矢量母版为 [omp.svg](../resources/omp.svg)，使用 `uv run scripts/generate-icon.py` 导出透明背景的 [omp.png](../resources/omp.png) 和 [omp.ico](../resources/omp.ico)；ICO 包含 16、20、24、32、40、48、64、96、128、256 px 的 32 位图像。构建脚本使用 `embed-resource` 将 [omp-gui.rc](../resources/omp-gui.rc) 仅链接到 GUI 二进制；图标资源 ID 为 1，与 GPUI 原生窗口加载规则一致。安装程序也使用同一 ICO 文件。
 
 
 ### v0.8.4 远端性能边界

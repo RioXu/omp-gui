@@ -99,6 +99,7 @@ impl Workspace {
                     self.runtime.reconnecting = false;
                     self.runtime.starting = false;
                     self.runtime.running = false;
+                    self.runtime.completion_pending = false;
                     self.runtime.stopping = false;
                     if let Some(session) = self.session_mut() {
                         session.recover_unconfirmed_queue();
@@ -119,6 +120,9 @@ impl Workspace {
             self.runtime.text_update_pending = false;
         } else if !self.polling_background && !self.runtime.text_updates.is_empty() {
             self.sync_updated_texts(cx);
+        }
+        if !self.polling_background {
+            self.reveal_pending_tail();
         }
         if self.runtime.connected
             && self.runtime.running

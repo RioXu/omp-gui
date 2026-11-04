@@ -36,6 +36,24 @@ impl Session {
     }
 }
 impl Database {
+    /// Forget GUI metadata only. Native OMP sessions and project files are untouched.
+    pub fn forget_project(&mut self, project: &crate::environment::ProjectLocation) {
+        self.sessions.retain(|s| s.project_location() != *project);
+        self.remote_projects.retain(|p| p != project);
+        if project.environment == "local"
+            && let crate::environment::HostPath::Local(path) = &project.path
+        {
+            self.projects.retain(|p| p != path);
+        }
+        if self
+            .active
+            .as_ref()
+            .is_some_and(|id| !self.sessions.iter().any(|s| &s.id == id))
+        {
+            self.active = None;
+        }
+    }
+
     pub fn discard_blank_sessions(&mut self, keep: Option<&str>) {
         self.sessions
             .retain(|s| Some(s.id.as_str()) == keep || !s.is_blank());
@@ -51,6 +69,59 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn forgetting_project_removes_archival_metadata_and_preserves_other_projects() {
+        use crate::environment::ProjectLocation;
+        let project = ProjectLocation::local("project".into());
+        let mut archived = Session::new("project".into());
+        archived.archived = true;
+        archived.omp_session = Some("native-session.jsonl".into());
+        let other = Session::new("other".into());
+        let other_id = other.id.clone();
+        let mut db = Database {
+            projects: vec!["project".into(), "other".into()],
+            active: Some(archived.id.clone()),
+            sessions: vec![archived, Session::new("project".into()), other].into(),
+            ..Default::default()
+        };
+        db.forget_project(&project);
+        assert_eq!(db.projects, vec![std::path::PathBuf::from("other")]);
+        assert_eq!(db.sessions.len(), 1);
+        assert_eq!(db.sessions[0].id, other_id);
+        assert_eq!(db.active, None);
+        let restored: Database =
+            serde_json::from_value(serde_json::to_value(&db).unwrap()).unwrap();
+        assert_eq!(restored.sessions.len(), 1);
+        assert!(!restored.sessions.iter().any(|s| s.archived));
+    }
+
+    #[test]
+    fn forgetting_remote_project_is_scoped_to_environment_and_profile() {
+        use crate::environment::{HostPath, ProjectLocation};
+        let project = ProjectLocation {
+            environment: "server".into(),
+            profile: Some("a".into()),
+            path: HostPath::Posix("/project".into()),
+        };
+        let mut other_profile = project.clone();
+        other_profile.profile = Some("b".into());
+        let mut a = Session::new(Default::default());
+        a.location = Some(project.clone());
+        let mut b = Session::new(Default::default());
+        b.location = Some(other_profile.clone());
+        let mut db = Database {
+            active: Some(b.id.clone()),
+            sessions: vec![a, b].into(),
+            remote_projects: vec![project.clone(), other_profile.clone()],
+            ..Default::default()
+        };
+        db.forget_project(&project);
+        assert_eq!(db.remote_projects, vec![other_profile.clone()]);
+        assert_eq!(db.sessions.len(), 1);
+        assert_eq!(db.sessions[0].project_location(), other_profile);
+        assert_eq!(db.active.as_ref(), Some(&db.sessions[0].id));
+    }
+
     #[test]
     fn unconfirmed_queue_recovers_to_draft_once_without_auto_resending() {
         let mut session = Session::new("project".into());

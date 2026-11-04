@@ -25,8 +25,8 @@ enum EnvironmentEvent {
 pub(super) struct EnvironmentState {
     hosts: HashMap<String, ExecutionHost>,
     connecting: std::collections::HashSet<String>,
-    creating: std::collections::HashSet<ProjectLocation>,
-    deleting: std::collections::HashSet<String>,
+    pub(super) creating: std::collections::HashSet<ProjectLocation>,
+    pub(super) deleting: std::collections::HashSet<String>,
     notices: HashMap<String, String>,
     tx: mpsc::Sender<EnvironmentEvent>,
     rx: mpsc::Receiver<EnvironmentEvent>,

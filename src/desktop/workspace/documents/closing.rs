@@ -7,7 +7,9 @@ use gpui_kit::component::{
 #[derive(Clone)]
 pub(in crate::desktop::workspace) enum LeaveAction {
     Activate(String),
+    RevealSession(String),
     NewSession(omp_core::environment::ProjectLocation),
+    RemoveProject(omp_core::environment::ProjectLocation),
     SwitchEnvironment(String),
     ManageSession { id: String, delete: bool },
     CloseAll,
@@ -228,12 +230,14 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         match action {
+            LeaveAction::RevealSession(id) => self.reveal_notified_session(&id, window, cx),
             LeaveAction::Activate(id) => {
                 if let Some(ix) = self.db.sessions.iter().position(|s| s.id == id) {
                     self.activate(ix, window, cx);
                 }
             }
             LeaveAction::NewSession(path) => self.new_session_at(path, window, cx),
+            LeaveAction::RemoveProject(path) => self.remove_project(&path, window, cx),
             LeaveAction::SwitchEnvironment(environment) => {
                 self.switch_environment(&environment, window, cx)
             }

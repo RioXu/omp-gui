@@ -2,6 +2,70 @@ use super::*;
 use crate::infrastructure::filesystem::project_paths::project_path;
 
 impl Workspace {
+    pub(in crate::desktop::workspace) fn remove_project(
+        &mut self,
+        project: &omp_core::environment::ProjectLocation,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.save_disabled {
+            return;
+        }
+        let ids: std::collections::HashSet<_> = self
+            .db
+            .sessions
+            .iter()
+            .filter(|s| s.project_location() == *project)
+            .map(|s| s.id.clone())
+            .collect();
+        let clear = self.session().is_some_and(|s| ids.contains(&s.id));
+        if self.environments.creating.contains(project)
+            || self.session_sync.pending_create.as_ref() == Some(project)
+            || ids.iter().any(|id| {
+                self.environments.deleting.contains(id)
+                    || if self.session().is_some_and(|s| &s.id == id) {
+                        self.runtime.busy()
+                    } else {
+                        self.background.get(id).is_some_and(|r| r.busy())
+                    }
+            })
+        {
+            self.runtime.error =
+                Some("项目中有会话正在运行或连接，请等待操作结束后再移除。".into());
+            cx.notify();
+            return;
+        }
+        if clear
+            && !self.guard_documents(
+                documents::LeaveAction::RemoveProject(project.clone()),
+                window,
+                cx,
+            )
+        {
+            return;
+        }
+        let active = self.session().map(|s| s.id.clone());
+        self.background.retain(|id, _| !ids.contains(id));
+        self.db.forget_project(project);
+        self.collapsed_projects.remove(project);
+        if clear {
+            self.active = None;
+            self.runtime = Self::new_session_runtime(window, cx, self.demo, String::new(), None);
+            self.search_state.hits.clear();
+            self.search_state.rendered_text.clear();
+            self.clear_file_preview();
+            self.clear_documents();
+            self.document_state.files.clear();
+            self.document_state.changes.clear();
+            self.comment_editor = None;
+            self.editing_comment = None;
+        } else {
+            self.active = active.and_then(|id| self.db.sessions.iter().position(|s| s.id == id));
+        }
+        self.persist();
+        cx.notify();
+    }
+
     pub fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.save_disabled {
             self.runtime.error =

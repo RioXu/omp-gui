@@ -4,7 +4,7 @@ use core::prelude::v1::test;
 use gpui_kit::TestAppContext;
 
 #[gpui_kit::test]
-fn body_stream_and_completion_keep_the_painted_reading_position(cx: &mut TestAppContext) {
+fn body_stream_preserves_reading_position_and_completion_reveals_the_end(cx: &mut TestAppContext) {
     use gpui_kit::{VisualTestContext, size};
     cx.update(gpui_kit::init);
     let initial = "A paragraph of model output to read.\n\n".repeat(80);
@@ -44,6 +44,7 @@ fn body_stream_and_completion_keep_the_painted_reading_position(cx: &mut TestApp
         json!({"type":"message_end","messageId":"live","message":{"role":"assistant","content":[{"type":"text","text":format!("{initial}{}", "More streamed output.\n\n".repeat(60))}]}}),
         json!({"type":"agent_end"}),
         json!({"type":"session_settled"}),
+        json!({"type":"extension_ui_request","method":"input","id":"question","title":"What next?"}),
     ] {
         visual.update(|window, cx| {
             view.update(cx, |this, cx| {
@@ -58,18 +59,25 @@ fn body_stream_and_completion_keep_the_painted_reading_position(cx: &mut TestApp
         visual.update(|window, cx| {
             window.draw(cx).clear(cx);
             let this = view.read(cx);
-            assert_eq!(
-                this.runtime.list.scroll_px_offset_for_scrollbar(),
-                position,
-                "{} moved the reader",
-                frame["type"]
-            );
+            if matches!(
+                frame["type"].as_str(),
+                Some("agent_end" | "session_settled" | "extension_ui_request")
+            ) {
+                assert_eq!(this.runtime.list.is_scrolled_to_end(), Some(true));
+            } else {
+                assert_eq!(
+                    this.runtime.list.scroll_px_offset_for_scrollbar(),
+                    position,
+                    "{} moved the reader",
+                    frame["type"]
+                );
+            }
             assert_eq!(window.focused(cx), focus);
             assert_eq!(this.active, session);
         });
-        if frame["type"] == "message_update" {
-            // The remaining end/settled events must also respect a reader who
-            // scrolls upward without selecting text.
+        if frame["type"] == "message_update" || frame["type"] == "session_settled" {
+            // Streaming preserves a reader's position; the event boundary
+            // deliberately reveals the final output even after scrolling up.
             visual.update(|_, cx| {
                 view.update(cx, |this, cx| {
                     this.runtime.list.scroll_by(px(-400.));
@@ -121,10 +129,8 @@ fn settling_does_not_collapse_the_process_being_read(cx: &mut TestAppContext) {
     });
     visual.run_until_parked();
     visual.update(|window, cx| window.draw(cx).clear(cx));
-    let before = visual.debug_bounds("thinking-preview").unwrap();
-    let offset = view.read_with(&visual, |this, _| {
-        this.runtime.list.scroll_px_offset_for_scrollbar()
-    });
+    let expanded = view.read_with(&visual, |this, _| this.runtime.expanded_process.clone());
+    let previews = view.read_with(&visual, |this, _| this.runtime.thinking_previews.clone());
     visual.update(|window, cx| {
         view.update(cx, |this, cx| {
             this.on_frame(json!({"type":"session_settled"}), window, cx);
@@ -134,18 +140,16 @@ fn settling_does_not_collapse_the_process_being_read(cx: &mut TestAppContext) {
     });
     visual.run_until_parked();
     visual.update(|window, cx| window.draw(cx).clear(cx));
-    assert_eq!(
-        visual.debug_bounds("thinking-preview"),
-        Some(before),
-        "completion must not remove the visible process"
-    );
-    assert_eq!(
-        view.read_with(&visual, |this, _| this
-            .runtime
-            .list
-            .scroll_px_offset_for_scrollbar()),
-        offset
-    );
+    view.read_with(&visual, |this, _| {
+        assert!(expanded.is_subset(&this.runtime.expanded_process));
+        assert!(previews.is_subset(&this.runtime.thinking_previews));
+        assert!(
+            this.runtime
+                .expanded_process
+                .contains(&format!("turn-{}", this.db.sessions[0].messages[0].id))
+        );
+        assert_eq!(this.runtime.list.is_scrolled_to_end(), Some(true));
+    });
 }
 
 #[gpui_kit::test]

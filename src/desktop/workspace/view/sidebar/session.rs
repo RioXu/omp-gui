@@ -50,6 +50,34 @@ impl SidebarItem for NavigationItem {
             Self::Session(session) => {
                 let weak = session.workspace.clone();
                 let sid = session.id.clone();
+                let title = session.title.clone();
+                let width = window.use_keyed_state(
+                    SharedString::from(format!("session-row-width-{}", session.id)),
+                    cx,
+                    |_, _| px(0.),
+                );
+                let mut text_style = window.text_style();
+                if session.active {
+                    text_style.font_weight = FontWeight::MEDIUM;
+                }
+                let title_width = window
+                    .text_system()
+                    .shape_line(
+                        session.title.replace('\n', " ").into(),
+                        window.rem_size() * 0.875,
+                        &[text_style.to_run(session.title.len())],
+                        None,
+                    )
+                    .width;
+                // SidebarMenuItem uses p_2 and gap_x_2 around its optional suffix.
+                let available = *width.read(cx)
+                    - window.rem_size()
+                    - if session.running {
+                        window.rem_size() * 1.25
+                    } else {
+                        px(0.)
+                    };
+                let overflow = available > px(0.) && title_width > available;
                 let item = SidebarMenuItem::new(session.title)
                     .active(session.active)
                     .disable(session.disabled)
@@ -95,11 +123,27 @@ impl SidebarItem for NavigationItem {
                         });
                     });
                 div()
+                    .on_children_prepainted(move |bounds, _, cx| {
+                        if let Some(bounds) = bounds.first()
+                            && *width.read(cx) != bounds.size.width
+                        {
+                            width.update(cx, |width, cx| {
+                                *width = bounds.size.width;
+                                cx.notify();
+                            });
+                        }
+                    })
                     .debug_selector({
                         let id = session.id.clone();
                         move || format!("sidebar-session-{id}")
                     })
                     .id(session.id.clone())
+                    .when(overflow, |row| {
+                        row.tooltip(move |window, cx| {
+                            gpui_kit::component::tooltip::Tooltip::new(title.clone())
+                                .build(window, cx)
+                        })
+                    })
                     .ml_3p5()
                     .pl_2p5()
                     .border_l_1()
