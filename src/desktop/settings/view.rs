@@ -65,6 +65,7 @@ impl Render for SettingsView {
                 )
                 .child(
                     Button::new("scope-global")
+                        .debug_selector(|| "settings-scope-global".into())
                         .small()
                         .label("全局")
                         .selected(!self.project)
@@ -78,6 +79,7 @@ impl Render for SettingsView {
                 )
                 .child(
                     Button::new("scope-project")
+                        .debug_selector(|| "settings-scope-project".into())
                         .small()
                         .label(
                             self.project_path
@@ -89,7 +91,7 @@ impl Render for SettingsView {
                         .tooltip(
                             self.project_path
                                 .as_ref()
-                                .map(|p| p.display().to_string())
+                                .map(|p| self.configuration.display_path(p))
                                 .unwrap_or_else(|| "请先选择项目会话".into()),
                         )
                         .selected(self.project)
@@ -109,6 +111,9 @@ impl Render for SettingsView {
                         .tooltip("重新读取 OMP 配置")
                         .disabled(self.edit.is_some())
                         .on_click(cx.listener(|this, _, _, cx| {
+                            if this.category == "子智能体" {
+                                this.agent_imports.remove(&this.base());
+                            }
                             this.reload();
                             cx.notify();
                         })),
@@ -129,7 +134,7 @@ impl Render for SettingsView {
                     format!("类型：{kind}。对象和数组使用 JSON；重置会移除当前范围的值。"),
                 ),
                 Edit::File { path, .. } => (
-                    path.display().to_string(),
+                    self.configuration.display_path(path),
                     "编辑 OMP 原生配置。保存前校验格式并保留备份；注册项遵循本机 OMP 版本。".into(),
                 ),
             };
@@ -193,7 +198,7 @@ impl Render for SettingsView {
             );
         } else {
             body = body.child(self.render_special(cx));
-            if !["常规", "插件"].contains(&self.category) {
+            if !["常规", "插件", "子智能体"].contains(&self.category) {
                 body = body.child(Input::new(&self.search));
                 let query = self.search.read(cx).value().to_lowercase();
                 let keys = self
@@ -240,7 +245,7 @@ impl Render for SettingsView {
                 );
             }
         }
-        content=content.child(if self.edit.is_some() || ["常规","插件"].contains(&self.category) {body.overflow_y_scrollbar().into_any_element()}else{body.into_any_element()}).child(div().p_3().border_t_1().border_color(theme.border).text_xs().text_color(theme.muted_foreground)
+        content=content.child(if self.edit.is_some() || ["常规","插件","子智能体"].contains(&self.category) {body.overflow_y_scrollbar().into_any_element()}else{body.into_any_element()}).child(div().p_3().border_t_1().border_color(theme.border).text_xs().text_color(theme.muted_foreground)
             .child(if self.busy{"正在保存…".to_string()}else if self.loading{"正在后台刷新配置…".to_string()}else{self.notice.clone()})
             .child(div().mt_2().child("OMP 持续更新，GUI 未覆盖的设置、认证及高级管理可在 OMP 终端中配置。项目设置以会话执行目录为准；环境变量与启动参数可能优先于文件。")));
         div()

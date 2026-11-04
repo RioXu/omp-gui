@@ -2,6 +2,6 @@
 mod agents;
 mod models;
 mod roles;
-pub use agents::AgentDraft;
+pub use agents::{AgentDraft, AgentEntry, remove_agent};
 pub use models::{available_models, choices, effort_options, split_effort};
 pub use roles::{RoleDraft, role_names};

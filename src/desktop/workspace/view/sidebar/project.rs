@@ -59,7 +59,6 @@ impl SidebarItem for ProjectNavigation {
                 menu.when(!self.archived, |menu| {
                     menu.item(
                         PopupMenuItem::new("新建会话")
-                            .icon(IconName::Plus)
                             .disabled(self.disabled)
                             .on_click(move |_, window, cx| {
                                 let _ = create.update(cx, |this, cx| {
@@ -67,7 +66,6 @@ impl SidebarItem for ProjectNavigation {
                                 });
                             }),
                     )
-                    .separator()
                 })
                 .item(
                     PopupMenuItem::new("从 GUI 中移除项目")

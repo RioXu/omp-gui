@@ -5,6 +5,18 @@ impl SettingsView {
         let mut body = div().flex().flex_col().gap_3();
         let ready = !self.catalog.root.as_os_str().is_empty() && !self.busy && !self.loading;
         match self.category {
+            "子智能体" => return self.render_agent_manager(cx),
+            "工具调用" => {
+                body = body.child(div().text_sm().child("Eval 的 JavaScript 与 Python 执行分别由 eval.js、eval.py 控制；eval.tools.enabled 控制 eval 定义的工具能否用于子智能体。"))
+                    .child(Button::new("find-eval-settings").small().label("定位 Eval 设置")
+                        .debug_selector(|| "find-eval-settings".into())
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.search.update(cx, |input, cx| input.set_value("eval.", window, cx));
+                            this.rows_scroll.scroll_to_item(0, ScrollStrategy::Top);
+                            this.prepare_controls(window, cx);
+                            cx.notify();
+                        })));
+            }
             "常规" => {
                 body = body
                     .child(div().text_sm().child("OMP 可执行文件（留空自动查找）"))
@@ -107,8 +119,25 @@ impl SettingsView {
             }
             "角色与提示词" | "技能" => {
                 let skill = self.category == "技能";
-                body=body.child(div().text_sm().child(if skill{"原生技能保存在 skills/<名称>/SKILL.md。下面的 skills.ignoredSkills 可停用技能，skills.customDirectories 可注册额外目录。"}else{"modelRoles 负责 default、advisor 等角色与模型的关联；agents/*.md 定义带系统提示词的子智能体。两者按 OMP 原生机制分别保存。"}))
-                .child(div().flex().gap_2().when(skill, |d| d.child(Input::new(&self.name))).child(Button::new("new-prompt").icon(IconName::Plus).label(if skill{"新建技能"}else{"新建子智能体"}).disabled(!ready).on_click(cx.listener(move|this,_,w,cx|{ if skill { this.create_skill(w,cx) } else { this.open_agent(None,w,cx) } }))));
+                body = body.child(div().text_sm().child(if skill {
+                    "原生技能保存在 skills/<名称>/SKILL.md。下面的 skills.ignoredSkills 可停用技能，skills.customDirectories 可注册额外目录。"
+                } else {
+                    "配置 default、advisor 等角色与模型的关联，以及主会话系统提示词。"
+                }));
+                if skill {
+                    body =
+                        body.child(
+                            div().flex().gap_2().child(Input::new(&self.name)).child(
+                                Button::new("new-prompt")
+                                    .icon(IconName::Plus)
+                                    .label("新建技能")
+                                    .disabled(!ready)
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.create_skill(window, cx)
+                                    })),
+                            ),
+                        );
+                }
                 if !skill {
                     body = body.child(
                         div()
@@ -153,34 +182,26 @@ impl SettingsView {
                             ),
                     );
                 }
-                let key = format!(
-                    "{}/{}",
-                    if self.project { "project" } else { "global" },
-                    if skill { "skills" } else { "agents" }
-                );
-                for path in self.catalog.prompt_files.get(&key).into_iter().flatten() {
-                    let label = if skill {
-                        path.parent().and_then(|p| p.file_name())
-                    } else {
-                        path.file_stem()
-                    }
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_string();
-                    let path = path.clone();
-                    body = body.child(
-                        Button::new(SharedString::from(format!("native-{label}")))
-                            .ghost()
-                            .accessibility_label(label.clone())
-                            .child(div().flex_1().text_left().child(label))
-                            .on_click(cx.listener(move |this, _, w, cx| {
-                                if skill {
+                if skill {
+                    let key = format!("{}/skills", if self.project { "project" } else { "global" });
+                    for path in self.catalog.prompt_files.get(&key).into_iter().flatten() {
+                        let label = path
+                            .parent()
+                            .and_then(|p| p.file_name())
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string();
+                        let path = path.clone();
+                        body = body.child(
+                            Button::new(SharedString::from(format!("native-{label}")))
+                                .ghost()
+                                .accessibility_label(label.clone())
+                                .child(div().flex_1().text_left().child(label))
+                                .on_click(cx.listener(move |this, _, w, cx| {
                                     this.file(path.clone(), "", w, cx)
-                                } else {
-                                    this.open_agent(Some(path.clone()), w, cx)
-                                }
-                            })),
-                    );
+                                })),
+                        );
+                    }
                 }
             }
             "插件" => {

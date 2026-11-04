@@ -15,6 +15,7 @@ mod search;
 mod selection;
 mod shell;
 pub(in crate::desktop::workspace) mod sidebar;
+mod subagents;
 mod thinking;
 mod transcript;
 mod working_intent;

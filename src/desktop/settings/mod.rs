@@ -1,3 +1,4 @@
+mod agents;
 mod authoring;
 mod controls;
 mod editing;
@@ -35,6 +36,7 @@ pub(crate) enum SettingsEvent {
 }
 impl EventEmitter<SettingsEvent> for SettingsView {}
 enum ResultEvent {
+    AgentsImported(PathBuf, Result<(), String>),
     OverrideValidated(String, Result<String, String>),
     Editor(u64, &'static str, Result<LoadedEditor, String>),
     Executable(String, Result<String, String>),
@@ -63,6 +65,7 @@ pub(crate) struct SettingsView {
     processing_speed: bool,
     registry: Option<Entity<crate::desktop::services::RegistryView>>,
     agent_editor: Option<Entity<editors::AgentEditor>>,
+    agent_imports: HashSet<PathBuf>,
     role_editor: Option<Entity<editors::RoleEditor>>,
     omp: String,
     configuration: Configuration,
@@ -90,11 +93,12 @@ pub(crate) struct SettingsView {
     rx: mpsc::Receiver<ResultEvent>,
     _subscriptions: Vec<Subscription>,
 }
-const CATEGORIES: [&str; 10] = [
+const CATEGORIES: [&str; 11] = [
     "常规",
     "模型",
     "网络搜索",
     "角色与提示词",
+    "子智能体",
     "工具调用",
     "LSP",
     "技能",
@@ -198,6 +202,7 @@ impl SettingsView {
             processing_speed: false,
             registry: None,
             agent_editor: None,
+            agent_imports: HashSet::new(),
             role_editor: None,
             omp,
             configuration,
@@ -239,6 +244,18 @@ impl SettingsView {
                                 this.busy = false;
                             }
                             match result {
+                                ResultEvent::AgentsImported(base, result) => {
+                                    this.busy = false;
+                                    match result {
+                                        Ok(()) => this.reload(),
+                                        Err(error) => {
+                                            this.notice = format!(
+                                                "自动导入内置定义失败（{}）：{error}；点击刷新重试",
+                                                this.configuration.display_path(&base)
+                                            )
+                                        }
+                                    }
+                                }
                                 ResultEvent::OverrideValidated(command, result) => {
                                     this.busy = false;
                                     match result {

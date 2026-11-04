@@ -18,9 +18,13 @@ pub struct Catalog {
     pub global: BTreeMap<String, Value>,
     pub project: BTreeMap<String, Value>,
     pub prompt_files: BTreeMap<String, Vec<PathBuf>>,
+    #[serde(default)]
+    pub agent_files: BTreeMap<String, Vec<super::authoring::AgentEntry>>,
 }
 pub fn command(omp: &str, cwd: &Path, args: &[&str]) -> anyhow::Result<String> {
-    let out = hidden_command(omp).args(args).current_dir(cwd).output()?;
+    let out = crate::infrastructure::omp::owned_process::OwnedProcess::output(
+        hidden_command(omp).args(args).current_dir(cwd),
+    )?;
     ensure!(
         out.status.success(),
         "OMP 配置命令失败：{}",
@@ -93,12 +97,26 @@ pub fn catalog(omp: &str, cwd: &Path) -> anyhow::Result<Catalog> {
     }
     let global = configured_layer(&read_document(&config_path(&root))?, &entries)?;
     let project = configured_layer(&read_document(&config_path(&cwd.join(".omp")))?, &entries)?;
+    let agent_files = prompt_files
+        .iter()
+        .filter(|(key, _)| key.ends_with("/agents"))
+        .map(|(key, paths)| {
+            (
+                key.clone(),
+                paths
+                    .iter()
+                    .map(|path| super::authoring::AgentEntry::load(path))
+                    .collect(),
+            )
+        })
+        .collect();
     let result = Catalog {
         root,
         entries,
         global,
         project,
         prompt_files,
+        agent_files,
     };
     if let Ok(mut cache) = CACHE.lock() {
         cache.insert(cache_key(omp, cwd), result.clone());

@@ -1,11 +1,12 @@
 //! Manage the OMP child process and asynchronous JSONL transport.
 use super::framing::{Decoder, MAX_COMMAND, MAX_FRAME};
+use super::owned_process::OwnedProcess;
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use std::{
     io::{BufRead, BufReader, Read, Write},
     path::Path,
-    process::{Child, Stdio},
+    process::Stdio,
     sync::mpsc,
     thread,
 };
@@ -16,16 +17,20 @@ pub enum Event {
     Closed,
 }
 pub struct Client {
-    child: Child,
+    _process: OwnedProcess,
     tx: mpsc::SyncSender<Vec<u8>>,
     pub events: crossbeam_channel::Receiver<Event>,
     binary: bool,
 }
 impl Client {
+    pub(super) fn reap_exited_root(&self) {
+        #[cfg(windows)]
+        self._process.reap_exited_root();
+    }
     #[cfg(feature = "test-support")]
     pub fn interrupt_transport(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        let _ = self._process.kill();
+        let _ = self._process.wait();
     }
     pub fn start(
         executable: &str,
@@ -86,7 +91,7 @@ impl Client {
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let mut child = cmd.spawn().context("无法启动 OMP 传输进程")?;
+        let mut child = OwnedProcess::spawn(&mut cmd).context("无法启动 OMP 传输进程")?;
         let mut stdin = child.stdin.take().context("OMP stdin missing")?;
         let stdout = child.stdout.take().context("OMP stdout missing")?;
         let stderr = child.stderr.take().context("OMP stderr missing")?;
@@ -164,7 +169,7 @@ impl Client {
             }
         });
         Ok(Self {
-            child,
+            _process: child,
             tx,
             events,
             binary,
@@ -187,11 +192,5 @@ impl Client {
         self.tx
             .try_send(bytes)
             .context("OMP 发送队列忙或连接已关闭，输入未重放")
-    }
-}
-impl Drop for Client {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
     }
 }

@@ -231,7 +231,9 @@ impl Render for Workspace {
         if self.search_state.open {
             center = center.child(self.render_search(cx));
         }
-        if self.document_state.active.is_some() {
+        if let Some(id) = self.active_subagent() {
+            center = center.child(self.render_subagent_transcript(id, cx));
+        } else if self.document_state.active.is_some() {
             center = center.child(self.render_document(cx));
         } else {
             if let Some(error) = &self.runtime.error {

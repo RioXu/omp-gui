@@ -39,9 +39,15 @@ impl Workspace {
             self.document_state.snapshot = tab.snapshot.as_ref().map(|s| s.id.clone());
             self.document_state.quote = tab.quote.clone();
         }
+        if let Some(id) = self.active_subagent().map(str::to_owned) {
+            self.select_subagent(id);
+        }
     }
 
     pub fn close_document(&mut self, key: &str) {
+        if self.close_subagent_tab(key) {
+            return;
+        }
         let Some(ix) = self.document_state.tabs.iter().position(|t| t.key == key) else {
             return;
         };
@@ -52,7 +58,14 @@ impl Workspace {
                 .checked_sub(1)
                 .and_then(|i| self.document_state.tabs.get(i))
                 .or_else(|| self.document_state.tabs.first())
-                .map(|t| t.key.clone());
+                .map(|t| t.key.clone())
+                .or_else(|| {
+                    self.runtime
+                        .collaboration
+                        .tabs
+                        .first()
+                        .map(|id| super::super::runtime::collaboration::subagent_tab_key(id))
+                });
             self.activate_document(next);
         }
     }

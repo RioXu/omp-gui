@@ -69,13 +69,14 @@ impl Providers {
     }
 }
 pub fn import_key(omp: &str, cwd: &Path, provider: &str, key: &str) -> anyhow::Result<()> {
-    let mut child = hidden_command(omp)
+    let mut command = hidden_command(omp);
+    command
         .args(["auth", "import", "-"])
         .current_dir(cwd)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
+        .stderr(Stdio::null());
+    let mut child = crate::infrastructure::omp::owned_process::OwnedProcess::spawn(&mut command)?;
     let payload = json!({"version":1,"credentials":[{"provider":provider,"credential":{"type":"api_key","key":key,"source":"login"}}]});
     child
         .stdin

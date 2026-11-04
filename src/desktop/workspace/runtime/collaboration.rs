@@ -8,6 +8,7 @@ struct TranscriptResult {
     result: Result<Vec<Message>, String>,
 }
 pub(in crate::desktop::workspace) struct CollaborationState {
+    pub tabs: Vec<String>,
     pub selected: Option<String>,
     pub messages: Vec<Message>,
     pub error: Option<String>,
@@ -21,6 +22,7 @@ impl Default for CollaborationState {
     fn default() -> Self {
         let (tx, rx) = mpsc::channel();
         Self {
+            tabs: vec![],
             selected: None,
             messages: vec![],
             error: None,
@@ -53,9 +55,64 @@ impl Workspace {
         self.save_activity();
     }
     pub(in crate::desktop::workspace) fn open_subagent(&mut self, id: String) {
-        self.runtime.collaboration = Default::default();
+        if id.is_empty() || !self.runtime.agents.iter().any(|a| a["id"] == id) {
+            return;
+        }
+        if !self.runtime.collaboration.tabs.contains(&id) {
+            self.runtime.collaboration.tabs.push(id.clone());
+        }
+        self.activate_document(Some(subagent_tab_key(&id)));
+    }
+    pub(in crate::desktop::workspace) fn active_subagent(&self) -> Option<&str> {
+        let id = self
+            .document_state
+            .active
+            .as_deref()?
+            .strip_prefix("subagent:")?;
+        self.runtime
+            .collaboration
+            .tabs
+            .iter()
+            .find(|tab| tab.as_str() == id)
+            .map(String::as_str)
+    }
+    pub(in crate::desktop::workspace) fn select_subagent(&mut self, id: String) {
+        if self.runtime.collaboration.selected.as_ref() == Some(&id) {
+            return;
+        }
+        self.runtime.collaboration.messages.clear();
+        self.runtime.collaboration.error = None;
+        self.runtime.collaboration.loading = false;
         self.runtime.collaboration.selected = Some(id);
         self.read_subagent();
+    }
+    pub(in crate::desktop::workspace) fn close_subagent_tab(&mut self, key: &str) -> bool {
+        let Some(ix) = self
+            .runtime
+            .collaboration
+            .tabs
+            .iter()
+            .position(|id| subagent_tab_key(id) == key)
+        else {
+            return false;
+        };
+        let id = self.runtime.collaboration.tabs.remove(ix);
+        if self.runtime.collaboration.selected.as_ref() == Some(&id) {
+            self.runtime.collaboration.selected = None;
+            self.runtime.collaboration.messages.clear();
+            self.runtime.collaboration.loading = false;
+            self.runtime.collaboration.error = None;
+        }
+        if self.document_state.active.as_deref() == Some(key) {
+            let next = ix
+                .checked_sub(1)
+                .and_then(|ix| self.runtime.collaboration.tabs.get(ix))
+                .or_else(|| self.runtime.collaboration.tabs.first())
+                .map(|id| subagent_tab_key(id))
+                .or_else(|| self.document_state.tabs.last().map(|tab| tab.key.clone()));
+            self.activate_document(next);
+        }
+        true
     }
     fn read_subagent(&mut self) {
         let Some(agent_id) = self.runtime.collaboration.selected.clone() else {
@@ -116,13 +173,97 @@ impl Workspace {
             }
             cx.notify();
         }
-        if self.panel_open
-            && self.panel_tab == "子智能体"
-            && self.runtime.collaboration.selected.is_some()
+        if !self.polling_background
+            && self.active_subagent().is_some()
             && !self.runtime.collaboration.loading
             && self.runtime.collaboration.last_read.elapsed() > Duration::from_secs(2)
         {
             self.read_subagent();
         }
+    }
+}
+
+pub(in crate::desktop::workspace) fn subagent_tab_key(id: &str) -> String {
+    format!("subagent:{id}")
+}
+
+pub(in crate::desktop::workspace) fn subagent_role(agent: &Value) -> &str {
+    ["role", "agent", "name"]
+        .into_iter()
+        .filter_map(|key| agent[key].as_str())
+        .find(|text| !text.trim().is_empty())
+        .unwrap_or("子智能体")
+}
+
+pub(in crate::desktop::workspace) fn subagent_title(agent: &Value) -> &str {
+    ["title", "description", "task", "assignment", "name"]
+        .into_iter()
+        .filter_map(|key| agent[key].as_str())
+        .find(|text| !text.trim().is_empty())
+        .unwrap_or("子会话")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::desktop::workspace::runtime::sessions::tests::fixture;
+    use core::prelude::v1::test;
+    use gpui_kit::TestAppContext;
+
+    #[gpui_kit::test]
+    fn stale_transcripts_cannot_replace_another_tab_or_reopen_a_closed_tab(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let (window, view) = cx.update(|cx| {
+            open_window(WindowOptions::default(), cx, |window, cx| {
+                cx.new(|cx| fixture(window, cx))
+            })
+            .unwrap()
+        });
+        window
+            .update(cx, |_, _, cx| {
+                view.update(cx, |this, cx| {
+                    this.runtime.agents = vec![json!({"id":"a"}), json!({"id":"b"})];
+                    this.open_subagent("a".into());
+                    this.runtime.collaboration.request = "read-a".into();
+                    let session = this.session().unwrap().id.clone();
+                    this.open_subagent("b".into());
+                    this.runtime.collaboration.request = "read-b".into();
+                    for (agent, request, text) in
+                        [("a", "read-a", "stale A"), ("b", "read-b", "current B")]
+                    {
+                        this.runtime
+                            .collaboration
+                            .tx
+                            .send(TranscriptResult {
+                                session: session.clone(),
+                                agent: agent.into(),
+                                request: request.into(),
+                                result: Ok(vec![Message::new("assistant", text.into())]),
+                            })
+                            .unwrap();
+                    }
+                    this.panel_open = false;
+                    this.poll_collaboration(cx);
+                    assert_eq!(this.runtime.collaboration.messages[0].text, "current B");
+                    this.close_document("subagent:b");
+                    assert_eq!(this.active_subagent(), Some("a"));
+                    this.runtime
+                        .collaboration
+                        .tx
+                        .send(TranscriptResult {
+                            session,
+                            agent: "b".into(),
+                            request: "read-b".into(),
+                            result: Ok(vec![]),
+                        })
+                        .unwrap();
+                    this.poll_collaboration(cx);
+                    assert!(this.runtime.collaboration.messages.is_empty());
+                    assert_eq!(this.runtime.collaboration.tabs, vec!["a"]);
+                })
+            })
+            .unwrap();
     }
 }

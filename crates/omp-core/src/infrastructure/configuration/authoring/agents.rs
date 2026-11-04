@@ -7,6 +7,60 @@ use std::{
 };
 use yaml_edit::{Document, path::YamlPath};
 
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct AgentEntry {
+    pub path: PathBuf,
+    pub name: String,
+    pub description: String,
+    pub model: Option<String>,
+    pub error: Option<String>,
+}
+impl AgentEntry {
+    pub fn load(path: &Path) -> Self {
+        let mut entry = Self {
+            path: path.to_owned(),
+            name: path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
+            ..Default::default()
+        };
+        match AgentDraft::load(path) {
+            Ok(draft) => {
+                if !draft.name.trim().is_empty() {
+                    entry.name = draft.name;
+                }
+                entry.description = draft.description;
+                entry.model = draft.model;
+            }
+            Err(error) => entry.error = Some(format!("{error:#}")),
+        }
+        entry
+    }
+}
+
+pub fn remove_agent(base: &Path, path: &Path, expected: &str) -> anyhow::Result<PathBuf> {
+    let directory = std::fs::canonicalize(base.join("agents"))?;
+    ensure!(
+        !std::fs::symlink_metadata(path)?.file_type().is_symlink(),
+        "不能移除链接指向的子智能体，请编辑原始定义"
+    );
+    let path = std::fs::canonicalize(path)?;
+    ensure!(
+        path.parent() == Some(directory.as_path())
+            && path.extension().is_some_and(|ext| ext == "md"),
+        "子智能体不属于当前范围"
+    );
+    ensure!(
+        settings::read_document(&path)? == expected,
+        "文件已被其他程序修改，请刷新后重试"
+    );
+    let backup = path.with_extension(format!("md.removed-{}.bak", crate::domain::id()));
+    std::fs::rename(&path, &backup)?;
+    Ok(backup)
+}
+
 #[derive(Clone, Default, Debug, serde::Serialize, serde::Deserialize)]
 pub struct AgentDraft {
     pub name: String,
@@ -115,6 +169,51 @@ impl AgentDraft {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn listing_reports_metadata_and_keeps_malformed_definitions_visible() {
+        let root = std::env::temp_dir().join(format!("omp-agent-list-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("reviewer.md");
+        std::fs::write(&path, "---\nname: reviewer\ndescription: Review code\nmodel: '@review'\n---\n\nCheck implementation\n").unwrap();
+        let entry = AgentEntry::load(&path);
+        assert_eq!(entry.name, "reviewer");
+        assert_eq!(entry.description, "Review code");
+        assert_eq!(entry.model.as_deref(), Some("@review"));
+        assert!(entry.error.is_none());
+        std::fs::write(&path, "broken frontmatter").unwrap();
+        let entry = AgentEntry::load(&path);
+        assert_eq!(entry.name, "reviewer");
+        assert!(entry.error.is_some());
+    }
+
+    #[test]
+    fn removal_is_scoped_preserves_a_backup_and_refuses_changed_files() {
+        let root = std::env::temp_dir().join(format!("omp-agent-remove-{}", uuid::Uuid::new_v4()));
+        let global = root.join("global");
+        let project = root.join("project");
+        for base in [&global, &project] {
+            std::fs::create_dir_all(base.join("agents")).unwrap();
+        }
+        let path = global.join("agents/reviewer.md");
+        let other = project.join("agents/reviewer.md");
+        std::fs::write(&path, "original").unwrap();
+        std::fs::write(&other, "project").unwrap();
+        assert!(remove_agent(&global, &other, "project").is_err());
+        std::fs::write(&path, "changed outside GUI").unwrap();
+        assert!(remove_agent(&global, &path, "original").is_err());
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "changed outside GUI"
+        );
+        let backup = remove_agent(&global, &path, "changed outside GUI").unwrap();
+        assert!(!path.exists());
+        assert_eq!(
+            std::fs::read_to_string(backup).unwrap(),
+            "changed outside GUI"
+        );
+        assert_eq!(std::fs::read_to_string(other).unwrap(), "project");
+    }
+
     #[test]
     fn form_creates_native_agent_yaml_and_validates_required_fields() {
         let draft = AgentDraft::default();

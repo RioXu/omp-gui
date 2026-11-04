@@ -191,7 +191,11 @@ impl Render for AgentEditor {
                             .mb_3()
                             .text_sm()
                             .text_color(cx.theme().muted_foreground)
-                            .child(format!("保存位置：{}", self.base.join("agents").display())),
+                            .child(format!(
+                                "保存位置：{}",
+                                self.configuration
+                                    .display_path(&self.configuration.join(&self.base, "agents"))
+                            )),
                     )
                     .child(
                         div()

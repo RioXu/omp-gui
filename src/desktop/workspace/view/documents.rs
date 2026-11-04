@@ -1,3 +1,4 @@
+use super::super::runtime::collaboration::{subagent_role, subagent_tab_key, subagent_title};
 use super::*;
 use gpui_kit::component::{
     input::Editor,
@@ -27,12 +28,20 @@ impl Workspace {
                         })),
                 ),
             );
-        if let Some(ix) = self
-            .document_state
-            .active
-            .as_ref()
-            .and_then(|key| self.document_state.tabs.iter().position(|t| &t.key == key))
-        {
+        if let Some(ix) = self.document_state.active.as_ref().and_then(|key| {
+            self.document_state
+                .tabs
+                .iter()
+                .position(|t| &t.key == key)
+                .or_else(|| {
+                    self.runtime
+                        .collaboration
+                        .tabs
+                        .iter()
+                        .position(|id| subagent_tab_key(id) == *key)
+                        .map(|ix| ix + self.document_state.tabs.len())
+                })
+        }) {
             tabs = tabs.selected_index(ix);
         }
         for tab in &self.document_state.tabs {
@@ -121,11 +130,65 @@ impl Workspace {
                     ),
             );
         }
+        for id in &self.runtime.collaboration.tabs {
+            let key = subagent_tab_key(id);
+            let close_key = key.clone();
+            let agent = self.runtime.agents.iter().find(|agent| agent["id"] == *id);
+            let label = agent
+                .map(|agent| format!("{} · {}", subagent_role(agent), subagent_title(agent)))
+                .unwrap_or_else(|| "子会话".into());
+            tabs = tabs.child(
+                Tab::new()
+                    .debug_selector({
+                        let id = id.clone();
+                        move || format!("subagent-tab-{id}")
+                    })
+                    .aria_label(label.clone())
+                    .label(label)
+                    .selected(self.document_state.active.as_ref() == Some(&key))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.activate_document(Some(key.clone()));
+                        cx.notify();
+                    }))
+                    .suffix(
+                        div()
+                            .h(px(PANE_HEADER_HEIGHT))
+                            .pr_2()
+                            .flex()
+                            .items_center()
+                            .child(
+                                Button::new("close-subagent-tab")
+                                    .ghost()
+                                    .xsmall()
+                                    .icon(IconName::Close)
+                                    .debug_selector({
+                                        let id = id.clone();
+                                        move || format!("close-subagent-tab-{id}")
+                                    })
+                                    .accessibility_label("关闭子会话标签页")
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        cx.stop_propagation();
+                                        this.request_close_document(&close_key, window, cx);
+                                    })),
+                            ),
+                    ),
+            );
+        }
         let items = self
             .document_state
             .tabs
             .iter()
             .map(|t| (t.key.clone(), t.path.to_string_lossy().into_owned()))
+            .chain(self.runtime.collaboration.tabs.iter().map(|id| {
+                let title = self
+                    .runtime
+                    .agents
+                    .iter()
+                    .find(|agent| agent["id"] == *id)
+                    .map(subagent_title)
+                    .unwrap_or("子会话");
+                (subagent_tab_key(id), title.to_owned())
+            }))
             .collect::<Vec<_>>();
         let weak = cx.entity().downgrade();
         if !items.is_empty() {
@@ -150,13 +213,13 @@ impl Workspace {
                         }
                         let weak = weak.clone();
                         menu.separator()
-                            .item(PopupMenuItem::new("关闭所有文件标签页").on_click(
-                                move |_, w, cx| {
+                            .item(
+                                PopupMenuItem::new("关闭所有标签页").on_click(move |_, w, cx| {
                                     let _ = weak.update(cx, |this, cx| {
                                         this.request_close_all_documents(w, cx)
                                     });
-                                },
-                            ))
+                                }),
+                            )
                     }),
             );
         }

@@ -63,6 +63,9 @@ pub fn merge_agent(agents: &mut Vec<Value>, update: &Value) {
     }
     if let Some(fields) = update["progress"].as_object() {
         for key in [
+            "role",
+            "title",
+            "name",
             "agent",
             "task",
             "assignment",
@@ -125,7 +128,7 @@ mod tests {
         );
         merge_agent(
             &mut agents,
-            &json!({"progress":{"id":"scout","agent":"reviewer","status":"running","task":"review"}}),
+            &json!({"progress":{"id":"scout","agent":"reviewer","role":"code-review","title":"Review changes","status":"running","task":"review"}}),
         );
         merge_tool_activity(
             &mut todos,
@@ -136,6 +139,8 @@ mod tests {
         assert_eq!(agents[0]["status"], "completed");
         assert_eq!(agents[0]["sessionFile"], "child.jsonl");
         assert_eq!(agents[0]["task"], "review");
+        assert_eq!(agents[0]["role"], "code-review");
+        assert_eq!(agents[0]["title"], "Review changes");
         assert_eq!(todos.len(), 1);
         merge_agent(&mut agents, &json!({"id":"scout","status":"running"}));
         assert_eq!(

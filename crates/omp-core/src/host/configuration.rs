@@ -33,6 +33,33 @@ impl Configuration {
     }
 }
 
+#[cfg(all(test, windows))]
+mod path_tests {
+    use super::*;
+    #[test]
+    fn agent_directories_and_labels_strip_extended_drive_and_unc_prefixes() {
+        let configuration = Configuration {
+            host: ExecutionHost::Local,
+            omp: "omp".into(),
+            cwd: HostPath::Local(r"\\?\D:\dev\test".into()),
+        };
+        let path = configuration.join(Path::new(r"\\?\D:\dev\test\.omp"), "agents");
+        assert_eq!(path, PathBuf::from(r"D:\dev\test\.omp\agents"));
+        assert_eq!(
+            configuration.display_path(Path::new(r"\\?\D:\dev\test\.omp\agents")),
+            r"D:\dev\test\.omp\agents"
+        );
+        assert_eq!(
+            configuration.display_path(Path::new(r"\\?\UNC\server\share\agents")),
+            r"\\server\share\agents"
+        );
+        assert_eq!(
+            configuration.join(Path::new(r"\\?\UNC\server\share"), "agents"),
+            PathBuf::from(r"\\server\share\agents")
+        );
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum ConfigAction {
@@ -59,6 +86,11 @@ pub enum ConfigAction {
     },
     LoadAgent {
         path: String,
+    },
+    RemoveAgent {
+        base: String,
+        path: String,
+        expected: String,
     },
     SaveAgent {
         draft: Box<AgentDraft>,
@@ -154,6 +186,15 @@ pub fn execute(action: ConfigAction) -> Result<Value> {
         ConfigAction::LoadAgent { path } => {
             Ok(serde_json::to_value(AgentDraft::load(Path::new(&path))?)?)
         }
+        ConfigAction::RemoveAgent {
+            base,
+            path,
+            expected,
+        } => Ok(serde_json::to_value(authoring::remove_agent(
+            Path::new(&base),
+            Path::new(&path),
+            &expected,
+        )?)?),
         ConfigAction::SaveAgent {
             draft,
             base,
@@ -237,7 +278,9 @@ impl Configuration {
     }
     pub fn join(&self, base: &Path, name: &str) -> PathBuf {
         match self.host {
-            ExecutionHost::Local => base.join(name),
+            ExecutionHost::Local => {
+                crate::infrastructure::omp::sessions::plain_path(&base.join(name))
+            }
             ExecutionHost::Remote(_) => format!(
                 "{}/{}",
                 base.to_string_lossy().trim_end_matches('/'),
@@ -245,6 +288,19 @@ impl Configuration {
             )
             .into(),
         }
+    }
+    pub fn display_path(&self, path: &Path) -> String {
+        match self.host {
+            ExecutionHost::Local => crate::infrastructure::omp::sessions::plain_path(path)
+                .display()
+                .to_string(),
+            ExecutionHost::Remote(_) => path.to_string_lossy().into_owned(),
+        }
+    }
+    pub fn import_builtin_agents(&self, base: &Path) -> Result<()> {
+        let directory = self.join(base, "agents").to_string_lossy().into_owned();
+        self.command(&["agents", "unpack", "--dir", &directory, "--json"])?;
+        Ok(())
     }
     pub fn catalog(&self) -> Result<Catalog> {
         self.call(ConfigAction::Catalog {

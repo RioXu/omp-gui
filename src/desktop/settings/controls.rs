@@ -57,6 +57,7 @@ impl SettingsView {
                 self.enums.insert(key.clone(), state);
             }
         }
+        self.ensure_builtin_agents(cx);
     }
     pub(super) fn inline_save(
         &mut self,
@@ -141,6 +142,10 @@ impl SettingsView {
         let description = meta["description"].as_str().unwrap_or("").to_owned();
         div()
             .id(SharedString::from(format!("setting-row-{key}")))
+            .debug_selector({
+                let key = key.to_owned();
+                move || format!("setting-row-{key}")
+            })
             .w_full()
             .h(px(112.))
             .flex()

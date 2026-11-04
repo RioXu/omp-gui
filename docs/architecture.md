@@ -101,15 +101,19 @@ OMP 适配器进一步分为：`client.rs` 管理进程及收发线程，`framin
 
 `omp/sessions` 通过安装的 OMP 查询配置根目录，复用原生项目 JSONL 存储。`mod.rs` 负责发现与缓存，`history.rs` 读取标题槽和当前分支的消息、思考及工具结果，`paths.rs` 统一 Windows 路径和项目桶编码，`operations.rs` 创建、迁移和删除记录及附件，`lease.rs` 与 OMP 的 Windows 进程占用锁互操作。原始日志不由 GUI 消息缓存重写。
 
+`omp/owned_process.rs` 在 Windows 为每个会话传输及 OMP 配置命令创建匿名、不可继承的 Job Object，设置 `KILL_ON_JOB_CLOSE`。子进程先暂停启动，加入 Job 后再恢复，避免包装进程先派生未托管的 Bun；失败路径终止并等待根进程。正常释放终止所属进程树，GUI 被强制结束后系统关闭 Job 句柄并回收后代。配置命令同时排空 stdout／stderr，在根进程结束后回收后代，凭据输入错误同样触发 RAII 清理。清理只根据持有的进程和 Job 句柄，不枚举或按名称结束系统进程。Linux 会话监督策略不变。
+
 `conversation/session_sync.rs` 在后台扫描已打开项目，并在 UI 线程合并结果；工作线程只接收轻量绑定信息，历史缓存共享且按原生文件修订跳过未变化记录。流式回复期间和早于最近消息事件的扫描不覆盖活动会话。`domain/native_history.rs` 按原生消息 ID 或有序文本匹配保留 GUI 消息 ID、评论关联与历史 Diff。持久化数据新增可缺省的原生绑定字段，兼容旧版工作区 JSON。
 
 `conversation/empty_sessions.rs` 在切换离开时清理未使用的新会话。持久化仍保留空白原生绑定，不能只从 GUI JSON 过滤；清理须先停止当前 RPC，再由原生存储取得占用锁并重新核对所有 JSONL 分支，仅初始化元数据的 GUI 新会话才可删除。草稿、评论、快照、任务、附件、备份、未知记录、读错误及外部占用均保留。
 
 `omp/display.rs` 为实时消息、原生日志和子会话提供统一投影，区分助手、Advisor、来信等可见内容，并遵守原生隐藏标记。投影修订加入原生缓存指纹，升级后会重新生成旧展示缓存。`domain/activity.rs` 合并任务与智能体状态，阻止迟到的运行中快照覆盖完成状态。`runtime/collaboration.rs` 管理子会话后台读取，结果校验主会话、子会话和请求身份，文件限于主会话附件范围。
 
-文件链接通过 gpui-kit `MarkdownPlugin` 和 `Link` 渲染，保留原始 Markdown 及其源范围；不重写模型正文。`filesystem/file_references.rs` 负责路径解析与相对路径边界，`documents/file_links.rs` 负责点击打开文件标签。文件增删、重命名触发行内引用重解析；显式打开的外部文件父目录加入非递归监听。任务内容与子智能体面板的呈现放在 `view/activity.rs`，任务浮层入口位于 `view/composer_tasks.rs`；任务阶段使用统一边框容器，任务行组合 gpui-kit `Marker`、`MarkerIcon`、`MarkerContent` 和 `Spinner`，状态名称仅用于提示与无障碍标签，不修改原生任务数据。
+文件链接通过 gpui-kit `MarkdownPlugin` 和 `Link` 渲染，保留原始 Markdown 及其源范围；不重写模型正文。`filesystem/file_references.rs` 负责路径解析与相对路径边界，`documents/file_links.rs` 负责点击打开文件标签。文件增删、重命名触发行内引用重解析；显式打开的外部文件父目录加入非递归监听。任务内容放在 `view/activity.rs`，任务浮层入口位于 `view/composer_tasks.rs`；子智能体列表及只读历史放在 `view/subagents.rs`，列表只呈现 role、状态、标题，点击后在现有 TabBar 中打开子会话标签。子会话标签按主会话和智能体 ID 隔离，不作为项目文件读取或保存；活动子会话独立于面板开关定期刷新。任务阶段使用统一边框容器，任务行组合 gpui-kit `Marker`、`MarkerIcon`、`MarkerContent` 和 `Spinner`，状态名称仅用于提示与无障碍标签，不修改原生任务数据。
 
 配置命令使用明确的导航目标，避免把服务注册入口退化成设置大类；元数据未就绪时保留导航意图，加载后完成跳转。子智能体与角色模型表单使用 gpui-kit Form、Input、Textarea、Select，字段状态属于桌面层；原生文档转换、范围隔离、字段保留及冲突检查属于 `configuration/authoring`。明确带参数的命令继续交给 OMP。
+
+`settings/agents.rs` 提供独立的子智能体管理页，沿用全局／项目范围和既有编辑表单；角色与提示词页只保留角色映射及系统提示词。配置目录扫描同时生成 `AgentEntry` 摘要，格式错误的文件仍列出并允许源码修复；旧目录响应缺少摘要时可退回文件名列表。进入管理页后，通过所选环境执行 `omp agents unpack --dir ... --json` 自动导入当前范围，不使用覆盖标志；按范围记录导入状态，避免刷新后重复导入，手动刷新允许重试失败。`Configuration::join` 与 `display_path` 将 Windows 扩展盘符／UNC 路径转为普通形式，POSIX 路径不经 Windows 处理。移除通过 `ConfigAction::RemoveAgent` 在所属环境检查目录和文件版本，改名为带唯一标识的 `.bak`；不操作其他范围或内置定义。工具调用页的 Eval 定位入口仅过滤原生 `eval.*` 条目，不修改开关。
 
 工作区布局优先组合 gpui-kit `Sidebar`、`TabBar::underline()` 与 `Toolbar`。项目标题需保留悬停新建操作，原生 `SidebarGroup` 仅支持文本标题，因此 `view/sidebar/project.rs` 用轻量 `SidebarItem` 适配标题。项目标题与各会话分别作为原生 Sidebar 虚拟列表中的条目，折叠项目时不生成子条目；`view/sidebar/cache.rs` 缓存按项目分组及时间排序，标题、归属、归档、删除或更新时间变化时重建，消息正文变化复用缓存。菜单只在可见条目渲染时构建，点击按稳定会话 ID 重新定位。右侧保留原生 Tree／变更虚拟列表，不引入 Dock；三栏标题高度由视图层共用常量定义。
 

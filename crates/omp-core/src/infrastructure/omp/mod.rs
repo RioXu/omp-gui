@@ -2,6 +2,7 @@
 mod client;
 mod diagnostics;
 mod display;
+pub(crate) mod owned_process;
 pub use display::display_message;
 mod framing;
 pub use framing::encode as encode_transport_frame;
@@ -30,6 +31,7 @@ impl SessionConnection for Client {
         Client::send(self, frame)
     }
     fn poll(&self, limit: usize) -> Vec<Event> {
+        self.reap_exited_root();
         self.events.try_iter().take(limit).collect()
     }
 }

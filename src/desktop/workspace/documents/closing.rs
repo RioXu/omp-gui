@@ -34,6 +34,10 @@ impl Workspace {
         if self.document_state.prompt.is_some() {
             return;
         }
+        if self.close_subagent_tab(key) {
+            cx.notify();
+            return;
+        }
         let Some(tab) = self.document_state.tabs.iter().find(|t| t.key == key) else {
             return;
         };
@@ -245,6 +249,7 @@ impl Workspace {
                 self.manage_session(&id, delete, window, cx)
             }
             LeaveAction::CloseAll => {
+                self.runtime.collaboration = Default::default();
                 self.clear_documents();
                 cx.notify();
             }
@@ -261,6 +266,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         if self.guard_documents(LeaveAction::CloseAll, window, cx) {
+            self.runtime.collaboration = Default::default();
             self.clear_documents();
             cx.notify();
         }
