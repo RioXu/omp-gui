@@ -192,7 +192,8 @@ fn stream_updates_reuse_history_entities_and_keep_the_scroll_anchor(cx: &mut Tes
         .unwrap()
     });
     handle.update(cx, |_, window, cx| view.update(cx, |this, cx| {
-        for _ in 0..100 { this.db.sessions[0].messages.push(Message::new("user", "history".into())); }
+        // Keep this stream within one display page; page rollover is covered below.
+        for _ in 0..50 { this.db.sessions[0].messages.push(Message::new("user", "history".into())); }
         this.sync_texts(cx);
         let first_id = this.db.sessions[0].messages[0].id.clone();
         let entity = this.runtime.texts[&first_id].state.entity_id();
@@ -282,6 +283,101 @@ fn idle_cache_is_bounded_and_preserves_busy_sessions_release_receipts_and_drafts
                 );
                 assert!(this.background[&busy].needs_poll());
                 drop(tx);
+            })
+        })
+        .unwrap();
+}
+
+#[gpui_kit::test]
+fn bounded_history_pages_preserve_source_and_streaming_state(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let (window, view) = cx.update(|cx| {
+        open_window(WindowOptions::default(), cx, |window, cx| {
+            cx.new(|cx| fixture(window, cx))
+        })
+        .unwrap()
+    });
+    window
+        .update(cx, |_, _, cx| {
+            view.update(cx, |this, cx| {
+                this.db.sessions[0].messages = (0..1000)
+                    .map(|ix| {
+                        Message::new(
+                            if ix % 2 == 0 { "user" } else { "assistant" },
+                            format!("message {ix}"),
+                        )
+                    })
+                    .collect();
+                this.sync_texts(cx);
+                assert_eq!(this.runtime.history_start, 900);
+                assert_eq!(this.runtime.texts.len(), 100);
+                assert_eq!(this.runtime.transcript.len(), 100);
+                let last = this.db.sessions[0].messages[999].id.clone();
+                let entity = this.runtime.texts[&last].state.clone();
+                this.db.sessions[0].messages[999].text.push_str(" streamed");
+                this.runtime.text_updates.insert(999);
+                this.sync_updated_texts(cx);
+                assert_eq!(this.runtime.texts[&last].state, entity);
+                this.show_history_page(Some(900), cx);
+                assert_eq!(this.runtime.history_start, 800);
+                assert!(!this.runtime.texts.contains_key(&last));
+                this.ensure_message_visible(7, cx);
+                assert_eq!(this.runtime.history_start, 0);
+                assert!(this.runtime.transcript[this.row_for_message(7)].contains(7));
+                this.runtime.reveal_tail = true;
+                this.reveal_pending_tail(cx);
+                assert_eq!(this.runtime.history_end, None);
+                assert_eq!(this.runtime.history_start, 900);
+                this.db.sessions[0]
+                    .messages
+                    .push(Message::new("user", "next turn".into()));
+                this.runtime.text_updates.insert(1000);
+                this.sync_updated_texts(cx);
+                assert_eq!(this.runtime.history_start, 901);
+                assert_eq!(this.runtime.texts.len(), 100);
+                assert_eq!(this.db.sessions[0].messages.len(), 1001);
+                assert_eq!(this.db.sessions[0].messages[0].text, "message 0");
+            })
+        })
+        .unwrap();
+}
+
+#[gpui_kit::test]
+fn child_transcript_groups_turns_and_bounds_cached_markdown(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let (window, view) = cx.update(|cx| {
+        open_window(WindowOptions::default(), cx, |window, cx| {
+            cx.new(|cx| fixture(window, cx))
+        })
+        .unwrap()
+    });
+    window
+        .update(cx, |_, _, cx| {
+            view.update(cx, |this, cx| {
+                this.runtime.collaboration.messages = (0..300)
+                    .map(|ix| {
+                        Message::new(
+                            if ix % 3 == 0 { "user" } else { "assistant" },
+                            format!("child {ix}"),
+                        )
+                    })
+                    .collect();
+                this.sync_subagent_view(cx);
+                assert_eq!(this.runtime.collaboration.texts.len(), 100);
+                assert!(this.runtime.collaboration.rows.len() < 100);
+                let id = this.runtime.collaboration.messages[299].id.clone();
+                let entity = this.runtime.collaboration.texts[&id].1.clone();
+                this.sync_subagent_view(cx);
+                assert_eq!(this.runtime.collaboration.texts[&id].1, entity);
+                this.runtime.collaboration.page_end = Some(100);
+                this.sync_subagent_view(cx);
+                assert_eq!(this.runtime.collaboration.texts.len(), 100);
+                assert!(!this.runtime.collaboration.texts.contains_key(&id));
+                assert_eq!(this.runtime.collaboration.messages.len(), 300);
+                assert_eq!(
+                    this.runtime.collaboration.list.item_count(),
+                    this.runtime.collaboration.rows.len()
+                );
             })
         })
         .unwrap();

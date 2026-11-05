@@ -10,6 +10,11 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let key = format!("process-{message_id}-{}", block.id);
+        let search_view = self
+            .search_state
+            .thinking
+            .get(&key)
+            .map(|entry| entry.state.clone());
         let text_id = SharedString::from(format!("thinking-text-{message_id}-{}", block.id));
         let expanded = self.runtime.expanded_process.contains(&key);
         let preview = block.streaming || self.runtime.thinking_previews.contains(&key);
@@ -75,7 +80,10 @@ impl Workspace {
                 .w_full()
                 .flex_shrink_0()
                 .child(
-                    crate::desktop::markdown::view(text_id, &block.text)
+                    search_view
+                        .as_ref()
+                        .map(TextView::new)
+                        .unwrap_or_else(|| crate::desktop::markdown::view(text_id, &block.text))
                         .text_sm()
                         .text_color(crate::desktop::theme::thinking_color(cx)),
                 );

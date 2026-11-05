@@ -13,6 +13,10 @@ pub(in crate::desktop::workspace) struct CollaborationState {
     pub messages: Vec<Message>,
     pub error: Option<String>,
     pub loading: bool,
+    pub list: ListState,
+    pub rows: Vec<TranscriptRow>,
+    pub texts: HashMap<String, (String, Entity<TextViewState>)>,
+    pub page_end: Option<usize>,
     request: String,
     last_read: Instant,
     tx: mpsc::Sender<TranscriptResult>,
@@ -27,6 +31,10 @@ impl Default for CollaborationState {
             messages: vec![],
             error: None,
             loading: false,
+            list: ListState::new(0, ListAlignment::Bottom, px(600.)),
+            rows: vec![],
+            texts: HashMap::new(),
+            page_end: None,
             request: String::new(),
             last_read: Instant::now(),
             tx,
@@ -81,6 +89,10 @@ impl Workspace {
             return;
         }
         self.runtime.collaboration.messages.clear();
+        self.runtime.collaboration.rows.clear();
+        self.runtime.collaboration.texts.clear();
+        self.runtime.collaboration.page_end = None;
+        self.runtime.collaboration.list.reset(0);
         self.runtime.collaboration.error = None;
         self.runtime.collaboration.loading = false;
         self.runtime.collaboration.selected = Some(id);
@@ -100,6 +112,9 @@ impl Workspace {
         if self.runtime.collaboration.selected.as_ref() == Some(&id) {
             self.runtime.collaboration.selected = None;
             self.runtime.collaboration.messages.clear();
+            self.runtime.collaboration.rows.clear();
+            self.runtime.collaboration.texts.clear();
+            self.runtime.collaboration.list.reset(0);
             self.runtime.collaboration.loading = false;
             self.runtime.collaboration.error = None;
         }
@@ -167,6 +182,7 @@ impl Workspace {
             match result.result {
                 Ok(messages) => {
                     self.runtime.collaboration.messages = messages;
+                    self.sync_subagent_view(cx);
                     self.runtime.collaboration.error = None;
                 }
                 Err(error) => self.runtime.collaboration.error = Some(error),
@@ -179,6 +195,55 @@ impl Workspace {
             && self.runtime.collaboration.last_read.elapsed() > Duration::from_secs(2)
         {
             self.read_subagent();
+        }
+    }
+
+    pub(in crate::desktop::workspace) fn sync_subagent_view(&mut self, cx: &mut Context<Self>) {
+        let state = &mut self.runtime.collaboration;
+        let end = state
+            .page_end
+            .unwrap_or(state.messages.len())
+            .min(state.messages.len());
+        let start = end.saturating_sub(100);
+        let messages = &state.messages[start..end];
+        state
+            .texts
+            .retain(|id, _| messages.iter().any(|m| &m.id == id));
+        for message in messages {
+            if let Some((body, view)) = state.texts.get_mut(&message.id) {
+                if *body != message.text {
+                    *body = message.text.clone();
+                    let (display, _) = crate::desktop::markdown::prepare(body);
+                    view.update(cx, |s, cx| s.set_text(display.as_ref(), cx));
+                }
+            } else {
+                let (display, _) = crate::desktop::markdown::prepare(&message.text);
+                let view = cx.new(|cx| TextViewState::markdown(&display, cx).selectable(true));
+                state
+                    .texts
+                    .insert(message.id.clone(), (message.text.clone(), view));
+            }
+        }
+        state.rows = transcript_rows(messages)
+            .into_iter()
+            .map(|row| match row {
+                TranscriptRow::User(ix) => TranscriptRow::User(ix + start),
+                TranscriptRow::Notice(ix) => TranscriptRow::Notice(ix + start),
+                TranscriptRow::Assistant(range) => {
+                    TranscriptRow::Assistant(range.start + start..range.end + start)
+                }
+            })
+            .collect();
+        let old = state.list.item_count();
+        let count = state.rows.len();
+        if old != count {
+            state
+                .list
+                .splice(old.min(count)..old, count.saturating_sub(old));
+        }
+        state.list.remeasure_items(0..count);
+        if self.search_state.open && self.active_subagent().is_some() {
+            self.update_search(false, cx);
         }
     }
 }

@@ -43,6 +43,13 @@ impl Workspace {
     }
     pub fn open_anchor(&mut self, anchor: Anchor, cx: &mut Context<Self>) {
         if let Source::Message(id) = &anchor.source
+            && let Some(ix) = self
+                .session()
+                .and_then(|s| s.messages.iter().position(|m| &m.id == id))
+        {
+            self.ensure_message_visible(ix, cx);
+        }
+        if let Source::Message(id) = &anchor.source
             && let Some((ix, state, offsets)) = self
                 .session()
                 .and_then(|s| s.messages.iter().position(|m| &m.id == id))

@@ -8,8 +8,11 @@ use gpui_kit::component::{
 struct SessionAttention;
 
 impl Workspace {
-    pub(in crate::desktop::workspace) fn reveal_pending_tail(&mut self) {
+    pub(in crate::desktop::workspace) fn reveal_pending_tail(&mut self, cx: &mut Context<Self>) {
         if !self.polling_background && std::mem::take(&mut self.runtime.reveal_tail) {
+            if self.runtime.history_end.is_some() {
+                self.show_history_page(None, cx);
+            }
             self.runtime.list.scroll_to_end();
         }
     }

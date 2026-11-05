@@ -110,3 +110,113 @@ fn thinking_follows_the_last_five_wrapped_lines_and_can_collapse_while_streaming
     visual.update(|window, cx| window.draw(cx).clear(cx));
     assert!(visual.debug_bounds("thinking-full").unwrap().size.height > px(120.));
 }
+
+#[gpui_kit::test]
+fn search_finds_collapsed_thinking_in_main_and_child_tabs(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let mut message = Message::new("assistant", "最终答案不含查找词".into());
+    message.process = process_blocks(
+        &json!({"content":[{"type":"thinking","thinking":"前言\n\n**独有思考词** 和中文。"}]}),
+        "message_end",
+        "",
+    );
+    let message_id = message.id.clone();
+    let block_id = message.process[0].id.clone();
+    let (window, view) = cx.update(|cx| {
+        open_window(WindowOptions::default(), cx, |window, cx| {
+            cx.new(|cx| {
+                let mut this = fixture(window, cx);
+                this.db.sessions[0].messages = vec![message.clone()];
+                this.panel_open = false;
+                this.sync_texts(cx);
+                this
+            })
+        })
+        .unwrap()
+    });
+    let mut visual = VisualTestContext::from_window(window, cx);
+    visual.simulate_resize(size(px(1100.), px(850.)));
+    for child in [false, true] {
+        visual.update(|window, cx| {
+            view.update(cx, |this, cx| {
+                if child {
+                    this.runtime.agents = vec![
+                        json!({"id":"child","role":"reviewer","title":"检查","status":"completed"}),
+                    ];
+                    this.open_subagent("child".into());
+                    this.runtime.collaboration.messages = vec![message.clone()];
+                    this.sync_subagent_view(cx);
+                }
+                this.runtime.expanded_process.clear();
+                this.search_state
+                    .input
+                    .update(cx, |input, cx| input.set_value("独有思考词", window, cx));
+                this.open_search(window, cx);
+            })
+        });
+        visual.run_until_parked();
+        visual.update(|_, cx| view.update(cx, |this, cx| this.update_search(false, cx)));
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let key = format!(
+            "process-{}{message_id}-{block_id}",
+            if child { "child-" } else { "" }
+        );
+        view.read_with(&visual, |this, cx| {
+            assert_eq!(this.search_state.hits.len(), 1);
+            assert_eq!(this.search_state.hits[0].0, key);
+            assert!(this.runtime.expanded_process.contains(&key));
+            let rendered = this.search_state.thinking[&key]
+                .state
+                .read(cx)
+                .rendered_text();
+            assert_eq!(
+                &rendered.as_str()[this.search_state.hits[0].1.clone()],
+                "独有思考词"
+            );
+        });
+        assert!(
+            visual.debug_bounds("thinking-full").is_some(),
+            "search must open both outer process and inner thinking"
+        );
+        // A match arriving from streaming updates must not expand or reveal itself.
+        visual.update(|window, cx| {
+            view.update(cx, |this, cx| {
+                this.search_state
+                    .input
+                    .update(cx, |input, cx| input.set_value("新增思考词", window, cx));
+                this.update_search(true, cx);
+                assert!(this.search_state.hits.is_empty());
+                this.runtime.expanded_process.clear();
+                if child {
+                    this.runtime.collaboration.messages[0].process[0]
+                        .text
+                        .push_str(" 新增思考词");
+                    this.sync_subagent_view(cx);
+                } else {
+                    this.db.sessions[0].messages[0].process[0]
+                        .text
+                        .push_str(" 新增思考词");
+                    this.runtime.text_updates.insert(0);
+                    this.sync_updated_texts(cx);
+                }
+            })
+        });
+        visual.run_until_parked();
+        visual.update(|_, cx| {
+            view.update(cx, |this, cx| {
+                this.update_search(false, cx);
+                assert_eq!(this.search_state.hits.len(), 1);
+                assert!(!this.runtime.expanded_process.contains(&key));
+                this.move_search(false, cx);
+                assert!(this.runtime.expanded_process.contains(&key));
+                this.move_search(true, cx);
+                assert_eq!(this.search_state.index, 0);
+            })
+        });
+        visual.update(|window, cx| view.update(cx, |this, cx| this.close_search(window, cx)));
+        view.read_with(&visual, |this, _| {
+            assert!(this.search_state.thinking.is_empty())
+        });
+    }
+}

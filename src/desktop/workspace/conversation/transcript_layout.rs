@@ -1,5 +1,7 @@
 use super::*;
 
+pub(in crate::desktop::workspace) const HISTORY_PAGE_SIZE: usize = 100;
+
 impl Workspace {
     /// A backend transition must not collapse the process the user is reading.
     pub(in crate::desktop::workspace) fn retain_process_display(&mut self) {
@@ -39,6 +41,7 @@ impl Workspace {
     /// Layout changes must not clear the reader's scroll anchor.
     pub fn invalidate_list(&self) {
         invalidate_preserving_scroll(&self.runtime.list);
+        invalidate_preserving_scroll(&self.runtime.collaboration.list);
     }
     pub(in crate::desktop::workspace) fn refresh_transcript(&self) {
         update_list_preserving_scroll(&self.runtime.list, 0, self.runtime.transcript.len());
@@ -59,13 +62,17 @@ impl Workspace {
             return;
         }
         let patch = self.session().and_then(|s| {
-            s.messages.iter().find_map(|m| {
-                m.process.iter().find_map(|b| {
-                    (format!("process-{}-{}", m.id, b.id) == key)
-                        .then(|| b.patch.clone())
-                        .flatten()
+            s.messages
+                .iter()
+                .chain(self.runtime.collaboration.messages.iter())
+                .find_map(|m| {
+                    m.process.iter().find_map(|b| {
+                        (format!("process-{}-{}", m.id, b.id) == key
+                            || format!("process-child-{}-{}", m.id, b.id) == key)
+                            .then(|| b.patch.clone())
+                            .flatten()
+                    })
                 })
-            })
         });
         if let Some(patch) = patch
             && let Ok(files) = DiffFile::parse(&patch)
@@ -126,7 +133,7 @@ fn update_transcript_tail(
         .saturating_sub(1);
     let start = rows
         .get(row)
-        .map_or(0, |row| match row {
+        .map_or(first, |row| match row {
             TranscriptRow::User(ix) | TranscriptRow::Notice(ix) => *ix,
             TranscriptRow::Assistant(range) => range.start,
         })
@@ -162,10 +169,28 @@ impl Workspace {
     }
     pub fn sync_texts(&mut self, cx: &mut Context<Self>) {
         let Some(ix) = self.active else { return };
+        let offset = self.runtime.list.logical_scroll_top();
+        let anchor = self
+            .runtime
+            .transcript
+            .get(offset.item_ix)
+            .map(|row| match row {
+                TranscriptRow::User(ix) | TranscriptRow::Notice(ix) => *ix,
+                TranscriptRow::Assistant(range) => range.start,
+            });
+        let end = self
+            .runtime
+            .history_end
+            .unwrap_or(self.db.sessions[ix].messages.len())
+            .min(self.db.sessions[ix].messages.len());
+        let start = end.saturating_sub(HISTORY_PAGE_SIZE);
+        self.runtime.history_start = start;
         self.runtime.message_indices = self.db.sessions[ix]
             .messages
             .iter()
             .enumerate()
+            .take(end)
+            .skip(start)
             .map(|(ix, m)| (m.id.clone(), ix))
             .collect();
         self.runtime
@@ -173,24 +198,42 @@ impl Workspace {
             .retain(|id, _| self.runtime.message_indices.contains_key(id));
         self.runtime.transcript.clear();
         self.runtime.transcript_message_count = 0;
-        self.runtime.text_updates = (0..self.db.sessions[ix].messages.len()).collect();
+        self.runtime.text_updates = (start..end).collect();
         if self.runtime.text_updates.is_empty() {
             self.refresh_transcript();
         } else {
             self.sync_updated_texts(cx);
         }
-        self.reveal_pending_tail();
+        if let Some(index) = anchor.filter(|index| *index >= start && *index < end) {
+            self.runtime.list.scroll_to(ListOffset {
+                item_ix: self.row_for_message(index),
+                offset_in_item: offset.offset_in_item,
+            });
+        }
+        self.reveal_pending_tail(cx);
     }
     pub(in crate::desktop::workspace) fn sync_updated_texts(&mut self, cx: &mut Context<Self>) {
         let Some(ix) = self.active else { return };
-        let updates = std::mem::take(&mut self.runtime.text_updates);
+        let end = self
+            .runtime
+            .history_end
+            .unwrap_or(self.db.sessions[ix].messages.len())
+            .min(self.db.sessions[ix].messages.len());
+        if self.runtime.history_start != end.saturating_sub(HISTORY_PAGE_SIZE) {
+            self.sync_texts(cx);
+            return;
+        }
+        let updates: Vec<_> = std::mem::take(&mut self.runtime.text_updates)
+            .into_iter()
+            .filter(|ix| *ix >= self.runtime.history_start && *ix < end)
+            .collect();
         let Some(&first) = updates.first() else {
             return;
         };
         // Reading does not require a selection. Materialize the measured end
         // anchor before any model-driven update can grow or shrink its row.
         freeze_reading_anchor(&self.runtime.list);
-        let messages = &self.db.sessions[ix].messages;
+        let messages = &self.db.sessions[ix].messages[..end];
         for index in updates {
             let Some(m) = messages.get(index) else {
                 continue;
@@ -229,6 +272,36 @@ impl Workspace {
         update_list_preserving_scroll(&self.runtime.list, row, self.runtime.transcript.len());
         if self.search_state.open && !self.polling_background {
             self.update_search(false, cx);
+        }
+    }
+
+    pub(in crate::desktop::workspace) fn show_history_page(
+        &mut self,
+        end: Option<usize>,
+        cx: &mut Context<Self>,
+    ) {
+        self.runtime.history_end = end;
+        self.runtime.texts.clear();
+        self.runtime.tool_diffs.clear();
+        self.sync_texts(cx);
+        self.runtime.list.scroll_to(ListOffset {
+            item_ix: 0,
+            offset_in_item: px(0.),
+        });
+        cx.notify();
+    }
+
+    pub(in crate::desktop::workspace) fn ensure_message_visible(
+        &mut self,
+        ix: usize,
+        cx: &mut Context<Self>,
+    ) {
+        let end = self
+            .runtime
+            .history_end
+            .unwrap_or_else(|| self.session().map_or(0, |s| s.messages.len()));
+        if ix < self.runtime.history_start || ix >= end {
+            self.show_history_page(Some(ix.saturating_add(1).max(HISTORY_PAGE_SIZE)), cx);
         }
     }
 }

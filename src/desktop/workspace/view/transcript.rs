@@ -193,7 +193,7 @@ impl Workspace {
 /// after the row is laid out and adjust the scroll anchor on the next frame.
 /// This preserves native text range/highlight handling without a duplicate
 /// accessibility tree (or disabling accessibility).
-fn transcript_row(body: impl IntoElement, row: usize, list: ListState) -> AnyElement {
+pub(super) fn transcript_row(body: impl IntoElement, row: usize, list: ListState) -> AnyElement {
     div()
         .w_full()
         .px(relative(0.1))

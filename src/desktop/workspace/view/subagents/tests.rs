@@ -45,8 +45,24 @@ fn compact_subagent_rows_open_reusable_central_tabs_and_close_independently(
         );
     }
     click(&mut visual, "subagent-row-a");
+    visual.update(|_, cx| {
+        view.update(cx, |this, cx| {
+            use crate::domain::Message;
+            this.runtime.collaboration.messages = vec![
+                Message::new("user", "检查这个实现".into()),
+                Message::new("assistant", "检查过程".into()),
+                Message::new("assistant", "## 检查结果\n\n实现已经完成。".into()),
+            ];
+            this.sync_subagent_view(cx);
+            cx.notify();
+        })
+    });
+    draw(&mut visual);
     assert!(visual.debug_bounds("subagent-tab-a").is_some());
     let transcript = visual.debug_bounds("subagent-transcript-a").unwrap();
+    let message = visual.debug_bounds("child-message-body").unwrap();
+    assert!(message.left() > transcript.left());
+    assert!(message.right() < transcript.right());
     let row = visual.debug_bounds("subagent-row-a").unwrap();
     assert!(
         transcript.right() < row.left(),

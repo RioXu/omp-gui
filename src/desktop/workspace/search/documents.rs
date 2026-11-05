@@ -5,6 +5,13 @@ use std::ops::Range;
 
 impl Workspace {
     pub(in crate::desktop::workspace) fn clear_search_marks(&mut self, cx: &mut Context<Self>) {
+        self.search_state.thinking.clear();
+        self.search_state.pending_thinking_reveal = None;
+        for (_, state) in self.runtime.collaboration.texts.values() {
+            state.update(cx, |s, cx| {
+                let _ = s.set_range_highlights([], cx);
+            });
+        }
         for entry in self.runtime.texts.values() {
             entry.state.update(cx, |s, cx| {
                 let _ = s.set_range_highlights([], cx);

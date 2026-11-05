@@ -103,6 +103,8 @@ impl Workspace {
                 hits: vec![],
                 index: 0,
                 rendered_text: HashMap::new(),
+                thinking: HashMap::new(),
+                pending_thinking_reveal: None,
             },
             document_state: DocumentState {
                 tabs: Vec::new(),

@@ -5,3 +5,4 @@ mod documents;
 
 mod state;
 pub(in crate::desktop::workspace) use state::SearchState;
+pub(in crate::desktop::workspace) use state::ThinkingSearch;

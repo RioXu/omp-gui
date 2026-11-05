@@ -122,7 +122,7 @@ impl Workspace {
             self.sync_updated_texts(cx);
         }
         if !self.polling_background {
-            self.reveal_pending_tail();
+            self.reveal_pending_tail(cx);
         }
         if self.runtime.connected
             && self.runtime.running
@@ -143,10 +143,10 @@ impl Workspace {
         // Markdown parsing can finish after the stream update that scheduled it.
         if self.search_state.open
             && (self.search_state.scope != self.document_state.active
-                || (self.document_state.active.is_none()
-                    && self.runtime.texts.iter().any(|(id, entry)| {
+                || ((self.document_state.active.is_none() || self.active_subagent().is_some())
+                    && self.conversation_search_views().iter().any(|(id, state)| {
                         self.search_state.rendered_text.get(id)
-                            != Some(&entry.state.read(cx).rendered_text())
+                            != Some(&state.read(cx).rendered_text())
                     }))
                 || self
                     .document_state

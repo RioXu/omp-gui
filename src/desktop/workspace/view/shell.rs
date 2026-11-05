@@ -260,6 +260,57 @@ impl Render for Workspace {
                 );
             }
             if self.session().is_some_and(|s| !s.messages.is_empty()) {
+                let total = self.session().unwrap().messages.len();
+                let start = self.runtime.history_start;
+                let end = self.runtime.history_end.unwrap_or(total).min(total);
+                if total > 100 {
+                    center = center.child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .px(relative(0.1))
+                            .py_2()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(format!(
+                                "显示第 {}–{} 条 · 共 {} 条（搜索当前页）",
+                                start + 1,
+                                end,
+                                total
+                            ))
+                            .child(
+                                Button::new("history-older")
+                                    .ghost()
+                                    .xsmall()
+                                    .label("更早记录")
+                                    .disabled(start == 0)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.show_history_page(Some(start), cx)
+                                    })),
+                            )
+                            .child(
+                                Button::new("history-newer")
+                                    .ghost()
+                                    .xsmall()
+                                    .label("较新记录")
+                                    .disabled(end == total)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.show_history_page(Some((end + 100).min(total)), cx)
+                                    })),
+                            )
+                            .child(
+                                Button::new("history-latest")
+                                    .ghost()
+                                    .xsmall()
+                                    .label("回到最新")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.show_history_page(None, cx);
+                                        this.runtime.list.scroll_to_end();
+                                    })),
+                            ),
+                    );
+                }
                 let weak = cx.entity().downgrade();
                 center = center.child(
                     div()

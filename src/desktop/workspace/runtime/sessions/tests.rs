@@ -68,6 +68,8 @@ pub(in crate::desktop::workspace) fn fixture(
             hits: vec![],
             index: 0,
             rendered_text: HashMap::new(),
+            thinking: HashMap::new(),
+            pending_thinking_reveal: None,
         },
         document_state: DocumentState {
             tabs: vec![],
