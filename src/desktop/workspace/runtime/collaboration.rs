@@ -31,7 +31,11 @@ impl Default for CollaborationState {
             messages: vec![],
             error: None,
             loading: false,
-            list: ListState::new(0, ListAlignment::Bottom, px(600.)),
+            list: {
+                let list = ListState::new(0, ListAlignment::Bottom, px(600.));
+                list.set_follow_mode(gpui_kit::FollowMode::Tail);
+                list
+            },
             rows: vec![],
             texts: HashMap::new(),
             page_end: None,
@@ -93,6 +97,10 @@ impl Workspace {
         self.runtime.collaboration.texts.clear();
         self.runtime.collaboration.page_end = None;
         self.runtime.collaboration.list.reset(0);
+        self.runtime
+            .collaboration
+            .list
+            .set_follow_mode(gpui_kit::FollowMode::Tail);
         self.runtime.collaboration.error = None;
         self.runtime.collaboration.loading = false;
         self.runtime.collaboration.selected = Some(id);
@@ -200,6 +208,9 @@ impl Workspace {
 
     pub(in crate::desktop::workspace) fn sync_subagent_view(&mut self, cx: &mut Context<Self>) {
         let state = &mut self.runtime.collaboration;
+        if state.page_end.is_some() {
+            state.list.set_follow_mode(gpui_kit::FollowMode::Normal);
+        }
         let end = state
             .page_end
             .unwrap_or(state.messages.len())

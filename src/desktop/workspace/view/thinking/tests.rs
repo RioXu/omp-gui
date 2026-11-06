@@ -120,6 +120,10 @@ fn search_finds_collapsed_thinking_in_main_and_child_tabs(cx: &mut TestAppContex
         "message_end",
         "",
     );
+    let calls: Vec<_> = (0..100).map(|ix| json!({"type":"toolCall","id":format!("read-{ix}"),"name":"read","arguments":{"path":"file.rs"}})).collect();
+    message
+        .process
+        .extend(process_blocks(&json!({"content":calls}), "message_end", ""));
     let message_id = message.id.clone();
     let block_id = message.process[0].id.clone();
     let (window, view) = cx.update(|cx| {

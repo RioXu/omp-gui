@@ -9,6 +9,7 @@ mod conversation_layout_tests;
 mod documents;
 mod notice;
 mod panel;
+pub(in crate::desktop::workspace) mod process_view;
 mod progress;
 mod requests;
 mod search;

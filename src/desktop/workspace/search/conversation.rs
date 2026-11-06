@@ -238,6 +238,13 @@ impl Workspace {
             });
         }
         if let Some(state) = target {
+            self.reveal_process_location(
+                &message_id,
+                self.search_state
+                    .thinking
+                    .contains_key(&id)
+                    .then_some(id.as_str()),
+            );
             state.update(cx, |s, cx| {
                 let _ = s.reveal_range(range, cx);
             });

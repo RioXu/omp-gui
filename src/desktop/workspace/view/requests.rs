@@ -35,7 +35,7 @@ impl Workspace {
                         .small()
                         .label(text)
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            this.answer_request(Some(value.clone()), None);
+                            this.answer_request(Some(value.clone()), None, cx);
                             cx.notify();
                         })),
                 );
@@ -46,7 +46,7 @@ impl Workspace {
                     .small()
                     .label("允许")
                     .on_click(cx.listener(|this, _, _, cx| {
-                        this.answer_request(None, Some(true));
+                        this.answer_request(None, Some(true), cx);
                         cx.notify();
                     })),
             );
@@ -57,10 +57,11 @@ impl Workspace {
                     .label("提交回答")
                     .on_click(cx.listener(|this, _, w, cx| {
                         let v = this.runtime.answer_input.read(cx).value().to_string();
-                        this.answer_request(Some(v), None);
-                        this.runtime
-                            .answer_input
-                            .update(cx, |i, cx| i.set_value("", w, cx));
+                        if this.answer_request(Some(v), None, cx) {
+                            this.runtime
+                                .answer_input
+                                .update(cx, |i, cx| i.set_value("", w, cx));
+                        }
                         cx.notify();
                     })),
             );
@@ -71,7 +72,7 @@ impl Workspace {
                 .small()
                 .label("取消 / 拒绝")
                 .on_click(cx.listener(|this, _, _, cx| {
-                    this.answer_request(None, None);
+                    this.answer_request(None, None, cx);
                     cx.notify();
                 })),
         )

@@ -4,7 +4,7 @@ use core::prelude::v1::test;
 use gpui_kit::TestAppContext;
 
 #[gpui_kit::test]
-fn body_stream_preserves_reading_position_and_completion_reveals_the_end(cx: &mut TestAppContext) {
+fn body_stream_follows_tail_but_preserves_scrolled_up_reading_position(cx: &mut TestAppContext) {
     use gpui_kit::{VisualTestContext, size};
     cx.update(gpui_kit::init);
     let initial = "A paragraph of model output to read.\n\n".repeat(80);
@@ -27,8 +27,8 @@ fn body_stream_preserves_reading_position_and_completion_reveals_the_end(cx: &mu
     visual.simulate_resize(size(px(1100.), px(850.)));
     visual.run_until_parked();
     visual.update(|window, cx| window.draw(cx).clear(cx));
-    // No selection is required to read. Starting at the measured bottom must
-    // not leave an implicit end anchor that moves on every model token.
+    // At the bottom, streaming follows output without moving keyboard focus.
+    // Once the user scrolls up, subsequent body changes preserve the viewport.
     let (mut position, focus, session) = visual.update(|window, cx| {
         let focus = view.read(cx).runtime.composer_state.input.focus_handle(cx);
         focus.focus(window, cx);
@@ -61,7 +61,7 @@ fn body_stream_preserves_reading_position_and_completion_reveals_the_end(cx: &mu
             let this = view.read(cx);
             if matches!(
                 frame["type"].as_str(),
-                Some("agent_end" | "session_settled" | "extension_ui_request")
+                Some("message_update" | "agent_end" | "session_settled" | "extension_ui_request")
             ) {
                 assert_eq!(this.runtime.list.is_scrolled_to_end(), Some(true));
             } else {
@@ -80,7 +80,11 @@ fn body_stream_preserves_reading_position_and_completion_reveals_the_end(cx: &mu
             // deliberately reveals the final output even after scrolling up.
             visual.update(|_, cx| {
                 view.update(cx, |this, cx| {
-                    this.runtime.list.scroll_by(px(-400.));
+                    let offset = -this.runtime.list.scroll_px_offset_for_scrollbar().y - px(400.);
+                    this.runtime.list.scroll_to(ListOffset {
+                        item_ix: 0,
+                        offset_in_item: offset.max(px(0.)),
+                    });
                     cx.notify();
                 })
             });
@@ -91,6 +95,37 @@ fn body_stream_preserves_reading_position_and_completion_reveals_the_end(cx: &mu
             });
         }
     }
+    // Scrolling back to the bottom (without a completion event) resumes follow.
+    visual.update(|_, cx| {
+        view.update(cx, |this, cx| {
+            let offset = -this.runtime.list.scroll_px_offset_for_scrollbar().y - px(400.);
+            this.runtime.list.scroll_to(ListOffset {
+                item_ix: 0,
+                offset_in_item: offset.max(px(0.)),
+            });
+            cx.notify();
+        })
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(!view.read_with(&visual, |this, _| this.runtime.list.is_following_tail()));
+    visual.update(|_, cx| {
+        view.update(cx, |this, cx| {
+            this.runtime.list.scroll_by(px(100000.));
+            cx.notify();
+        })
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.update(|window, cx| view.update(cx, |this, cx| {
+        this.on_frame(json!({"type":"message_update", "messageId":"live", "message":{"role":"assistant", "content":[{"type":"text", "text":initial.repeat(3)}]}}), window, cx);
+        this.poll_engine(window, cx);
+        cx.notify();
+    }));
+    visual.run_until_parked();
+    visual.update(|window, cx| {
+        window.draw(cx).clear(cx);
+        assert_eq!(view.read(cx).runtime.list.is_scrolled_to_end(), Some(true));
+        assert_eq!(window.focused(cx), focus);
+    });
 }
 
 #[gpui_kit::test]
@@ -148,7 +183,8 @@ fn settling_does_not_collapse_the_process_being_read(cx: &mut TestAppContext) {
                 .expanded_process
                 .contains(&format!("turn-{}", this.db.sessions[0].messages[0].id))
         );
-        assert_eq!(this.runtime.list.is_scrolled_to_end(), Some(true));
+        assert!(this.runtime.list.is_following_tail());
+        assert_ne!(this.runtime.list.is_scrolled_to_end(), Some(false));
     });
 }
 
@@ -381,4 +417,86 @@ fn child_transcript_groups_turns_and_bounds_cached_markdown(cx: &mut TestAppCont
             })
         })
         .unwrap();
+}
+
+#[gpui_kit::test]
+fn child_stream_follows_only_while_at_tail(cx: &mut TestAppContext) {
+    use gpui_kit::{VisualTestContext, size};
+    cx.update(gpui_kit::init);
+    let (window, view) = cx.update(|cx| {
+        open_window(WindowOptions::default(), cx, |window, cx| {
+            cx.new(|cx| {
+                let mut this = fixture(window, cx);
+                this.runtime.agents =
+                    vec![json!({"id":"a","role":"worker","title":"Child","status":"running"})];
+                this.open_subagent("a".into());
+                this.runtime.collaboration.messages =
+                    vec![Message::new("assistant", "short".into())];
+                this.sync_subagent_view(cx);
+                this
+            })
+        })
+        .unwrap()
+    });
+    let mut visual = VisualTestContext::from_window(window, cx);
+    visual.simulate_resize(size(px(1100.), px(850.)));
+    visual.run_until_parked();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    for step in 0..3 {
+        visual.update(|_, cx| {
+            view.update(cx, |this, cx| {
+                if step == 1 {
+                    let offset = -this
+                        .runtime
+                        .collaboration
+                        .list
+                        .scroll_px_offset_for_scrollbar()
+                        .y
+                        - px(300.);
+                    this.runtime.collaboration.list.scroll_to(ListOffset {
+                        item_ix: 0,
+                        offset_in_item: offset.max(px(0.)),
+                    });
+                }
+                if step == 2 {
+                    this.runtime.collaboration.list.scroll_by(px(100000.));
+                }
+                cx.notify();
+            })
+        });
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let position = view.read_with(&visual, |this, _| {
+            this.runtime
+                .collaboration
+                .list
+                .scroll_px_offset_for_scrollbar()
+        });
+        visual.update(|_, cx| {
+            view.update(cx, |this, cx| {
+                this.runtime.collaboration.messages[0].text =
+                    "Child output paragraph.\n\n".repeat(100 + step * 30);
+                this.sync_subagent_view(cx);
+                cx.notify();
+            })
+        });
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        view.read_with(&visual, |this, _| {
+            if step == 1 {
+                assert_eq!(
+                    this.runtime
+                        .collaboration
+                        .list
+                        .scroll_px_offset_for_scrollbar(),
+                    position
+                );
+                assert!(!this.runtime.collaboration.list.is_following_tail());
+            } else {
+                assert_eq!(
+                    this.runtime.collaboration.list.is_scrolled_to_end(),
+                    Some(true)
+                );
+            }
+        });
+    }
 }

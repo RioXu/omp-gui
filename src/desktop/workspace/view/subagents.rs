@@ -202,6 +202,10 @@ impl Workspace {
                             .label("回到最新")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.runtime.collaboration.page_end = None;
+                                this.runtime
+                                    .collaboration
+                                    .list
+                                    .set_follow_mode(gpui_kit::FollowMode::Tail);
                                 this.sync_subagent_view(cx);
                                 this.runtime.collaboration.list.scroll_to_end();
                                 cx.notify();
@@ -253,8 +257,8 @@ impl Workspace {
                     .flex_1()
                     .min_h_0()
                     .child(
-                        list(state.list.clone(), move |row, _, cx| {
-                            weak.update(cx, |this, cx| this.render_child_row(row, cx))
+                        list(state.list.clone(), move |row, window, cx| {
+                            weak.update(cx, |this, cx| this.render_child_row(row, window, cx))
                                 .unwrap_or_else(|_| div().into_any_element())
                         })
                         .flex_1()
@@ -266,7 +270,12 @@ impl Workspace {
         body.into_any_element()
     }
 
-    fn render_child_row(&self, row: usize, cx: &mut Context<Self>) -> AnyElement {
+    fn render_child_row(
+        &self,
+        row: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let state = &self.runtime.collaboration;
         let Some(entry) = state.rows.get(row) else {
             return div().into_any_element();
@@ -291,7 +300,6 @@ impl Workspace {
             state.selected.as_deref().unwrap_or(""),
             messages[0].id
         );
-        let expanded = self.runtime.expanded_process.contains(&key);
         let mut body = div()
             .debug_selector(|| "child-message-body".into())
             .flex()
@@ -311,38 +319,8 @@ impl Workspace {
                     }),
             );
         if !user {
-            let mut process = div().flex().flex_col().gap_1();
-            let mut steps = 0;
-            for message in messages {
-                for block in &message.process {
-                    steps += 1;
-                    if expanded {
-                        process = process.child(self.render_process_block(
-                            &format!("child-{}", message.id),
-                            block,
-                            cx,
-                        ));
-                    }
-                }
-                if (message.id != last.id
-                    || message.process.iter().any(|b| b.kind == ProcessKind::Tool))
-                    && !message.text.is_empty()
-                {
-                    steps += 1;
-                    if expanded && let Some((_, view)) = state.texts.get(&message.id) {
-                        process = process.child(self.file_link_view(TextView::new(view), cx));
-                    }
-                }
-            }
-            if steps > 0 {
-                body = body.child(self.process_section(
-                    key,
-                    format!("过程记录 · {steps} 项"),
-                    false,
-                    process,
-                    cx,
-                ));
-            }
+            let refs: Vec<_> = messages.iter().collect();
+            body = body.child(self.render_turn_process(key, &refs, false, true, window, cx));
         }
         if (user || !last.process.iter().any(|b| b.kind == ProcessKind::Tool))
             && let Some((text, view)) = state.texts.get(&last.id)

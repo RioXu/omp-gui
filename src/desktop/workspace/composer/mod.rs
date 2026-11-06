@@ -4,6 +4,7 @@ mod completion;
 mod settings_commands;
 
 mod attachments;
+mod history;
 mod state;
 pub(in crate::desktop::workspace) use attachments::AttachmentImports;
 pub(in crate::desktop::workspace) use state::ComposerState;

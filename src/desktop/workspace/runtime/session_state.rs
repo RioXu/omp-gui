@@ -17,6 +17,8 @@ pub(in crate::desktop::workspace) struct SessionRuntime {
     pub run_message_start: usize,
     pub submitted_inputs: Vec<SubmittedInput>,
     pub expanded_process: std::collections::HashSet<String>,
+    pub process_lists: view::process_view::ProcessLists,
+    pub process_texts: view::process_view::ProcessTexts,
     pub thinking_previews: std::collections::HashSet<String>,
     pub text_update_pending: bool,
     pub text_updates: std::collections::BTreeSet<usize>,
@@ -52,6 +54,7 @@ pub(in crate::desktop::workspace) struct SessionRuntime {
     pub queued_inputs: Vec<String>,
     pub steered_inputs: Vec<String>,
     pub steering_request: Option<String>,
+    pub cancel_queued_request: Option<(String, String)>,
     pub list: ListState,
     pub last_state: Instant,
     pub last_activity: Instant,
@@ -79,7 +82,11 @@ impl Workspace {
             }
             if matches!(event, InputEvent::Change) {
                 this.runtime.composer_state.selected_completion = 0;
-                this.runtime.composer_state.dismissed = false;
+                let state = &this.runtime.composer_state;
+                this.runtime.composer_state.dismissed = state
+                    .history_cursor
+                    .and_then(|ix| state.history.get(ix))
+                    .is_some_and(|text| text.as_str() == input.read(cx).value().as_str());
                 if input.read(cx).value().contains('@') && this.document_state.files.is_empty() {
                     this.refresh_files(cx);
                 }
@@ -130,6 +137,8 @@ impl Workspace {
                 commands: vec![],
                 selected_completion: 0,
                 dismissed: false,
+                history: vec![],
+                history_cursor: None,
             },
             collaboration: Default::default(),
             transcript: vec![],
@@ -142,6 +151,8 @@ impl Workspace {
             run_message_start: 0,
             submitted_inputs: vec![],
             expanded_process: Default::default(),
+            process_lists: Default::default(),
+            process_texts: Default::default(),
             thinking_previews: Default::default(),
             text_update_pending: false,
             text_updates: Default::default(),
@@ -179,7 +190,12 @@ impl Workspace {
             queued_inputs: vec![],
             steered_inputs: vec![],
             steering_request: None,
-            list: ListState::new(0, ListAlignment::Bottom, px(600.)),
+            cancel_queued_request: None,
+            list: {
+                let list = ListState::new(0, ListAlignment::Bottom, px(600.));
+                list.set_follow_mode(gpui_kit::FollowMode::Tail);
+                list
+            },
             last_state: Instant::now(),
             last_activity: Instant::now(),
             context_used: None,

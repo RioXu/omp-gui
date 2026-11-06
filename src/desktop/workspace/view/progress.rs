@@ -45,6 +45,7 @@ impl Workspace {
         &self,
         message_id: &str,
         block: &ProcessBlock,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme();
@@ -52,8 +53,10 @@ impl Workspace {
             return self.render_thinking(message_id, block, cx);
         }
         if block.is_read() {
+            let selector = format!("process-read-{message_id}-{}", block.id);
             let executing = self.runtime.active_tools.contains_key(&block.id);
             return div()
+                .debug_selector(move || selector.clone())
                 .flex()
                 .items_center()
                 .gap_2()
@@ -107,35 +110,54 @@ impl Workspace {
                             .child(Diff::new(diff)),
                     );
                 } else {
-                    detail = detail.child(TextView::markdown(
-                        SharedString::from(format!("edit-{key}")),
-                        fenced(
+                    detail = detail.child(
+                        self.process_text(
+                            format!("edit-{key}"),
                             block
                                 .patch
                                 .as_deref()
                                 .or(block.result.as_deref())
                                 .unwrap_or("等待编辑结果…"),
                             "diff",
+                            false,
+                            window,
+                            cx,
                         ),
-                    ));
+                    );
                 }
             } else {
-                let command = block.command();
+                let command = if block.text.len() <= 8192 {
+                    block.command()
+                } else {
+                    String::new()
+                };
                 if !command.is_empty() {
-                    detail = detail.child(TextView::markdown(
-                        SharedString::from(format!("command-{key}")),
-                        fenced(&command, "sh"),
+                    detail = detail.child(self.process_text(
+                        format!("command-{key}"),
+                        &command,
+                        "sh",
+                        false,
+                        window,
+                        cx,
                     ));
                 } else if !block.text.trim().is_empty() && block.text.trim() != "{}" {
-                    detail = detail.child(TextView::markdown(
-                        SharedString::from(format!("args-{key}")),
-                        fenced(&block.text, "json"),
+                    detail = detail.child(self.process_text(
+                        format!("args-{key}"),
+                        &block.text,
+                        "json",
+                        false,
+                        window,
+                        cx,
                     ));
                 }
                 if let Some(result) = &block.result {
-                    detail = detail.child(TextView::markdown(
-                        SharedString::from(format!("output-{key}")),
-                        fenced(result, "text"),
+                    detail = detail.child(self.process_text(
+                        format!("output-{key}"),
+                        result,
+                        "text",
+                        true,
+                        window,
+                        cx,
                     ));
                 }
             }

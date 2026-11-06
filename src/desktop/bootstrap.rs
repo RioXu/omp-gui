@@ -39,6 +39,16 @@ pub(super) fn run() {
         init(cx);
         cx.bind_keys([
             KeyBinding::new(
+                "up",
+                workspace::PreviousInput,
+                Some("Workspace > ComposerHistory > Input"),
+            ),
+            KeyBinding::new(
+                "down",
+                workspace::NextInput,
+                Some("Workspace > ComposerHistory > Input"),
+            ),
+            KeyBinding::new(
                 "tab",
                 workspace::AcceptCompletion,
                 Some("Workspace > ComposerCompletion > Input"),

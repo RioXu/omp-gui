@@ -8,6 +8,7 @@ impl SessionRuntime {
             || self.preparing.is_some()
             || self.starting
             || self.pending_send.is_some()
+            || self.cancel_queued_request.is_some()
             || !self.requests.is_empty()
             || self.connection_result.is_some()
             || self.stopping
@@ -20,7 +21,14 @@ impl SessionRuntime {
         self.texts
             .values()
             .map(|entry| entry.body.len().saturating_mul(4))
-            .sum()
+            .sum::<usize>()
+            .saturating_add(
+                self.process_texts
+                    .borrow()
+                    .values()
+                    .map(|(body, _)| body.len().saturating_mul(4))
+                    .sum::<usize>(),
+            )
     }
     pub(in crate::desktop::workspace) fn release_idle_connection(&mut self) {
         if let Some(connection) = self.engine.take() {
@@ -74,6 +82,7 @@ impl Workspace {
             && previous.preparing.is_none()
             && !previous.starting
             && previous.pending_send.is_none()
+            && previous.cancel_queued_request.is_none()
             && previous.requests.is_empty()
         {
             previous.release_idle_connection();

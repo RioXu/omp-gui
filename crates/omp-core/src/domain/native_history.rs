@@ -7,6 +7,14 @@ impl Session {
             .map(Some)
             .collect();
         let mut cursor = 0;
+        let mut anchor = None;
+        let mut replies = Vec::new();
+        for message in previous.iter().flatten() {
+            if message.is_interaction_reply() {
+                replies.push((message.clone(), anchor.clone()));
+            }
+            anchor = Some(message.id.clone());
+        }
         self.messages = native
             .into_iter()
             .map(|mut incoming| {
@@ -23,6 +31,9 @@ impl Session {
                         .skip(cursor)
                         .find_map(|(ix, m)| {
                             let m = m.as_ref()?;
+                            if m.is_interaction_reply() {
+                                return None;
+                            }
                             let same_text =
                                 m.native_text.as_ref().unwrap_or(&m.text) == &incoming.text;
                             // Older GUI versions did not retain the augmented wire prompt.
@@ -64,12 +75,46 @@ impl Session {
                 incoming
             })
             .collect();
+        // Native logs store extension answers in tool results, not user turns.
+        // Keep their visible GUI replies next to the original question/answer.
+        for (reply, anchor) in replies {
+            let at = anchor
+                .and_then(|id| self.messages.iter().position(|m| m.id == id))
+                .map_or(self.messages.len(), |ix| ix + 1);
+            self.messages.insert(at, reply);
+        }
         // Unsent/withdrawn inputs are GUI records, not durable native turns.
-        self.messages.extend(
-            previous
-                .into_iter()
-                .flatten()
-                .filter(|m| m.state != MessageState::Normal && m.native_id.is_none()),
-        );
+        self.messages
+            .extend(previous.into_iter().flatten().filter(|m| {
+                m.state != MessageState::Normal
+                    && m.native_id.is_none()
+                    && !m.is_interaction_reply()
+            }));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn interaction_replies_keep_order_and_do_not_consume_equal_native_prompts() {
+        let question = Message::new("assistant", "question".into());
+        let mut first = Message::new("user", "same text".into());
+        first.details = json!({"omp_gui_interaction":{"request_id":"first"}});
+        let mut second = Message::new("user", "second answer".into());
+        second.details = json!({"omp_gui_interaction":{"request_id":"second"}});
+        let mut session = Session::new("fixture".into());
+        session.messages = vec![question.clone(), first.clone(), second.clone()];
+        let native_user = Message::new("user", "same text".into());
+        for _ in 0..2 {
+            session.merge_native_history(vec![question.clone(), native_user.clone()]);
+            assert_eq!(session.messages.len(), 4);
+            assert_eq!(session.messages[1].id, first.id);
+            assert_eq!(session.messages[2].id, second.id);
+            assert_eq!(session.messages[3].id, native_user.id);
+            assert!(!session.messages[3].is_interaction_reply());
+        }
     }
 }

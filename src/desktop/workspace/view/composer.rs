@@ -198,6 +198,10 @@ impl Workspace {
             .pt_2();
         let mut inner = div()
             .debug_selector(|| "conversation-composer-body".into())
+            .when(
+                self.completions(cx).is_empty() && self.input_history_available(cx),
+                |d| d.key_context("ComposerHistory"),
+            )
             .when(!self.completions(cx).is_empty(), |d| {
                 d.key_context("ComposerCompletion")
             })
@@ -232,6 +236,7 @@ impl Workspace {
         }
         for (ix, wire) in self.runtime.queued_inputs.iter().enumerate() {
             let message = wire.clone();
+            let cancelled = wire.clone();
             let text = self
                 .runtime
                 .submitted_inputs
@@ -267,11 +272,29 @@ impl Workspace {
                             .disabled(
                                 self.runtime.stopping
                                     || self.runtime.steering_request.is_some()
+                                    || self.runtime.cancel_queued_request.is_some()
                                     || self.runtime.pending_send.is_some(),
                             )
                             .tooltip("转为 OMP steering 指示；接收时机遵循 OMP")
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.steer_queued(message.clone(), cx)
+                            })),
+                    )
+                    .child(
+                        Button::new(SharedString::from(format!("cancel-queued-{ix}")))
+                            .ghost()
+                            .small()
+                            .label("取消")
+                            .disabled(
+                                !self.runtime.connected
+                                    || self.runtime.stopping
+                                    || self.runtime.steering_request.is_some()
+                                    || self.runtime.cancel_queued_request.is_some()
+                                    || self.runtime.pending_send.is_some(),
+                            )
+                            .tooltip("撤回尚未指示的追加输入并恢复到输入框")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.cancel_queued(cancelled.clone(), cx)
                             })),
                     ),
             );

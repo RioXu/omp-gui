@@ -62,6 +62,7 @@ impl Workspace {
                 })
         {
             let row = self.row_for_message(ix);
+            self.reveal_process_location(id, None);
             if let Some(TranscriptRow::Assistant(range)) = self.runtime.transcript.get(row)
                 && let Some(s) = self.session()
             {

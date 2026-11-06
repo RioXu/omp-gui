@@ -35,6 +35,10 @@ pub enum MessageState {
     Interrupted,
 }
 impl Message {
+    /// Extension replies are GUI records; they are not separate native prompts.
+    pub fn is_interaction_reply(&self) -> bool {
+        self.details["omp_gui_interaction"]["request_id"].is_string()
+    }
     pub fn new(role: &str, text: String) -> Self {
         Self {
             id: id(),

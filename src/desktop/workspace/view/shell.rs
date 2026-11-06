@@ -76,6 +76,14 @@ impl Render for Workspace {
             }))
             .on_action(cx.listener(|this, _: &SendPrompt, w, cx| this.send(w, cx)))
             .on_action(
+                cx.listener(|this, _: &PreviousInput, w, cx| {
+                    this.browse_input_history(true, w, cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &NextInput, w, cx| this.browse_input_history(false, w, cx)),
+            )
+            .on_action(
                 cx.listener(|this, _: &SaveDocument, w, cx| this.save_active_document(w, cx)),
             )
             .on_action(cx.listener(|this, _: &FindInSession, w, cx| this.open_search(w, cx)))
@@ -320,8 +328,8 @@ impl Render for Workspace {
                         .flex_1()
                         .min_h_0()
                         .child(
-                            list(self.runtime.list.clone(), move |ix, _, cx| {
-                                weak.update(cx, |this, cx| this.render_message(ix, cx))
+                            list(self.runtime.list.clone(), move |ix, window, cx| {
+                                weak.update(cx, |this, cx| this.render_message(ix, window, cx))
                                     .unwrap_or_else(|_| div().into_any_element())
                             })
                             .flex_1()

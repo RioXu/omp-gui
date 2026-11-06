@@ -3,6 +3,22 @@ use super::*;
 pub(in crate::desktop::workspace) const HISTORY_PAGE_SIZE: usize = 100;
 
 impl Workspace {
+    fn preserve_selected_reading(&self) {
+        if self
+            .selected
+            .as_ref()
+            .is_some_and(|a| matches!(a.source, Source::Message(_)))
+            && self.runtime.list.is_following_tail()
+        {
+            let pixels = -self.runtime.list.scroll_px_offset_for_scrollbar().y;
+            self.runtime.list.scroll_to(ListOffset {
+                item_ix: 0,
+                offset_in_item: px(0.),
+            });
+            self.runtime.list.scroll_by(pixels);
+            self.runtime.list.pause_following_tail();
+        }
+    }
     /// A backend transition must not collapse the process the user is reading.
     pub(in crate::desktop::workspace) fn retain_process_display(&mut self) {
         if !self.runtime.running {
@@ -42,6 +58,9 @@ impl Workspace {
     pub fn invalidate_list(&self) {
         invalidate_preserving_scroll(&self.runtime.list);
         invalidate_preserving_scroll(&self.runtime.collaboration.list);
+        for list in self.runtime.process_lists.borrow().values() {
+            invalidate_preserving_scroll(list);
+        }
     }
     pub(in crate::desktop::workspace) fn refresh_transcript(&self) {
         update_list_preserving_scroll(&self.runtime.list, 0, self.runtime.transcript.len());
@@ -89,7 +108,6 @@ fn invalidate_preserving_scroll(list: &ListState) {
 }
 
 fn update_list_preserving_scroll(list: &ListState, first: usize, count: usize) {
-    freeze_reading_anchor(list);
     let old_count = list.item_count();
     let common = old_count.min(count);
     // Existing rows keep their size hints and absolute reading anchors while
@@ -97,21 +115,6 @@ fn update_list_preserving_scroll(list: &ListState, first: usize, count: usize) {
     list.remeasure_items(first.min(common)..common);
     if old_count != count {
         list.splice(common..old_count, count - common);
-    }
-}
-
-// Bottom-aligned GPUI lists represent the end as item_count, not a concrete
-// reading position. Preserve its measured pixel offset before adding rows;
-// otherwise splice/scroll_to can silently reinterpret it as the new end.
-fn freeze_reading_anchor(list: &ListState) {
-    if list.item_count() > 0 && list.logical_scroll_top().item_ix >= list.item_count() {
-        let pixels = -list.scroll_px_offset_for_scrollbar().y;
-        list.scroll_to(ListOffset {
-            item_ix: 0,
-            offset_in_item: px(0.),
-        });
-        list.scroll_by(pixels);
-        list.pause_following_tail();
     }
 }
 
@@ -169,6 +172,8 @@ impl Workspace {
     }
     pub fn sync_texts(&mut self, cx: &mut Context<Self>) {
         let Some(ix) = self.active else { return };
+        self.preserve_selected_reading();
+        let following = self.runtime.list.is_following_tail();
         let offset = self.runtime.list.logical_scroll_top();
         let anchor = self
             .runtime
@@ -204,7 +209,7 @@ impl Workspace {
         } else {
             self.sync_updated_texts(cx);
         }
-        if let Some(index) = anchor.filter(|index| *index >= start && *index < end) {
+        if !following && let Some(index) = anchor.filter(|index| *index >= start && *index < end) {
             self.runtime.list.scroll_to(ListOffset {
                 item_ix: self.row_for_message(index),
                 offset_in_item: offset.offset_in_item,
@@ -214,6 +219,7 @@ impl Workspace {
     }
     pub(in crate::desktop::workspace) fn sync_updated_texts(&mut self, cx: &mut Context<Self>) {
         let Some(ix) = self.active else { return };
+        self.preserve_selected_reading();
         let end = self
             .runtime
             .history_end
@@ -230,9 +236,8 @@ impl Workspace {
         let Some(&first) = updates.first() else {
             return;
         };
-        // Reading does not require a selection. Materialize the measured end
-        // anchor before any model-driven update can grow or shrink its row.
-        freeze_reading_anchor(&self.runtime.list);
+        // Native tail mode follows growing rows only while the reader stays
+        // at the bottom; scrolling up retains an absolute reading anchor.
         let messages = &self.db.sessions[ix].messages[..end];
         for index in updates {
             let Some(m) = messages.get(index) else {
@@ -281,8 +286,15 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         self.runtime.history_end = end;
+        self.runtime.list.set_follow_mode(if end.is_none() {
+            gpui_kit::FollowMode::Tail
+        } else {
+            gpui_kit::FollowMode::Normal
+        });
         self.runtime.texts.clear();
         self.runtime.tool_diffs.clear();
+        self.runtime.process_lists.borrow_mut().clear();
+        self.runtime.process_texts.borrow_mut().clear();
         self.sync_texts(cx);
         self.runtime.list.scroll_to(ListOffset {
             item_ix: 0,

@@ -2,7 +2,12 @@ use super::*;
 use gpui_kit::base::ElementExt;
 
 impl Workspace {
-    pub fn render_message(&self, row: usize, cx: &mut Context<Self>) -> AnyElement {
+    pub fn render_message(
+        &self,
+        row: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let Some(session) = self.session() else {
             return div().into_any_element();
         };
@@ -66,50 +71,8 @@ impl Workspace {
             ));
         }
         if !user {
-            let show_process = active
-                || self
-                    .runtime
-                    .expanded_process
-                    .contains(&format!("turn-{}", messages[0].id));
-            let mut process = div().flex().flex_col().gap_1();
-            let mut steps = 0;
-            for message in &messages {
-                for block in &message.process {
-                    if show_process {
-                        process = process.child(self.render_process_block(&message.id, block, cx));
-                    }
-                    steps += 1;
-                }
-                let intermediate = message.id != last.id
-                    || message.process.iter().any(|b| b.kind == ProcessKind::Tool);
-                if intermediate
-                    && !message.text.is_empty()
-                    && let Some(view) = self.runtime.texts.get(&message.id)
-                {
-                    if show_process {
-                        process =
-                            process.child(div().px_2().py_2().child(self.message_file_link_view(
-                                TextView::new(&view.state),
-                                &message.id,
-                                cx,
-                            )));
-                    }
-                    steps += 1;
-                }
-            }
-            if steps > 0 {
-                body = body.child(self.process_section(
-                    format!("turn-{}", messages[0].id),
-                    if active {
-                        format!("正在处理 · {steps} 项过程")
-                    } else {
-                        format!("过程记录 · {steps} 项")
-                    },
-                    active,
-                    process,
-                    cx,
-                ));
-            }
+            let key = format!("turn-{}", messages[0].id);
+            body = body.child(self.render_turn_process(key, &messages, active, false, window, cx));
         }
         let has_answer = user || !last.process.iter().any(|b| b.kind == ProcessKind::Tool);
         if has_answer
@@ -194,9 +157,18 @@ impl Workspace {
 /// This preserves native text range/highlight handling without a duplicate
 /// accessibility tree (or disabling accessibility).
 pub(super) fn transcript_row(body: impl IntoElement, row: usize, list: ListState) -> AnyElement {
+    virtual_row(body, row, list, 0.1)
+}
+
+pub(super) fn virtual_row(
+    body: impl IntoElement,
+    row: usize,
+    list: ListState,
+    inset: f32,
+) -> AnyElement {
     div()
         .w_full()
-        .px(relative(0.1))
+        .px(relative(inset))
         .child(body)
         .on_prepaint(move |bounds, window, cx| {
             let Some(target) = window.take_autoscroll() else {

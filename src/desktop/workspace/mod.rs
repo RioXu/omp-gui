@@ -52,6 +52,8 @@ actions!(
         AcceptCompletion,
         NextCompletion,
         PreviousCompletion,
+        PreviousInput,
+        NextInput,
         DismissCompletion,
         NextSearchMatch,
         PreviousSearchMatch,

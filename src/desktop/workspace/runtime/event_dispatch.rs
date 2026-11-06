@@ -66,6 +66,10 @@ impl Workspace {
                 self.request_state();
             }
             "response" => {
+                if f["command"] == "remove_queued_message" {
+                    self.queued_removed(&f, window, cx);
+                    return;
+                }
                 if self.on_model_control(&f) {
                     return;
                 }
